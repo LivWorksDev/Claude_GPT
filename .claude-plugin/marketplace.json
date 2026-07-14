@@ -1,0 +1,14 @@
+{
+  "name": "claude-gpt",
+  "description": "Workflows multi-modelo para Claude Code: Fable 5 orquesta, OpenAI Codex implementa y revisa adversarialmente.",
+  "owner": {
+    "name": "Myum"
+  },
+  "plugins": [
+    {
+      "name": "tandem",
+      "source": "./",
+      "description": "Claude Fable 5 orquesta; Codex (GPT-5.6 Sol/Luna) implementa y revisa adversarialmente."
+    }
+  ]
+}
