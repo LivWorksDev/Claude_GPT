@@ -1,10 +1,10 @@
 # tandem — Fable orquesta, Codex ejecuta y ataca
 
-Plugin de Claude Code que convierte a **Claude (Fable 5)** en orquestador y árbitro, y a **OpenAI Codex** (GPT-5.6 Sol/Luna) en implementador y revisor adversarial, todo desde una sesión normal de Claude Code:
+Plugin de Claude Code que convierte a **Claude (Fable 5)** en orquestador y árbitro, y a **OpenAI Codex** (GPT-5.6 Sol) en implementador y revisor adversarial, todo desde una sesión normal de Claude Code:
 
 ```
 Fable planifica → Sol ataca el plan (read-only, hilo persistente)
-    → gate humano → Luna implementa (workspace-write, rama dedicada)
+    → gate humano → Sol implementa (workspace-write, rama dedicada)
     → Fable lee el diff completo y ejecuta el testing gate
     → un Sol NUEVO revisa el código (sin contexto previo)
     → gate humano → Fable hace el commit (Codex nunca commitea)
@@ -46,8 +46,10 @@ Verifica el toolchain con `/tandem:doctor`.
 | Rol | Modelo (default) | Effort | Sandbox |
 | --- | --- | --- | --- |
 | Revisor / consultor | `gpt-5.6-sol` | `xhigh` | `read-only` (fijado, no sobreescribible) |
-| Implementador | `gpt-5.6-luna` | `high` | `workspace-write` (fijado, no sobreescribible) |
-| Implementador crítico (`TANDEM_CRITICAL=1`) | `gpt-5.6-sol` | `high` | `workspace-write` |
+| Implementador | `gpt-5.6-sol` | `high` | `workspace-write` (fijado, no sobreescribible) |
+| Implementador crítico (`TANDEM_CRITICAL=1`) | `gpt-5.6-sol` | `xhigh` | `workspace-write` |
+
+Por encima de `xhigh` existen `max` y `ultra`; para una revisión final especialmente delicada puedes usar `TANDEM_REVIEW_EFFORT=ultra` puntualmente.
 
 Overrides por entorno: `TANDEM_REVIEW_MODEL`, `TANDEM_REVIEW_EFFORT`, `TANDEM_IMPLEMENT_MODEL`, `TANDEM_IMPLEMENT_EFFORT`, `TANDEM_PLAN_ROUNDS`, `TANDEM_CR_ROUNDS`, `TANDEM_IMPL_ROUNDS`, `TANDEM_WORKTREE`. Los sandboxes no se pueden sobreescribir y `danger-full-access`/`--yolo` no se usan nunca.
 

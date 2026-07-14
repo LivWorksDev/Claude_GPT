@@ -48,13 +48,13 @@ fi
 # model policy (mirrors _common.sh resolve_role)
 printf '\nmodel policy (override via env):\n'
 if [ "${TANDEM_CRITICAL:-0}" = "1" ]; then
-  impl_model="${TANDEM_IMPLEMENT_MODEL:-gpt-5.6-sol}"
+  impl_effort="${TANDEM_IMPLEMENT_EFFORT:-xhigh}"
 else
-  impl_model="${TANDEM_IMPLEMENT_MODEL:-gpt-5.6-luna}"
+  impl_effort="${TANDEM_IMPLEMENT_EFFORT:-high}"
 fi
 info "review/ask:  model=${TANDEM_REVIEW_MODEL:-gpt-5.6-sol} effort=${TANDEM_REVIEW_EFFORT:-xhigh} sandbox=read-only (pinned)"
-info "implement:   model=$impl_model effort=${TANDEM_IMPLEMENT_EFFORT:-high} sandbox=workspace-write (pinned)"
-info "TANDEM_CRITICAL=${TANDEM_CRITICAL:-0} (1 switches implementation to gpt-5.6-sol)"
+info "implement:   model=${TANDEM_IMPLEMENT_MODEL:-gpt-5.6-sol} effort=$impl_effort sandbox=workspace-write (pinned)"
+info "TANDEM_CRITICAL=${TANDEM_CRITICAL:-0} (1 raises implementation effort to xhigh)"
 
 if [ "$fail" -ne 0 ]; then
   printf '\ntandem doctor: problems found — fix the FAIL lines above.\n'

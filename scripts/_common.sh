@@ -34,12 +34,12 @@ resolve_role() {
   ROLE="$1"
   case "$ROLE" in
     implement)
+      CODEX_MODEL="${TANDEM_IMPLEMENT_MODEL:-gpt-5.6-sol}"
       if [ "${TANDEM_CRITICAL:-0}" = "1" ]; then
-        CODEX_MODEL="${TANDEM_IMPLEMENT_MODEL:-gpt-5.6-sol}"
+        CODEX_EFFORT="${TANDEM_IMPLEMENT_EFFORT:-xhigh}"
       else
-        CODEX_MODEL="${TANDEM_IMPLEMENT_MODEL:-gpt-5.6-luna}"
+        CODEX_EFFORT="${TANDEM_IMPLEMENT_EFFORT:-high}"
       fi
-      CODEX_EFFORT="${TANDEM_IMPLEMENT_EFFORT:-high}"
       CODEX_SANDBOX="workspace-write"
       ;;
     review | ask)

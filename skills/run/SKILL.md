@@ -9,7 +9,7 @@ argument-hint: "[feature description]"
 Execute the phases below in order by invoking the sibling skills with the Skill tool. One `<slug>` for the whole run; carry it through every phase.
 
 ```
-plan (Sol red-team) → HUMAN GATE → implement (Luna/Sol) + your verification
+plan (Sol red-team) → HUMAN GATE → implement (Sol) + your verification
     → review (fresh Sol) → HUMAN GATE → you commit
 ```
 
@@ -20,7 +20,7 @@ plan (Sol red-team) → HUMAN GATE → implement (Luna/Sol) + your verification
 
 Risk calibration (recommend to the user, they decide):
 - Trivial change → skip tandem entirely; just do it.
-- Normal feature → this full pipeline with defaults (Luna implements).
-- Auth / migrations / payments / multi-tenancy / concurrency → `TANDEM_CRITICAL=1` (Sol implements) and never skip the review phase.
+- Normal feature → this full pipeline with defaults (Sol implements at effort high).
+- Auth / migrations / payments / multi-tenancy / concurrency → `TANDEM_CRITICAL=1` (raises implementation effort to xhigh) and never skip the review phase.
 
 Rules that hold across all phases: deadlock is presented, never papered over; Codex never commits; nothing is committed without the user's explicit approval; every phase appends to `.tandem/log/<slug>.md`.

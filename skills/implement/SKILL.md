@@ -1,6 +1,6 @@
 ---
 name: implement
-description: Delegate implementation of an approved tandem plan to Codex (GPT-5.6 Luna by default; Sol when TANDEM_CRITICAL=1) in a workspace-write sandbox on a dedicated branch, then personally verify the full diff and run the blocking testing gate. Use after a plan was approved via tandem:plan. NOT for trivial changes (implement those directly) and NOT without an approved plan.
+description: Delegate implementation of an approved tandem plan to Codex (GPT-5.6 Sol; effort high, or xhigh when TANDEM_CRITICAL=1) in a workspace-write sandbox on a dedicated branch, then personally verify the full diff and run the blocking testing gate. Use after a plan was approved via tandem:plan. NOT for trivial changes (implement those directly) and NOT without an approved plan.
 argument-hint: "[slug of the approved plan]"
 ---
 
@@ -19,7 +19,7 @@ Shared scripts: `SCRIPTS="${CLAUDE_SKILL_DIR}/../../scripts"`. Log: `.tandem/log
 
 ## Step 1 — Delegate to Codex
 
-For critical work (auth, migrations, concurrency, payments, tenant isolation) prefix the command with `TANDEM_CRITICAL=1` to use Sol instead of Luna.
+For critical work (auth, migrations, concurrency, payments, tenant isolation) prefix the command with `TANDEM_CRITICAL=1` to raise Sol's reasoning effort from high to xhigh.
 
 ```bash
 bash "$SCRIPTS/codex-start.sh" implement docs/plans/<slug>.plan.md \

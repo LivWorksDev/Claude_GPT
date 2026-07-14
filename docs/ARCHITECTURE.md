@@ -12,7 +12,7 @@ flowchart TD
     S1 -->|VERDICT: APPROVED<br/>o cap 5 rondas| H1{Gate humano:<br/>¿aprobar plan?}
 
     H1 -->|sí, tandem:implement| G[Gates: árbol limpio +<br/>rama tandem/slug]
-    G --> L[Codex · GPT-5.6 Luna high<br/>Sol si TANDEM_CRITICAL=1<br/>hilo B · workspace-write]
+    G --> L[Codex · GPT-5.6 Sol high<br/>xhigh si TANDEM_CRITICAL=1<br/>hilo B · workspace-write]
     L --> V[Fable: lee el diff COMPLETO<br/>fidelidad al plan · fixes directos<br/>testing gate bloqueante]
 
     V -->|tandem:review| S2[Codex · GPT-5.6 Sol · xhigh<br/>hilo C NUEVO · read-only<br/>sin contexto del debate]
@@ -32,7 +32,7 @@ Cambio de rol                → hilo nuevo (el revisor final llega sin contamin
 ```
 
 - Sol revisa el plan, Fable corrige, Sol re-revisa → **hilo A** siempre.
-- Empieza la implementación → **hilo B** nuevo (Luna).
+- Empieza la implementación → **hilo B** nuevo (Sol, effort high).
 - Review final del código → **hilo C** nuevo (Sol), clave de estado `cr-<slug>`.
 - El implementador nunca aprueba su propia implementación.
 
@@ -78,6 +78,6 @@ No se registra en el plugin todavía para no arrancar un proceso codex en cada s
 | Trabajo | Flujo |
 | --- | --- |
 | Trivial (pocas líneas, docs) | Fable directamente, sin tandem |
-| Feature normal | `tandem:run` con defaults (Luna implementa) |
+| Feature normal | `tandem:run` con defaults (Sol `high` implementa) |
 | Auth, migraciones, pagos, multi-tenancy, concurrencia | `tandem:run` con `TANDEM_CRITICAL=1`, review nunca omitida |
 | Destructivo o regulado | Lo anterior + aprobación humana adicional antes de cada fase |
