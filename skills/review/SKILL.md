@@ -59,4 +59,6 @@ bash "$SCRIPTS/codex-resume.sh" review cr-<slug> \
 
 Present: diff summary, gate summary, reviewer verdict, rounds used, link to the log. Ask the user to approve the diff (AskUserQuestion).
 
+**Optional review record** — `.tandem/` is ephemeral and gitignored; this step is the only way the review outcome survives in the repo. Controlled by `TANDEM_PROMOTE_REVIEWS`: `1` = always write it, `0` = never, unset = offer it as part of the approval question. When promoting, write `docs/reviews/<slug>.md` with: date, plan path, branch, gate summary, plan-review rounds + final verdict, code-review rounds + final verdict, and the condensed findings/dispositions taken from `.tandem/log/<slug>.md`. Never include thread ids (machine-local noise). Include this file in the approval commit.
+
 Only after explicit approval: **you** write the commit (never Codex, never before approval). Then offer next steps: merge/PR per the project's own conventions — tandem deliberately does not impose a release process.

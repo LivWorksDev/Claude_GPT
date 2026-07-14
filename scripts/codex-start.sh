@@ -26,7 +26,7 @@ KEY="$(target_key "$TARGET")"
 [ -n "$KEY" ] || die "target produced an empty state key: '$TARGET'" 64
 THREAD_FILE="$STATE_DIR/$KEY.thread"
 TURN_FILE="$STATE_DIR/$KEY.turn"
-MSG_FILE="$STATE_DIR/$KEY.last.txt"
+LAST_FILE="$STATE_DIR/$KEY.last.txt"
 
 if [ -f "$THREAD_FILE" ]; then
   printf 'tandem: a thread already exists for "%s" (%s).\n' "$TARGET" "$(cat "$THREAD_FILE")" >&2
@@ -40,6 +40,7 @@ NOTES="$(read_optional_file "$NOTES_FILE")"
 TURN=1
 printf '%s\n' "$TURN" >"$TURN_FILE"
 PROMPT_FILE="$STATE_DIR/$KEY.t$TURN.prompt.txt"
+MSG_FILE="$STATE_DIR/$KEY.t$TURN.reply.txt"
 EVENTS_FILE="$STATE_DIR/$KEY.t$TURN.events.ndjson"
 
 load_prompt "$TPL" >"$PROMPT_FILE"
@@ -69,6 +70,9 @@ fi
 THREAD_ID="$(jq -rs '[.[] | select(.type == "thread.started") | .thread_id][0] // empty' "$EVENTS_FILE" 2>/dev/null || true)"
 [ -n "$THREAD_ID" ] || die "could not capture a thread.started event — see $EVENTS_FILE" 1
 printf '%s\n' "$THREAD_ID" >"$THREAD_FILE"
+# Per-turn replies are the durable record; last.txt is a convenience pointer
+# to the newest one, updated only after every success check passed.
+cp "$MSG_FILE" "$LAST_FILE"
 
 printf '\n--- codex reply (%s, turn %s) ---\n' "$CODEX_MODEL" "$TURN"
 cat "$MSG_FILE"

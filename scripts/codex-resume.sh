@@ -27,7 +27,7 @@ KEY="$(target_key "$TARGET")"
 [ -n "$KEY" ] || die "target produced an empty state key: '$TARGET'" 64
 THREAD_FILE="$STATE_DIR/$KEY.thread"
 TURN_FILE="$STATE_DIR/$KEY.turn"
-MSG_FILE="$STATE_DIR/$KEY.last.txt"
+LAST_FILE="$STATE_DIR/$KEY.last.txt"
 
 if [ ! -f "$THREAD_FILE" ]; then
   printf 'tandem: no thread exists for "%s" yet — use codex-start.sh first.\n' "$TARGET" >&2
@@ -44,6 +44,7 @@ case "$TURN" in '' | *[!0-9]*) TURN=0 ;; esac
 TURN=$((TURN + 1))
 printf '%s\n' "$TURN" >"$TURN_FILE"
 PROMPT_FILE="$STATE_DIR/$KEY.t$TURN.prompt.txt"
+MSG_FILE="$STATE_DIR/$KEY.t$TURN.reply.txt"
 EVENTS_FILE="$STATE_DIR/$KEY.t$TURN.events.ndjson"
 
 load_prompt "$TPL" >"$PROMPT_FILE"
@@ -76,6 +77,10 @@ GOT_ID="$(jq -rs '[.[] | select(.type == "thread.started") | .thread_id][0] // e
 if [ -n "$GOT_ID" ] && [ "$GOT_ID" != "$THREAD_ID" ]; then
   die "codex resumed thread $GOT_ID instead of $THREAD_ID — state is stale. Run codex-reset.sh and start over." 1
 fi
+
+# Per-turn replies are the durable record; last.txt is a convenience pointer
+# to the newest one, updated only after every success check passed.
+cp "$MSG_FILE" "$LAST_FILE"
 
 printf '\n--- codex reply (%s, turn %s) ---\n' "$CODEX_MODEL" "$TURN"
 cat "$MSG_FILE"

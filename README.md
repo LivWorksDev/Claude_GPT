@@ -51,7 +51,7 @@ Verifica el toolchain con `/tandem:doctor`.
 
 Por encima de `xhigh` existen `max` y `ultra`; para una revisión final especialmente delicada puedes usar `TANDEM_REVIEW_EFFORT=ultra` puntualmente.
 
-Overrides por entorno: `TANDEM_REVIEW_MODEL`, `TANDEM_REVIEW_EFFORT`, `TANDEM_IMPLEMENT_MODEL`, `TANDEM_IMPLEMENT_EFFORT`, `TANDEM_PLAN_ROUNDS`, `TANDEM_CR_ROUNDS`, `TANDEM_IMPL_ROUNDS`, `TANDEM_WORKTREE`. Los sandboxes no se pueden sobreescribir y `danger-full-access`/`--yolo` no se usan nunca.
+Overrides por entorno: `TANDEM_REVIEW_MODEL`, `TANDEM_REVIEW_EFFORT`, `TANDEM_IMPLEMENT_MODEL`, `TANDEM_IMPLEMENT_EFFORT`, `TANDEM_PLAN_ROUNDS`, `TANDEM_CR_ROUNDS`, `TANDEM_IMPL_ROUNDS`, `TANDEM_WORKTREE`, `TANDEM_PROMOTE_REVIEWS` (`1` siempre / `0` nunca / sin definir: se ofrece en el gate). Los sandboxes no se pueden sobreescribir y `danger-full-access`/`--yolo` no se usan nunca.
 
 ## Invariantes de seguridad
 
@@ -66,7 +66,8 @@ Overrides por entorno: `TANDEM_REVIEW_MODEL`, `TANDEM_REVIEW_EFFORT`, `TANDEM_IM
 ## Estado y artefactos
 
 - `docs/plans/<slug>.plan.md` — planes (versionados).
-- `.tandem/` — estado por proyecto, auto-gitignorado: hilos, prompts y eventos por turno (`state/`), log append-only del debate (`log/`).
+- `docs/reviews/<slug>.md` — registro final del review (versionado, opcional — ver `TANDEM_PROMOTE_REVIEWS`).
+- `.tandem/` — estado por proyecto, auto-gitignorado y por-feature (clave = target + checksum; una feature nueva nunca pisa el estado de otra): hilos, y prompt/respuesta/eventos POR TURNO (`state/…tN.*`), log append-only del debate (`log/`).
 
 ## Arquitectura y roadmap
 
