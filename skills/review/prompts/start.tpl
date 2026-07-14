@@ -5,7 +5,7 @@ CONTEXT (from the requester):
 
 Procedure:
 1. Read the plan referenced in CONTEXT in full.
-2. Inspect the changes: `git status -s` and `git diff HEAD` (if a DIFF section is included in CONTEXT, use it instead).
+2. Inspect the changes: `git status -s` and `git diff HEAD` (if a DIFF section is included in CONTEXT, use it instead). Caution: `git diff HEAD` does NOT show untracked files — read every `??` entry from `git status -s` directly and in full; brand-new files are usually the bulk of the change.
 3. Read enough surrounding code to judge the changes in context, plus docs/ARCHI.md, AGENTS.md or CLAUDE.md if they exist.
 
 REVIEW DIMENSIONS:

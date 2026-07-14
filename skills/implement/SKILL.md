@@ -46,7 +46,7 @@ bash "$SCRIPTS/codex-resume.sh" implement docs/plans/<slug>.plan.md \
 
 ## Step 3 — Your verification (never delegated)
 
-1. `git status -s` and read the **full diff** (`git diff`), like reviewing a contributor's PR: fidelity to the plan, unplanned deviations, plan checkboxes actually done.
+1. `git status -s` and read the **full diff** (`git diff`), like reviewing a contributor's PR: fidelity to the plan, unplanned deviations, plan checkboxes actually done. `git diff` does not show untracked files — Read every `??` entry in full; new files are usually the bulk of the change.
 2. Fix small issues DIRECTLY yourself — ping-ponging trivia through delegation burns more than it saves. Large deviations → one resume with `continue.tpl`, then take over if still wrong.
 3. Append to the log: files changed, deviations, your assessment.
 

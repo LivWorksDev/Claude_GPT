@@ -26,6 +26,7 @@ Build the context file `.tandem/tmp/<slug>-cr-context.md` containing exactly:
 - `Plan: docs/plans/<slug>.plan.md`
 - The testing-gate summary line.
 - Branch name and base (e.g. `tandem/<slug>` off `main`).
+- The changed-file list from `git status -s`; if any files are untracked (`??`), say so explicitly — they are invisible to `git diff HEAD` and the reviewer must read them directly.
 
 ```bash
 bash "$SCRIPTS/codex-start.sh" review cr-<slug> \
