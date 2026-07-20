@@ -48,10 +48,12 @@ Debajo del prompt puedes ver a la vez la sesión de Claude y lo que está hacien
 
 ```
 ◈ Fable 5 xhigh✳ · ctx 34% ▓▓▓░░░░░░░ · $0.42 · mi-proyecto ⑂ tandem/auth-refactor
-⚙ codex gpt-5.6-sol · implement high · t3 · workspace-write · 1m42s · auth-refactor
+⚙ codex gpt-5.6-sol · implement high · t3 · workspace-write · exec pytest -q · 1m42s · auth-refactor
 ```
 
-La segunda línea solo aparece mientras hay un turno de Codex en vuelo o recién terminado (15 min), y colorea el desenlace: verde `APPROVED`/`IMPLEMENTATION_COMPLETE`, ámbar `REVISE`, rojo `REQUEST_CHANGES` o fallo, gris si el proceso murió sin dejar rastro.
+La segunda línea solo aparece mientras hay un turno de Codex en vuelo o recién terminado (15 min): en vivo narra la actividad real (`exec …`, `edit …`, `thinking…`) leída del stream de eventos, y al acabar colorea el desenlace — verde `APPROVED`/`IMPLEMENTATION_COMPLETE`, ámbar `REVISE`, rojo `REQUEST_CHANGES` o fallo, gris si el proceso murió sin dejar rastro. Funciona también con `TANDEM_WORKTREE`: el heartbeat se escribe siempre en el checkout principal (resuelto vía `git rev-parse --git-common-dir`).
+
+Además, los turnos lanzados en background narran su progreso en el panel **Shell details** de Claude Code — cada comando que Codex ejecuta (`» exec …` → `✓ ok`/`✗ exit N`), cada fichero que toca (`» edit …`) y los tokens del turno, en tiempo real.
 
 **Instalación: `/tandem:statusline`** (o `bash scripts/statusline-install.sh`). Claude Code no permite que un plugin aporte la status line principal (el `settings.json` de un plugin solo admite `agent` y `subagentStatusLine`), así que la skill la instala con tu consentimiento: escribe un shim en `~/.claude/tandem-statusline.sh` que re-resuelve el `statusline.sh` del plugin en cada render — sobrevive a las actualizaciones del plugin (cuya ruta de caché cambia por versión) y degrada a una línea mínima si tandem desaparece — y añade la entrada `statusLine` a tu `settings.json` (escritura atómica, backup en `settings.json.tandem-backup`, y nunca pisa una statusLine ajena sin `--force`). `refreshInterval: 2` mantiene vivo el cronómetro mientras un `codex exec` bloquea. `/tandem:statusline uninstall` lo deshace; `/tandem:doctor` comprueba si está instalada.
 

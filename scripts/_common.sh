@@ -62,6 +62,21 @@ state_init() {
   STATE_DIR="$STATE_ROOT/state/$ROLE"
   mkdir -p "$STATE_DIR" "$STATE_ROOT/log" "$STATE_ROOT/tmp"
   [ -f "$STATE_ROOT/.gitignore" ] || printf '*\n' >"$STATE_ROOT/.gitignore"
+  # Heartbeat root: a turn launched inside a linked git worktree must stay
+  # visible to a status line watching the MAIN checkout, so the heartbeat goes
+  # under the main repo's .tandem (resolved via the common git dir; in a
+  # normal checkout this is the same directory). Falls back to STATE_ROOT
+  # outside git. Thread state stays in STATE_DIR, scoped to where it ran.
+  HB_ROOT="$STATE_ROOT"
+  local common main
+  if command -v git >/dev/null 2>&1 \
+    && common="$(git rev-parse --git-common-dir 2>/dev/null)" && [ -n "$common" ]; then
+    case "$common" in /*) : ;; *) common="$PWD/$common" ;; esac
+    if main="$(CDPATH='' cd -- "$(dirname -- "$common")" 2>/dev/null && pwd)" \
+      && [ -n "$main" ]; then
+      HB_ROOT="$main/.tandem"
+    fi
+  fi
 }
 
 # --- heartbeat -------------------------------------------------------------
@@ -75,9 +90,12 @@ state_init() {
 
 # hb_write <status> [verdict] — status: running | done | failed
 hb_write() {
-  [ -n "${STATE_ROOT:-}" ] || return 0
-  local status="$1" verdict="${2:-}" tmp
-  tmp="$(mktemp "$STATE_ROOT/state/.current.XXXXXX" 2>/dev/null)" || return 0
+  local status="$1" verdict="${2:-}" tmp root
+  root="${HB_ROOT:-${STATE_ROOT:-}}"
+  [ -n "$root" ] || return 0
+  mkdir -p "$root/state" 2>/dev/null || return 0
+  [ -f "$root/.gitignore" ] || printf '*\n' >"$root/.gitignore" 2>/dev/null || true
+  tmp="$(mktemp "$root/state/.current.XXXXXX" 2>/dev/null)" || return 0
   if jq -n \
     --arg role "${ROLE:-}" \
     --arg model "${CODEX_MODEL:-}" \
@@ -86,6 +104,7 @@ hb_write() {
     --arg target "${TARGET:-}" \
     --arg status "$status" \
     --arg verdict "$verdict" \
+    --arg events "${EVENTS_FILE:-}" \
     --argjson turn "${TURN:-0}" \
     --argjson pid "$$" \
     --argjson started_at "${HB_STARTED_AT:-0}" \
@@ -93,14 +112,43 @@ hb_write() {
     '{role:$role, model:$model, effort:$effort, sandbox:$sandbox,
       target:$target, turn:$turn, pid:$pid, started_at:$started_at,
       updated_at:$updated_at, status:$status,
-      verdict:(if $verdict == "" then null else $verdict end)}' \
+      verdict:(if $verdict == "" then null else $verdict end),
+      events:(if $events == "" then null else $events end)}' \
     >"$tmp" 2>/dev/null
   then
-    mv -f "$tmp" "$STATE_ROOT/state/current.json" 2>/dev/null || rm -f "$tmp"
+    mv -f "$tmp" "$root/state/current.json" 2>/dev/null || rm -f "$tmp"
   else
     rm -f "$tmp"
   fi
   return 0
+}
+
+# stream_milestones — compact live progress from codex's NDJSON on stdin, one
+# line per meaningful event, so a background shell's output panel narrates the
+# turn while it runs. Malformed lines are skipped (fromjson?); if jq itself
+# ever died, the trailing cat keeps draining so codex (behind tee) never
+# receives SIGPIPE mid-turn.
+stream_milestones() {
+  jq --unbuffered -Rr '
+    fromjson? |
+    if .type == "thread.started" then "» thread \(.thread_id // "?")"
+    elif .type == "item.started" and (.item.item_type // "") == "command_execution" then
+      "» exec \((.item.command // "?") | gsub("\\s+"; " ") | .[0:110])"
+    elif .type == "item.completed" and (.item.item_type // "") == "command_execution" then
+      (if (.item.exit_code // 0) == 0 then "  ✓ ok"
+       else "  ✗ exit \(.item.exit_code)" end)
+    elif .type == "item.completed" and (.item.item_type // "") == "file_change" then
+      "» edit \((.item.changes // []) | map(.path // "?")
+        | if length <= 3 then join(", ")
+          else (.[0:3] | join(", ")) + " +\(length - 3) more" end)"
+    elif .type == "item.started" and (.item.item_type // "") == "web_search" then
+      "» web search"
+    elif .type == "turn.completed" then
+      "» turn done — tokens in \(.usage.input_tokens // "?") · out \(.usage.output_tokens // "?")"
+    elif .type == "turn.failed" then "✗ turn failed: \(.error.message // "unknown error")"
+    elif .type == "error" then "✗ \(.message // "stream error")"
+    else empty end
+  ' 2>/dev/null || cat >/dev/null
 }
 
 # hb_begin — mark a turn as running and arm the EXIT guard, so a crash, a

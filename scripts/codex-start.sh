@@ -51,14 +51,21 @@ printf 'tandem: starting codex thread — role=%s model=%s effort=%s sandbox=%s 
 
 hb_begin
 
-rc=0
+# Events stream through tee: the full NDJSON is still captured for the
+# thread-id extraction and the durable record, while stream_milestones narrates
+# progress on stdout. PIPESTATUS[0] (not $?) keeps codex's own exit code — a
+# filter hiccup must never masquerade as a codex failure.
+set +e
 codex exec \
   --json --skip-git-repo-check --color never \
   --model "$CODEX_MODEL" \
   --sandbox "$CODEX_SANDBOX" \
   -c model_reasoning_effort="$CODEX_EFFORT" \
   --output-last-message "$MSG_FILE" \
-  - <"$PROMPT_FILE" >"$EVENTS_FILE" 2>"$EVENTS_FILE.stderr" || rc=$?
+  - <"$PROMPT_FILE" 2>"$EVENTS_FILE.stderr" \
+  | tee "$EVENTS_FILE" | stream_milestones
+rc="${PIPESTATUS[0]}"
+set -e
 
 if [ "$rc" -ne 0 ]; then
   printf 'tandem: codex exec failed (exit %s). Last stderr lines:\n' "$rc" >&2

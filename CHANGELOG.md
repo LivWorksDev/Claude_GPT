@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0 — 2026-07-20
+
+- Heartbeat visible desde worktrees: los turnos lanzados dentro de un worktree enlazado (`TANDEM_WORKTREE`) escribían el heartbeat en el `.tandem/` del worktree y la status line, que mira el checkout principal, nunca lo veía. Ahora `state_init` resuelve el repo principal vía `git rev-parse --git-common-dir` y el heartbeat va siempre allí (el estado de hilos sigue donde corrió el turno); la status line hace además el fallback inverso para sesiones abiertas dentro de un worktree.
+- Actividad en vivo en la status line: el heartbeat incluye la ruta del `events.ndjson` del turno y, mientras `running`, la línea 2 muestra qué hace Codex ahora mismo (`exec pytest -q…`, `edit models.py`, `thinking…`, `writing reply…`) leyendo el último evento con lectura acotada (`tail -c`) tolerante a líneas parciales.
+- Milestones en vivo en el panel de shell: `codex-start/resume` pasan el NDJSON por `tee` + `stream_milestones`, que narra en stdout cada hito (`» exec …`, `✓ ok` / `✗ exit N`, `» edit a, b +N more`, `» turn done — tokens in/out`, `✗ turn failed`) — el panel "Shell details" de un turno en background se convierte en un feed de progreso. `PIPESTATUS[0]` preserva el exit code real de codex (un fallo del filtro nunca se disfraza de fallo de Codex) y el filtro drena el stream si muere para no matar a codex con SIGPIPE.
+- Fix del transporte de campos en la status line: `@tsv` + `IFS=$'\t'` colapsaba campos vacíos (el tab es whitespace para `read`), desplazando los siguientes una posición — p.ej. con `verdict` nulo la ruta de events acababa en la variable equivocada, y sin `effort` el % de contexto se corría. Sustituido por unit separator (`\x1f`), que no colapsa.
+
 ## 0.4.0 — 2026-07-20
 
 - Status line (`scripts/statusline.sh`): modelo, effort, porcentaje de contexto con barra, coste y rama en la primera línea; la puerta de Codex en la segunda (rol, modelo, effort, turno, sandbox, cronómetro, veredicto), coloreada por desenlace y visible solo cuando hay actividad reciente. Degrada a una línea corta si falta `jq`, el payload es inválido o el proyecto no tiene `.tandem/`.
