@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0 — 2026-07-20
+
+- Status line (`scripts/statusline.sh`): modelo, effort, porcentaje de contexto con barra, coste y rama en la primera línea; la puerta de Codex en la segunda (rol, modelo, effort, turno, sandbox, cronómetro, veredicto), coloreada por desenlace y visible solo cuando hay actividad reciente. Degrada a una línea corta si falta `jq`, el payload es inválido o el proyecto no tiene `.tandem/`.
+- Heartbeat `.tandem/state/current.json`: `codex-start.sh`/`codex-resume.sh` marcan cada turno como `running` y lo cierran con `done` + veredicto extraído del sentinel de la respuesta. Un `trap EXIT` cubre `die`, Ctrl-C y crashes dejando `failed`; la status line detecta además procesos huérfanos vía pid. `codex-reset.sh` limpia el heartbeat solo si describe el target reseteado.
+- Instalación portable de la status line (`/tandem:statusline` + `scripts/statusline-install.sh`): Claude Code no deja a un plugin declarar la status line principal, así que la skill la instala con consentimiento — shim en `~/.claude/tandem-statusline.sh` que re-resuelve el script del plugin en cada render (sobrevive a actualizaciones, fallback mínimo si tandem desaparece) + entrada `statusLine` en el `settings.json` del usuario (atómico, backup, exit 2 ante una statusLine ajena salvo `--force`, y rehúsa tocar un settings corrupto). `codex-doctor.sh` informa del estado de la integración. Respeta `CLAUDE_CONFIG_DIR`.
+
 ## 0.3.0 — 2026-07-14
 
 - Respuestas de Codex por turno: los scripts guardan `state/<clave>.t<N>.reply.txt` en cada turno (el historial completo del debate queda legible por ronda); `<clave>.last.txt` pasa a ser un puntero de conveniencia que solo se actualiza tras superar todas las comprobaciones de éxito.

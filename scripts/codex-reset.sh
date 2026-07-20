@@ -20,4 +20,14 @@ KEY="$(target_key "$TARGET")"
 
 # The trailing dot keeps 'auth.' from matching 'auth-v2.*'.
 rm -f "$STATE_DIR/$KEY."*
+
+# Drop the status-line heartbeat too, but only if it describes the target being
+# reset — another role's turn may legitimately still be showing.
+HB="$STATE_ROOT/state/current.json"
+if [ -f "$HB" ] \
+  && [ "$(jq -r '.role // ""' "$HB" 2>/dev/null)" = "$ROLE" ] \
+  && [ "$(jq -r '.target // ""' "$HB" 2>/dev/null)" = "$TARGET" ]; then
+  rm -f "$HB"
+fi
+
 printf 'tandem: state reset for "%s" (role %s).\n' "$TARGET" "$ROLE"

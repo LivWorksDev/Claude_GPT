@@ -49,6 +49,8 @@ rm -f "$MSG_FILE"
 printf 'tandem: starting codex thread — role=%s model=%s effort=%s sandbox=%s target=%s\n' \
   "$ROLE" "$CODEX_MODEL" "$CODEX_EFFORT" "$CODEX_SANDBOX" "$TARGET" >&2
 
+hb_begin
+
 rc=0
 codex exec \
   --json --skip-git-repo-check --color never \
@@ -73,6 +75,7 @@ printf '%s\n' "$THREAD_ID" >"$THREAD_FILE"
 # Per-turn replies are the durable record; last.txt is a convenience pointer
 # to the newest one, updated only after every success check passed.
 cp "$MSG_FILE" "$LAST_FILE"
+hb_end done "$(hb_verdict "$MSG_FILE")"
 
 printf '\n--- codex reply (%s, turn %s) ---\n' "$CODEX_MODEL" "$TURN"
 cat "$MSG_FILE"

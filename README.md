@@ -39,7 +39,21 @@ Verifica el toolchain con `/tandem:doctor`.
 | `/tandem:implement` | Codex implementa el plan aprobado; Fable verifica el diff y ejecuta el testing gate |
 | `/tandem:review` | Code review final por un hilo Sol nuevo e independiente |
 | `/tandem:ask` | Segunda opinión de Sol sobre cualquier tema, con follow-ups en el mismo hilo |
-| `/tandem:doctor` | Diagnóstico del toolchain (codex, login, jq, política de modelos) |
+| `/tandem:doctor` | Diagnóstico del toolchain (codex, login, jq, política de modelos, status line) |
+| `/tandem:statusline` | Instala/desinstala la status line (modelo, contexto, coste + puerta Codex en vivo) |
+
+## Status line
+
+Debajo del prompt puedes ver a la vez la sesión de Claude y lo que está haciendo Codex:
+
+```
+◈ Fable 5 xhigh✳ · ctx 34% ▓▓▓░░░░░░░ · $0.42 · mi-proyecto ⑂ tandem/auth-refactor
+⚙ codex gpt-5.6-sol · implement high · t3 · workspace-write · 1m42s · auth-refactor
+```
+
+La segunda línea solo aparece mientras hay un turno de Codex en vuelo o recién terminado (15 min), y colorea el desenlace: verde `APPROVED`/`IMPLEMENTATION_COMPLETE`, ámbar `REVISE`, rojo `REQUEST_CHANGES` o fallo, gris si el proceso murió sin dejar rastro.
+
+**Instalación: `/tandem:statusline`** (o `bash scripts/statusline-install.sh`). Claude Code no permite que un plugin aporte la status line principal (el `settings.json` de un plugin solo admite `agent` y `subagentStatusLine`), así que la skill la instala con tu consentimiento: escribe un shim en `~/.claude/tandem-statusline.sh` que re-resuelve el `statusline.sh` del plugin en cada render — sobrevive a las actualizaciones del plugin (cuya ruta de caché cambia por versión) y degrada a una línea mínima si tandem desaparece — y añade la entrada `statusLine` a tu `settings.json` (escritura atómica, backup en `settings.json.tandem-backup`, y nunca pisa una statusLine ajena sin `--force`). `refreshInterval: 2` mantiene vivo el cronómetro mientras un `codex exec` bloquea. `/tandem:statusline uninstall` lo deshace; `/tandem:doctor` comprueba si está instalada.
 
 ## Política de modelos y permisos
 
@@ -68,6 +82,7 @@ Overrides por entorno: `TANDEM_REVIEW_MODEL`, `TANDEM_REVIEW_EFFORT`, `TANDEM_IM
 - `docs/plans/<slug>.plan.md` — planes (versionados).
 - `docs/reviews/<slug>.md` — registro final del review (versionado, opcional — ver `TANDEM_PROMOTE_REVIEWS`).
 - `.tandem/` — estado por proyecto, auto-gitignorado y por-feature (clave = target + checksum; una feature nueva nunca pisa el estado de otra): hilos, y prompt/respuesta/eventos POR TURNO (`state/…tN.*`), log append-only del debate (`log/`).
+- `.tandem/state/current.json` — heartbeat de la status line (rol, modelo, effort, sandbox, turno, pid, estado, veredicto). Artefacto de presentación: se escribe de forma atómica y su fallo nunca aborta un turno.
 
 ## Arquitectura y roadmap
 

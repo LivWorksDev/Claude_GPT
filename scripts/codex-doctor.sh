@@ -45,6 +45,19 @@ else
   bad "git not found"
 fi
 
+# status line (optional integration — informational, never a FAIL)
+printf '\nstatus line:\n'
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+if [ -x "$CLAUDE_DIR/tandem-statusline.sh" ] \
+  && jq -e '.statusLine.command // "" | test("tandem-statusline")' \
+       "$CLAUDE_DIR/settings.json" >/dev/null 2>&1; then
+  ok "installed (shim + settings.json)"
+else
+  info "not installed — /tandem:statusline, or:"
+  info "bash \"$SCRIPT_DIR/statusline-install.sh\""
+fi
+
 # model policy (mirrors _common.sh resolve_role)
 printf '\nmodel policy (override via env):\n'
 if [ "${TANDEM_CRITICAL:-0}" = "1" ]; then
