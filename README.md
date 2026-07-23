@@ -67,7 +67,22 @@ Además, los turnos lanzados en background narran su progreso en el panel **Shel
 
 Por encima de `xhigh` existen `max` y `ultra`; para una revisión final especialmente delicada puedes usar `TANDEM_REVIEW_EFFORT=ultra` puntualmente.
 
-Overrides por entorno: `TANDEM_REVIEW_MODEL`, `TANDEM_REVIEW_EFFORT`, `TANDEM_IMPLEMENT_MODEL`, `TANDEM_IMPLEMENT_EFFORT`, `TANDEM_PLAN_ROUNDS`, `TANDEM_CR_ROUNDS`, `TANDEM_IMPL_ROUNDS`, `TANDEM_WORKTREE`, `TANDEM_PROMOTE_REVIEWS` (`1` siempre / `0` nunca / sin definir: se ofrece en el gate). Los sandboxes no se pueden sobreescribir y `danger-full-access`/`--yolo` no se usan nunca.
+Overrides por entorno: `TANDEM_REVIEW_MODEL`, `TANDEM_REVIEW_EFFORT`, `TANDEM_IMPLEMENT_MODEL`, `TANDEM_IMPLEMENT_EFFORT`, `TANDEM_PLAN_ROUNDS`, `TANDEM_CR_ROUNDS`, `TANDEM_IMPL_ROUNDS`, `TANDEM_WORKTREE`, `TANDEM_AUTONOMOUS`, `TANDEM_PROMOTE_REVIEWS` (`1` siempre / `0` nunca / sin definir: se ofrece en el gate). Los sandboxes no se pueden sobreescribir y `danger-full-access`/`--yolo` no se usan nunca.
+
+## Modo autonomous
+
+`TANDEM_AUTONOMOUS=1` permite un `/tandem:run` de principio a fin sin interacción: el HITL se mueve a los bordes — un **brief completo** a la entrada (si no da para goal + aceptación sin inventar, el run ni empieza) y la revisión humana de la **rama commiteada** a la salida. Cada gate humano se convierte en política verificable:
+
+| Gate | Política |
+| --- | --- |
+| Aprobación del plan | Solo `VERDICT: APPROVED` de Sol; se commitea el plan y se continúa |
+| Gate final + commit | Solo review `APPROVED` **y** testing gate en verde; commit en `tandem/<slug>` |
+| Preguntas de la entrevista | Sección **Assumptions** en el plan: decisión → default conservador → por qué (auditable) |
+| `TANDEM_PROMOTE_REVIEWS` | Obligatorio definirlo (0/1) — se valida en el preflight, nada pregunta a mitad de run |
+
+Estados terminales, siempre con informe final (assumptions, veredictos por ronda, diffstat, gate, rama, log): `COMPLETED` · `DEADLOCK` (ningún APPROVED — jamás se aprueba por agotamiento) · `PARTIAL` (implementación incompleta tras los caps) · `FAILED`. Cualquier estado no-COMPLETED se retoma con las skills interactivas normales.
+
+Líneas rojas idénticas al modo interactivo: nunca push, nunca merge, nunca la rama por defecto; sandboxes, modelos y caps intactos. La autonomía recoloca los puntos de aprobación — no compra permisos. Ojo: los permission prompts de la propia sesión de Claude Code son una capa aparte que tandem ni puede ni debe tocar; para un run realmente desatendido configura los permisos de la sesión en consecuencia.
 
 ## Invariantes de seguridad
 
@@ -76,7 +91,7 @@ Overrides por entorno: `TANDEM_REVIEW_MODEL`, `TANDEM_REVIEW_EFFORT`, `TANDEM_IM
 - Árbol git limpio obligatorio antes de delegar escritura; rama dedicada siempre; worktree opcional.
 - Thread IDs persistidos en `.tandem/state/` (sobreviven a compactaciones de la sesión de Claude).
 - Loops acotados con el deadlock como resultado legítimo: los desacuerdos se muestran, no se maquillan.
-- Codex jamás hace commit; Fable solo commitea tras la aprobación humana del diff.
+- Codex jamás hace commit; Fable solo commitea tras la aprobación humana del diff (en modo autonomous, tras review `APPROVED` + testing gate en verde — siempre en la rama tandem, nunca push ni merge).
 - Errores de Codex visibles (stderr capturado por turno, exit codes verificados, detección del fallback silencioso de `resume`).
 
 ## Estado y artefactos

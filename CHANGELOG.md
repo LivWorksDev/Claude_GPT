@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.0 — 2026-07-23
+
+- Modo autonomous (`TANDEM_AUTONOMOUS=1`): `/tandem:run` de principio a fin sin interacción. Los gates humanos se convierten en política verificable — plan commiteado solo con `VERDICT: APPROVED`; commit final solo con review `APPROVED` + testing gate en verde, siempre en `tandem/<slug>`. La entrevista se sustituye por una sección **Assumptions** auditable en el plan (default conservador + razón por decisión); brief insuficiente → el run no empieza. `TANDEM_PROMOTE_REVIEWS` pasa a ser obligatorio (0/1) en autonomous y se valida en el preflight (también en doctor). Estados terminales explícitos con informe final: `COMPLETED`/`DEADLOCK`/`PARTIAL`/`FAILED`, todos retomables con las skills interactivas. Invariantes intactas: deadlock terminal (nunca aprobación por agotamiento), NEEDS_REWORK → DEADLOCK, review nunca omitible, PARTIAL tras caps no avanza a review, nunca push/merge/rama por defecto, sandboxes y caps sin cambios.
+
 ## 0.5.0 — 2026-07-20
 
 - Heartbeat visible desde worktrees: los turnos lanzados dentro de un worktree enlazado (`TANDEM_WORKTREE`) escribían el heartbeat en el `.tandem/` del worktree y la status line, que mira el checkout principal, nunca lo veía. Ahora `state_init` resuelve el repo principal vía `git rev-parse --git-common-dir` y el heartbeat va siempre allí (el estado de hilos sigue donde corrió el turno); la status line hace además el fallback inverso para sesiones abiertas dentro de un worktree.

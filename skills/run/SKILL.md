@@ -1,6 +1,6 @@
 ---
 name: run
-description: Run the full tandem pipeline for a feature - plan with adversarial Sol review, human gate, Codex implementation, personal verification and testing gate, independent Sol code review, human gate, commit. Use for any non-trivial feature when the user wants the complete adversarial workflow. NOT for trivial changes and NOT for partial phases (invoke tandem:plan / tandem:implement / tandem:review directly instead).
+description: Run the full tandem pipeline for a feature - plan with adversarial Sol review, human gate, Codex implementation, personal verification and testing gate, independent Sol code review, human gate, commit. With TANDEM_AUTONOMOUS=1, runs end-to-end unattended - human gates become machine-checkable policy (APPROVED verdicts + green testing gate) and the result is a committed tandem branch plus a final report. Use for any non-trivial feature when the user wants the complete adversarial workflow. NOT for trivial changes and NOT for partial phases (invoke tandem:plan / tandem:implement / tandem:review directly instead).
 argument-hint: "[feature description]"
 ---
 
@@ -23,4 +23,27 @@ Risk calibration (recommend to the user, they decide):
 - Normal feature → this full pipeline with defaults (Sol implements at effort high).
 - Auth / migrations / payments / multi-tenancy / concurrency → `TANDEM_CRITICAL=1` (raises implementation effort to xhigh) and never skip the review phase.
 
-Rules that hold across all phases: deadlock is presented, never papered over; Codex never commits; nothing is committed without the user's explicit approval; every phase appends to `.tandem/log/<slug>.md`.
+Rules that hold across all phases: deadlock is presented, never papered over; Codex never commits; nothing is committed without the user's explicit approval (in autonomous mode that approval is delegated to the policies below, and commits still land only on the tandem branch); every phase appends to `.tandem/log/<slug>.md`.
+
+## Autonomous mode — `TANDEM_AUTONOMOUS=1`
+
+End-to-end without mid-run interaction. HITL moves to the edges: a complete brief at t=0, and the human reviews the committed branch afterwards. Autonomy repositions the approval points — it never buys extra permissions.
+
+**Preflight (fail fast, BEFORE any Codex call):**
+1. **Brief completeness** — the feature description must let you fill goal, constraints, acceptance and out-of-scope without asking. Too thin → stop and request a complete brief. This is the only permitted interaction, and it happens before the run starts.
+2. **`TANDEM_PROMOTE_REVIEWS` must be set** (`0` or `1`) — nothing may ask mid-run. Unset → stop at preflight.
+3. Doctor + clean tree, as always.
+
+**Policy replacing each human gate** (details live in the phase skills):
+- Plan gate → plan auto-committed ONLY on `VERDICT: APPROVED`.
+- Final gate → auto-commit on `tandem/<slug>` ONLY on review `APPROVED` + green testing gate. The review phase is never skippable in autonomous mode.
+
+**Red lines (identical to interactive mode):** never push, never merge, never touch the default branch; sandboxes, models and round caps unchanged; deadlock is terminal — an APPROVED that never arrived is never synthesized, overridden or "approved by exhaustion".
+
+**Terminal states** — every autonomous run ends in exactly one, with a final report (assumptions applied, verdict + rounds per phase, diffstat, testing-gate summary, branch name, log path):
+- `COMPLETED` — committed on `tandem/<slug>`, ready for human review and merge.
+- `DEADLOCK` — plan or review never reached APPROVED (including NEEDS_REWORK); nothing committed beyond an already-approved plan.
+- `PARTIAL` — implementation incomplete after the continuation cap; nothing committed.
+- `FAILED` — toolchain or Codex error; state preserved.
+
+Any non-COMPLETED outcome is resumable with the normal interactive skills — the state in `.tandem/` is the same.

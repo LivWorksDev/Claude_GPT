@@ -35,6 +35,7 @@ Exit 2 → a thread already exists for this plan: resume with `continue.tpl` (ne
 The reply ends with `IMPLEMENTATION_COMPLETE` or `IMPLEMENTATION_PARTIAL`.
 - Neither sentinel present → resume the SAME thread asking only for the missing status line plus the final report; if it happens twice, treat it as PARTIAL and log the anomaly.
 - PARTIAL → read the report; either resume the SAME thread with `continue.tpl` describing what remains (max `$TANDEM_IMPL_ROUNDS` or 2 continuations), or take over and finish it yourself. Log the takeover.
+- **`TANDEM_AUTONOMOUS=1`**: still PARTIAL after the continuation cap → take over yourself ONLY if what remains is small and squarely inside the plan; otherwise this is a terminal PARTIAL — report what was done vs. what remains and stop. Never proceed to review with a knowingly incomplete implementation, and never widen scope to force completeness.
 
 ```bash
 bash "$SCRIPTS/codex-resume.sh" implement docs/plans/<slug>.plan.md \
@@ -61,4 +62,4 @@ All green → write the gate summary line to the log: `gate — lint: OK · type
 
 ## Step 5 — Handoff
 
-Do NOT commit. Tell the user the implementation is verified and continue to `/tandem:review <slug>` (mandatory in the full pipeline; the user may explicitly skip it for low-risk work).
+Do NOT commit. Tell the user the implementation is verified and continue to `/tandem:review <slug>` (mandatory in the full pipeline; the user may explicitly skip it for low-risk work — except in autonomous mode, where the review phase is never skippable).

@@ -53,11 +53,13 @@ bash "$SCRIPTS/codex-resume.sh" review cr-<slug> \
   "" .tandem/tmp/<slug>-cr-dispositions.md
 ```
 
-- Cap reached without APPROVED → deadlock protocol: present both positions honestly to the user; never fake convergence.
+- Cap reached without APPROVED → deadlock protocol: present both positions honestly to the user; never fake convergence. In autonomous mode this is a terminal DEADLOCK: report and stop — nothing gets committed.
 
 ## Step 4 — Human gate, then commit
 
 Present: diff summary, gate summary, reviewer verdict, rounds used, link to the log. Ask the user to approve the diff (AskUserQuestion).
+
+**`TANDEM_AUTONOMOUS=1`**: the gate becomes policy — commit without asking ONLY when the reviewer's verdict is `APPROVED` **and** the testing-gate summary in the log is green (re-run after any fix). `TANDEM_PROMOTE_REVIEWS` was validated as set (0/1) at the run preflight — honor its value, never ask. The commit lands on `tandem/<slug>` and the run ends there: no push, no merge, no PR — those remain human.
 
 **Optional review record** — `.tandem/` is ephemeral and gitignored; this step is the only way the review outcome survives in the repo. Controlled by `TANDEM_PROMOTE_REVIEWS`: `1` = always write it, `0` = never, unset = offer it as part of the approval question. When promoting, write `docs/reviews/<slug>.md` with: date, plan path, branch, gate summary, plan-review rounds + final verdict, code-review rounds + final verdict, and the condensed findings/dispositions taken from `.tandem/log/<slug>.md`. Never include thread ids (machine-local noise). Include this file in the approval commit.
 

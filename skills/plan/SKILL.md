@@ -16,6 +16,7 @@ Artifacts: plan in `docs/plans/<slug>.plan.md` (versioned), append-only log in `
 
 1. Explore the codebase first. Never ask the user something the code can answer.
 2. Ask ONE question at a time (AskUserQuestion when options are enumerable), with your recommended answer. Cover: goal, constraints, priorities, out-of-scope. Typically 3–7 questions; stop when decisions are locked, not when questions run out.
+   - **`TANDEM_AUTONOMOUS=1`**: no questions. Derive every answer from the brief and the codebase; each question you *would* have asked becomes an entry in an extra **Assumptions** section of the plan (decision → conservative default chosen → why), so the human can audit your choices afterwards. If the brief cannot support goal + acceptance without inventing them → stop BEFORE any Codex call and request a complete brief; never fabricate intent.
 3. Write `docs/plans/<slug>.plan.md` with exactly these sections:
    - **Goal** — one paragraph.
    - **Approach** — how, at file level where possible.
@@ -24,6 +25,7 @@ Artifacts: plan in `docs/plans/<slug>.plan.md` (versioned), append-only log in `
    - **Acceptance & proof** — the acceptance cases, and a single PROOF command (test/lint invocation) that must pass.
    - **Risks** — what could break.
    - **Out of scope** — explicit non-goals.
+   - **Assumptions** — autonomous mode only (see above).
 4. Initialize `.tandem/log/<slug>.md` with a header: feature, date, plan path, `MAX_ROUNDS`.
 
 ## Act 2 — Adversarial review loop (Sol, read-only)
@@ -43,7 +45,7 @@ Exit 2 means a thread already exists for this plan: resume it if you are continu
 
 - No `VERDICT:` line at all → resume the SAME thread asking only for the missing verdict line; this counts as a round. If it happens twice, treat the reply as REVISE and note the anomaly in the log.
 - `VERDICT: APPROVED` → break, go to Resolution.
-- `VERDICT: NEEDS_REWORK` → stop the loop and escalate to the user with Sol's reasoning; do not silently rewrite everything.
+- `VERDICT: NEEDS_REWORK` → stop the loop and escalate to the user with Sol's reasoning; do not silently rewrite everything. In autonomous mode there is no one to escalate to: this is a terminal DEADLOCK — report and stop.
 - `VERDICT: REVISE` → you arbitrate every finding:
   1. For each finding decide ACCEPTED (revise the plan) or REJECTED (with a reason). Never accept everything blindly; never ignore the critic.
   2. Append to `.tandem/log/<slug>.md`: `## Round <n> — Sol` (full critique) and `### Dispositions` (finding → decision → reason/change).
@@ -63,3 +65,5 @@ bash "$SCRIPTS/codex-resume.sh" review docs/plans/<slug>.plan.md \
 Present: final plan, 3-bullet summary, Sol's final verdict, rounds used. Ask the user (AskUserQuestion): approve and continue to `/tandem:implement`, revise further, or stop. Do not start implementing without explicit approval.
 
 On approval, commit the plan — ONLY the plan file (`git add docs/plans/<slug>.plan.md && git commit`); this commit is sanctioned by the human gate and keeps the tree clean for tandem:implement's clean-tree gate. Implementation changes remain forbidden to commit until the final diff gate in tandem:review.
+
+**`TANDEM_AUTONOMOUS=1`**: the gate becomes policy — `VERDICT: APPROVED` is the approval; commit the plan (same plan-file-only rule) and continue without asking. Anything else (NEEDS_REWORK, round cap without APPROVED) is a terminal DEADLOCK: report both positions honestly and stop — never approve by exhaustion, never proceed on a non-APPROVED plan.
