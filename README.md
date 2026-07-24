@@ -99,6 +99,10 @@ La skill empieza siempre con una deliberación dirigida por Fable — si el enja
 
 **Transparencia (chroma-key):** gpt-image-2 no emite fondos transparentes; cuando el caso de uso lo pide (sprites de videojuego, logos, assets sobre fondos variables) el brief activa el workaround — render sobre fondo plano `#00ff00` (o `#ff00ff` si el sujeto contiene verde) y `scripts/chroma-strip.sh` convierte el color clave en canal alfa. Con python3+Pillow aplica rampa de alfa graduada + despill de bordes (bordes de sprite limpios); sin Pillow degrada a ImageMagick (`-fuzz`/`-transparent`, alfa binario); sin ningún backend, `IMAGE_BLOCKED` honesto — `/tandem:doctor` informa el backend detectado y qué instalar. `chroma-strip.sh --check` verifica que el resultado tiene alfa real y la skill lo ejecuta como parte del gate.
 
+<img src="assets/test-sprite/slime.png" width="128" height="128" alt="Sprite de slime morado en pixel art con fondo transparente, generado por /tandem:image">
+
+*Ejemplo real: sprite 128×128 generado en un turno por `/tandem:image sprite-test` (Sol `high` + gpt-image-2, `transparency: yes`, recorte con `chroma-strip.sh`) — [assets/test-sprite/slime.png](assets/test-sprite/slime.png).*
+
 Invariantes del modo: sandbox `workspace-write` fijado; los turnos de imagen solo AÑADEN ficheros (snapshot previo de `git status --porcelain` que audita cada escritura — nada existente se modifica, y sin rama dedicada porque no hay diff de código); nunca commit — el asset queda en el árbol y decides tú. Ojo con la cuota: los turnos de imagen consumen el plan de ChatGPT 3–5× más rápido que los de texto (resolución estable hasta 2K); para lotes o CI define `OPENAI_API_KEY` y Codex pasa a facturación por API.
 
 ## Invariantes de seguridad
