@@ -58,6 +58,18 @@ else
   info "bash \"$SCRIPT_DIR/statusline-install.sh\""
 fi
 
+# image generation (optional — only tandem:image transparency needs a backend;
+# informational, never a FAIL)
+printf '\nimage generation (tandem:image):\n'
+if command -v python3 >/dev/null 2>&1 && python3 -c 'import PIL.Image' >/dev/null 2>&1; then
+  ok "chroma-key backend: python3 + Pillow (graded alpha + despill)"
+elif command -v magick >/dev/null 2>&1 || command -v convert >/dev/null 2>&1; then
+  ok "chroma-key backend: ImageMagick (binary alpha — install Pillow for cleaner sprite edges)"
+else
+  info "no chroma-key backend — transparent backgrounds will report IMAGE_BLOCKED"
+  info "install: pip3 install Pillow   (or: brew install imagemagick)"
+fi
+
 # model policy (mirrors _common.sh resolve_role)
 printf '\nmodel policy (override via env):\n'
 if [ "${TANDEM_CRITICAL:-0}" = "1" ]; then
@@ -67,6 +79,7 @@ else
 fi
 info "review/ask:  model=${TANDEM_REVIEW_MODEL:-gpt-5.6-sol} effort=${TANDEM_REVIEW_EFFORT:-xhigh} sandbox=read-only (pinned)"
 info "implement:   model=${TANDEM_IMPLEMENT_MODEL:-gpt-5.6-sol} effort=$impl_effort sandbox=workspace-write (pinned)"
+info "image:       model=${TANDEM_IMAGE_MODEL:-gpt-5.6-sol} effort=${TANDEM_IMAGE_EFFORT:-high} sandbox=workspace-write (pinned)"
 info "ultra seats: judge=${TANDEM_ULTRA_JUDGE_MODEL:-gpt-5.6-sol}/${TANDEM_ULTRA_JUDGE_EFFORT:-xhigh} worker=${TANDEM_ULTRA_WORKER_MODEL:-gpt-5.6-sol}/${TANDEM_ULTRA_WORKER_EFFORT:-high} scout=${TANDEM_ULTRA_SCOUT_MODEL:-gpt-5.6-luna}/${TANDEM_ULTRA_SCOUT_EFFORT:-high} sandbox=read-only (pinned) concurrency=${TANDEM_ULTRA_CONCURRENCY:-4}"
 info "TANDEM_CRITICAL=${TANDEM_CRITICAL:-0} (1 raises implementation effort to xhigh)"
 info "TANDEM_AUTONOMOUS=${TANDEM_AUTONOMOUS:-0} (1 replaces human gates with APPROVED+green-gate policy; commits stay on the tandem branch, never push/merge)"

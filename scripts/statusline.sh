@@ -136,9 +136,9 @@ case "$HB_STATUS" in
   running)   ICON="⚙" COL="$YELLOW" ;;
   done)
     case "$HB_VERDICT" in
-      APPROVED | IMPLEMENTATION_COMPLETE) ICON="✓" COL="$GREEN" ;;
+      APPROVED | IMPLEMENTATION_COMPLETE | IMAGE_READY) ICON="✓" COL="$GREEN" ;;
       REVISE | IMPLEMENTATION_PARTIAL)    ICON="↺" COL="$YELLOW" ;;
-      REQUEST_CHANGES | NEEDS_REWORK)     ICON="✗" COL="$RED" ;;
+      REQUEST_CHANGES | NEEDS_REWORK | IMAGE_BLOCKED) ICON="✗" COL="$RED" ;;
       *)                                  ICON="✓" COL="$GREEN" ;;
     esac ;;
   failed)    ICON="✗" COL="$RED" ;;

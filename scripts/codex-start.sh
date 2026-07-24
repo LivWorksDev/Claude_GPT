@@ -2,7 +2,7 @@
 # tandem — start a NEW persistent Codex thread for a target.
 #
 # usage: codex-start.sh <role> <target> <prompt-template.tpl> [extra-file] [notes-file]
-#   role    review | implement | ask  (pins model, effort and sandbox — see _common.sh)
+#   role    review | implement | ask | image  (pins model, effort and sandbox — see _common.sh)
 #   target  plan path or kebab-case topic label; it is the state key, reuse it verbatim
 #   extra-file / notes-file  optional files whose content fills {{EXTRA}} / {{NOTES}}
 #

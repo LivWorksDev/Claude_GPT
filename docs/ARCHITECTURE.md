@@ -81,4 +81,5 @@ No se registra en el plugin todavía para no arrancar un proceso codex en cada s
 | Trivial (pocas líneas, docs) | Fable directamente, sin tandem |
 | Feature normal | `tandem:run` con defaults (Sol `high` implementa) |
 | Auth, migraciones, pagos, multi-tenancy, concurrencia | `tandem:run` con `TANDEM_CRITICAL=1`, review nunca omitida |
+| Assets de imagen (iconos, sprites, mockups) | `tandem:image` — fuera del pipeline plan→review; gate visual de Fable + auditoría de escrituras |
 | Destructivo o regulado | Lo anterior + aprobación humana adicional antes de cada fase |

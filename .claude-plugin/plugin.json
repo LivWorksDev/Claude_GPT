@@ -1,7 +1,7 @@
 {
   "name": "tandem",
   "displayName": "Tandem — Fable × Codex",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Claude Fable 5 orquesta; OpenAI Codex (GPT-5.6 Sol) implementa y revisa adversarialmente. Plan → red-team → implementación → verificación → code review independiente.",
   "author": {
     "name": "Myum"

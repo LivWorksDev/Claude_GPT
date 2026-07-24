@@ -25,7 +25,7 @@ need_jq() {
   command -v jq >/dev/null 2>&1 || die "jq not found. Install: brew install jq" 3
 }
 
-# resolve_role <review|implement|ask>
+# resolve_role <review|implement|ask|image>
 # Sets ROLE, CODEX_MODEL, CODEX_EFFORT, CODEX_SANDBOX.
 # The sandbox is pinned per role and is deliberately NOT overridable by env:
 # reviewers must never write; implementers never leave the workspace;
@@ -47,8 +47,17 @@ resolve_role() {
       CODEX_EFFORT="${TANDEM_REVIEW_EFFORT:-xhigh}"
       CODEX_SANDBOX="read-only"
       ;;
+    image)
+      # Sol at high on purpose (not a scout tier): the pixels come from
+      # gpt-image-2 either way, but the text model writes the actual image
+      # prompt and drives the chroma workflow — brief comprehension is what
+      # buys one-shot renders. workspace-write so assets land in the repo.
+      CODEX_MODEL="${TANDEM_IMAGE_MODEL:-gpt-5.6-sol}"
+      CODEX_EFFORT="${TANDEM_IMAGE_EFFORT:-high}"
+      CODEX_SANDBOX="workspace-write"
+      ;;
     *)
-      die "unknown role '$ROLE' (expected: review, implement or ask)" 64
+      die "unknown role '$ROLE' (expected: review, implement, ask or image)" 64
       ;;
   esac
 }
@@ -178,7 +187,7 @@ hb_guard() {
 hb_verdict() {
   [ -f "$1" ] || return 0
   LC_ALL=C grep -Eo \
-    '(VERDICT:[[:space:]]*(APPROVED|REVISE|NEEDS_REWORK|REQUEST_CHANGES))|IMPLEMENTATION_(COMPLETE|PARTIAL)' \
+    '(VERDICT:[[:space:]]*(APPROVED|REVISE|NEEDS_REWORK|REQUEST_CHANGES))|IMPLEMENTATION_(COMPLETE|PARTIAL)|IMAGE_(READY|BLOCKED)' \
     "$1" 2>/dev/null | tail -n 1 | LC_ALL=C sed -e 's|^VERDICT:[[:space:]]*||' || true
 }
 

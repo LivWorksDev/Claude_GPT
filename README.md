@@ -39,6 +39,7 @@ Verifica el toolchain con `/tandem:doctor`.
 | `/tandem:implement` | Codex implementa el plan aprobado; Fable verifica el diff y ejecuta el testing gate |
 | `/tandem:review` | Code review final por un hilo Sol nuevo e independiente |
 | `/tandem:ask` | Segunda opinión de Sol sobre cualquier tema, con follow-ups en el mismo hilo |
+| `/tandem:image` | Genera assets de imagen con la herramienta nativa de Codex (gpt-image-2), con transparencia por chroma-key para sprites |
 | `/tandem:ultra` | Enjambres multi-agente estilo ultracode dirigidos por Fable, con todos los asientos en Codex (read-only) |
 | `/tandem:doctor` | Diagnóstico del toolchain (codex, login, jq, política de modelos, status line) |
 | `/tandem:statusline` | Instala/desinstala la status line (modelo, contexto, coste + puerta Codex en vivo) |
@@ -65,10 +66,11 @@ Además, los turnos lanzados en background narran su progreso en el panel **Shel
 | Revisor / consultor | `gpt-5.6-sol` | `xhigh` | `read-only` (fijado, no sobreescribible) |
 | Implementador | `gpt-5.6-sol` | `high` | `workspace-write` (fijado, no sobreescribible) |
 | Implementador crítico (`TANDEM_CRITICAL=1`) | `gpt-5.6-sol` | `xhigh` | `workspace-write` |
+| Generador de imágenes | `gpt-5.6-sol` | `high` | `workspace-write` (fijado, no sobreescribible) |
 
 Por encima de `xhigh` existen `max` y `ultra`; para una revisión final especialmente delicada puedes usar `TANDEM_REVIEW_EFFORT=ultra` puntualmente.
 
-Overrides por entorno: `TANDEM_REVIEW_MODEL`, `TANDEM_REVIEW_EFFORT`, `TANDEM_IMPLEMENT_MODEL`, `TANDEM_IMPLEMENT_EFFORT`, `TANDEM_PLAN_ROUNDS`, `TANDEM_CR_ROUNDS`, `TANDEM_IMPL_ROUNDS`, `TANDEM_WORKTREE`, `TANDEM_AUTONOMOUS`, `TANDEM_PROMOTE_REVIEWS` (`1` siempre / `0` nunca / sin definir: se ofrece en el gate), y para los enjambres `TANDEM_ULTRA_{JUDGE,WORKER,SCOUT}_MODEL`/`_EFFORT` y `TANDEM_ULTRA_CONCURRENCY`. Los sandboxes no se pueden sobreescribir y `danger-full-access`/`--yolo` no se usan nunca.
+Overrides por entorno: `TANDEM_REVIEW_MODEL`, `TANDEM_REVIEW_EFFORT`, `TANDEM_IMPLEMENT_MODEL`, `TANDEM_IMPLEMENT_EFFORT`, `TANDEM_IMAGE_MODEL`, `TANDEM_IMAGE_EFFORT`, `TANDEM_PLAN_ROUNDS`, `TANDEM_CR_ROUNDS`, `TANDEM_IMPL_ROUNDS`, `TANDEM_WORKTREE`, `TANDEM_AUTONOMOUS`, `TANDEM_PROMOTE_REVIEWS` (`1` siempre / `0` nunca / sin definir: se ofrece en el gate), y para los enjambres `TANDEM_ULTRA_{JUDGE,WORKER,SCOUT}_MODEL`/`_EFFORT` y `TANDEM_ULTRA_CONCURRENCY`. Los sandboxes no se pueden sobreescribir y `danger-full-access`/`--yolo` no se usan nunca.
 
 ## Modo autonomous
 
@@ -90,6 +92,14 @@ Líneas rojas idénticas al modo interactivo: nunca push, nunca merge, nunca la 
 `/tandem:ultra` lanza workflows multi-agente estilo ultracode (reviews adversariales multi-dimensión, paneles de jueces, cazas de bugs, barridos de investigación) donde **todos los asientos que razonan son Codex**: donde un workflow nativo sentaría a Fable va Sol `xhigh` (tier `judge`), donde iría Opus va Sol `high` (`worker`) y donde iría Haiku va Luna `high` (`scout`). Los agentes Claude del workflow son solo envoltorios `haiku` que lanzan cada turno vía `scripts/codex-swarm.sh` y estructuran la respuesta.
 
 La skill empieza siempre con una deliberación dirigida por Fable — si el enjambre compensa, qué forma tiene y cuántos turnos costará — y no lanza nada sin tu aprobación (en autonomous, sin un brief que lo determine todo). Invariantes propias del modo: cada seat es un hilo fresco e independiente, `read-only` fijado y sin resume; el enjambre nunca escribe ni commitea — sus hallazgos alimentan el pipeline normal, nunca sustituyen el gate de `tandem:review`; concurrencia acotada por `TANDEM_ULTRA_CONCURRENCY` (default 4). El estado va a `.tandem/state/ultra/<run>/` y el informe del run a `.tandem/log/ultra-<run>.md`. Si la sesión no dispone del tool Workflow, la skill degrada al fan-out con `Agent` o a turnos secuenciales en background — mismos scripts, mismos prompts.
+
+## Modo imagen — assets generados por Codex
+
+`/tandem:image` genera assets de imagen (iconos, sprites, ilustraciones, mockups) con la herramienta nativa de generación de Codex (gpt-image-2) y los guarda en rutas exactas del repo. El asiento lo lleva Sol `high` deliberadamente — los píxeles los pone gpt-image-2 en cualquier caso, pero el modelo de texto escribe el prompt de imagen real y dirige el flujo, y entender bien el brief es lo que sube la tasa de one-shot. Un hilo por asset (misma clave = refinamientos con memoria completa del render anterior) y gate visual de Fable: abre cada PNG producido con Read y lo juzga contra el brief antes de darlo por bueno — la descripción que Codex haga de su propia imagen nunca cuenta como prueba.
+
+**Transparencia (chroma-key):** gpt-image-2 no emite fondos transparentes; cuando el caso de uso lo pide (sprites de videojuego, logos, assets sobre fondos variables) el brief activa el workaround — render sobre fondo plano `#00ff00` (o `#ff00ff` si el sujeto contiene verde) y `scripts/chroma-strip.sh` convierte el color clave en canal alfa. Con python3+Pillow aplica rampa de alfa graduada + despill de bordes (bordes de sprite limpios); sin Pillow degrada a ImageMagick (`-fuzz`/`-transparent`, alfa binario); sin ningún backend, `IMAGE_BLOCKED` honesto — `/tandem:doctor` informa el backend detectado y qué instalar. `chroma-strip.sh --check` verifica que el resultado tiene alfa real y la skill lo ejecuta como parte del gate.
+
+Invariantes del modo: sandbox `workspace-write` fijado; los turnos de imagen solo AÑADEN ficheros (snapshot previo de `git status --porcelain` que audita cada escritura — nada existente se modifica, y sin rama dedicada porque no hay diff de código); nunca commit — el asset queda en el árbol y decides tú. Ojo con la cuota: los turnos de imagen consumen el plan de ChatGPT 3–5× más rápido que los de texto (resolución estable hasta 2K); para lotes o CI define `OPENAI_API_KEY` y Codex pasa a facturación por API.
 
 ## Invariantes de seguridad
 
