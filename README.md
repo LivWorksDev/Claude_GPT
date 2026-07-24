@@ -1,14 +1,17 @@
-# tandem — Fable orquesta, Codex ejecuta y ataca
+# tandem — Fable orquesta, Opus implementa, Sol ataca
 
-Plugin de Claude Code que convierte a **Claude (Fable 5)** en orquestador y árbitro, y a **OpenAI Codex** (GPT-5.6 Sol) en implementador y revisor adversarial, todo desde una sesión normal de Claude Code:
+Plugin de Claude Code que convierte a **Claude (Fable 5)** en orquestador y árbitro, a **Claude Opus 5** en implementador por defecto y a **OpenAI Codex** (GPT-5.6 Sol) en red-team y revisor adversarial independiente, todo desde una sesión normal de Claude Code:
 
 ```
 Fable planifica → Sol ataca el plan (read-only, hilo persistente)
-    → gate humano → Sol implementa (workspace-write, rama dedicada)
+    → gate humano → Opus 5 implementa (subagente restringido, rama dedicada)
     → Fable lee el diff completo y ejecuta el testing gate
     → un Sol NUEVO revisa el código (sin contexto previo)
-    → gate humano → Fable hace el commit (Codex nunca commitea)
+    → gate humano → Fable hace el commit (el implementador nunca commitea)
 ```
+
+> [!IMPORTANT]
+> El implementador por defecto ahora es Opus 5. Para conservar el transporte anterior de implementación con Codex CLI, define `TANDEM_IMPLEMENTER=sol`. Sol sigue siendo el red-team del plan y el revisor final independiente en ambos casos.
 
 ## Instalación
 
@@ -36,7 +39,7 @@ Verifica el toolchain con `/tandem:doctor`.
 | --- | --- |
 | `/tandem:run` | Pipeline completo: plan → red-team → implementación → verificación → review → commit |
 | `/tandem:plan` | Entrevista + plan + revisión adversarial de Sol hasta APPROVED (cap de rondas) |
-| `/tandem:implement` | Codex implementa el plan aprobado; Fable verifica el diff y ejecuta el testing gate |
+| `/tandem:implement` | Opus 5 implementa por defecto (`TANDEM_IMPLEMENTER=sol` usa Codex CLI); Fable verifica el diff y ejecuta el testing gate |
 | `/tandem:review` | Code review final por un hilo Sol nuevo e independiente |
 | `/tandem:ask` | Segunda opinión de Sol sobre cualquier tema, con follow-ups en el mismo hilo |
 | `/tandem:image` | Genera assets de imagen con la herramienta nativa de Codex (gpt-image-2), con transparencia por chroma-key para sprites |
@@ -53,7 +56,7 @@ Debajo del prompt puedes ver a la vez la sesión de Claude y lo que está hacien
 ⚙ codex gpt-5.6-sol · implement high · t3 · workspace-write · exec pytest -q · 1m42s · auth-refactor
 ```
 
-La segunda línea solo aparece mientras hay un turno de Codex en vuelo o recién terminado (15 min): en vivo narra la actividad real (`exec …`, `edit …`, `thinking…`) leída del stream de eventos, y al acabar colorea el desenlace — verde `APPROVED`/`IMPLEMENTATION_COMPLETE`, ámbar `REVISE`, rojo `REQUEST_CHANGES` o fallo, gris si el proceso murió sin dejar rastro. Funciona también con `TANDEM_WORKTREE`: el heartbeat se escribe siempre en el checkout principal (resuelto vía `git rev-parse --git-common-dir`).
+La segunda línea solo aparece mientras hay un turno de Codex en vuelo o recién terminado (15 min): en vivo narra la actividad real (`exec …`, `edit …`, `thinking…`) leída del stream de eventos, y al acabar colorea el desenlace — verde `APPROVED`/`IMPLEMENTATION_COMPLETE`, ámbar `REVISE`, rojo `REQUEST_CHANGES` o fallo, gris si el proceso murió sin dejar rastro. Funciona también con `TANDEM_WORKTREE`: el heartbeat se escribe siempre en el checkout principal (resuelto vía `git rev-parse --git-common-dir`). Durante la implementación Opus esa segunda línea no aparece en v1; Claude Code muestra el progreso del subagente de forma nativa.
 
 Además, los turnos lanzados en background narran su progreso en el panel **Shell details** de Claude Code — cada comando que Codex ejecuta (`» exec …` → `✓ ok`/`✗ exit N`), cada fichero que toca (`» edit …`) y los tokens del turno, en tiempo real.
 
@@ -61,16 +64,19 @@ Además, los turnos lanzados en background narran su progreso en el panel **Shel
 
 ## Política de modelos y permisos
 
-| Rol | Modelo (default) | Effort | Sandbox |
+| Rol | Modelo (default) | Effort | Frontera de ejecución |
 | --- | --- | --- | --- |
 | Revisor / consultor | `gpt-5.6-sol` | `xhigh` | `read-only` (fijado, no sobreescribible) |
-| Implementador | `gpt-5.6-sol` | `high` | `workspace-write` (fijado, no sobreescribible) |
-| Implementador crítico (`TANDEM_CRITICAL=1`) | `gpt-5.6-sol` | `xhigh` | `workspace-write` |
+| Implementador (default) | Claude Opus 5 | No expuesto por Agent | Allowlist harness `Read, Edit, Write, Glob, Grep, Bash`; sin MCP/web/Agent anidado |
+| Implementador (`TANDEM_IMPLEMENTER=sol`) | `gpt-5.6-sol` | `high` | Sandbox OS `workspace-write` (fijado, no sobreescribible) |
+| Implementador Sol crítico (`TANDEM_CRITICAL=1`) | `gpt-5.6-sol` | `xhigh` | Sandbox OS `workspace-write` |
 | Generador de imágenes | `gpt-5.6-sol` | `high` | `workspace-write` (fijado, no sobreescribible) |
+
+La frontera Opus es una allowlist aplicada por Claude Code: elimina herramientas MCP, conectores, web y subagentes anidados, pero Bash no equivale a un sandbox OS y podría ejecutar comandos fuera de esa lista si la sesión los permite. El agent type y el prompt prohíben commits, pushes, cambios de rama/remotos y trabajo fuera de la ruta indicada; Fable comprueba después rama, `HEAD`, remotos y diff. El transporte Sol conserva el sandbox OS existente. `CLAUDE_CODE_SUBAGENT_MODEL`, si está definida, debe valer exactamente `opus` o el preflight para; el modelo auto-reportado por el subagente es informativo, no una verificación runtime robusta.
 
 Por encima de `xhigh` existen `max` y `ultra`; para una revisión final especialmente delicada puedes usar `TANDEM_REVIEW_EFFORT=ultra` puntualmente.
 
-Overrides por entorno: `TANDEM_REVIEW_MODEL`, `TANDEM_REVIEW_EFFORT`, `TANDEM_IMPLEMENT_MODEL`, `TANDEM_IMPLEMENT_EFFORT`, `TANDEM_IMAGE_MODEL`, `TANDEM_IMAGE_EFFORT`, `TANDEM_PLAN_ROUNDS`, `TANDEM_CR_ROUNDS`, `TANDEM_IMPL_ROUNDS`, `TANDEM_WORKTREE`, `TANDEM_AUTONOMOUS`, `TANDEM_PROMOTE_REVIEWS` (`1` siempre / `0` nunca / sin definir: se ofrece en el gate), y para los enjambres `TANDEM_ULTRA_{JUDGE,WORKER,SCOUT}_MODEL`/`_EFFORT` y `TANDEM_ULTRA_CONCURRENCY`. Los sandboxes no se pueden sobreescribir y `danger-full-access`/`--yolo` no se usan nunca.
+Overrides por entorno: `TANDEM_IMPLEMENTER` (`opus` default / `sol`; cualquier otro valor falla), `TANDEM_REVIEW_MODEL`, `TANDEM_REVIEW_EFFORT`, `TANDEM_IMPLEMENT_MODEL`, `TANDEM_IMPLEMENT_EFFORT` (estos dos últimos solo afectan al transporte Sol), `TANDEM_IMAGE_MODEL`, `TANDEM_IMAGE_EFFORT`, `TANDEM_PLAN_ROUNDS`, `TANDEM_CR_ROUNDS`, `TANDEM_IMPL_ROUNDS`, `TANDEM_WORKTREE`, `TANDEM_AUTONOMOUS`, `TANDEM_PROMOTE_REVIEWS` (`1` siempre / `0` nunca / sin definir: se ofrece en el gate), y para los enjambres `TANDEM_ULTRA_{JUDGE,WORKER,SCOUT}_MODEL`/`_EFFORT` y `TANDEM_ULTRA_CONCURRENCY`. Los sandboxes Codex no se pueden sobreescribir y `danger-full-access`/`--yolo` no se usan nunca.
 
 ## Modo autonomous
 
@@ -107,19 +113,20 @@ Invariantes del modo: sandbox `workspace-write` fijado; los turnos de imagen sol
 
 ## Invariantes de seguridad
 
-- El revisor nunca escribe; el implementador nunca sale del workspace.
-- El sandbox se re-fija en **cada** reanudación (`codex exec --sandbox … resume …` + `-c sandbox_mode=…`): nunca se hereda del `config.toml` del usuario.
-- Árbol git limpio obligatorio antes de delegar escritura; rama dedicada siempre; worktree opcional.
-- Thread IDs persistidos en `.tandem/state/` (sobreviven a compactaciones de la sesión de Claude).
+- El revisor nunca escribe. El implementador Opus recibe una única ruta de trabajo y una allowlist mínima; Bash sin sandbox OS queda como riesgo residual explícito. El implementador Sol no sale de `workspace-write`.
+- El sandbox Codex se re-fija en **cada** reanudación (`codex exec --sandbox … resume …` + `-c sandbox_mode=…`): nunca se hereda del `config.toml` del usuario.
+- Árbol git limpio obligatorio antes de delegar escritura en un intento fresco; reanudar un intento coincidente (identidad validada contra el estado durable) llega legítimamente con su propio trabajo sin commitear. Rama dedicada siempre; worktree opcional.
+- Thread IDs Codex persistidos en `.tandem/state/`; los intentos Opus reflejan identidad, agente, rondas, sentinel e informes en `.tandem/state/implement-claude/`. Ambos sobreviven a compactaciones de la sesión de Claude.
 - Loops acotados con el deadlock como resultado legítimo: los desacuerdos se muestran, no se maquillan.
-- Codex jamás hace commit; Fable solo commitea tras la aprobación humana del diff (en modo autonomous, tras review `APPROVED` + testing gate en verde — siempre en la rama tandem, nunca push ni merge).
-- Errores de Codex visibles (stderr capturado por turno, exit codes verificados, detección del fallback silencioso de `resume`).
+- El implementador jamás hace commit; Fable solo commitea tras la aprobación humana del diff (en modo autonomous, tras review `APPROVED` + testing gate en verde — siempre en la rama tandem, nunca push ni merge).
+- Errores de Codex visibles (stderr capturado por turno, exit codes verificados, detección del fallback silencioso de `resume`); informes y sentinels Opus persistidos por turno.
 
 ## Estado y artefactos
 
 - `docs/plans/<slug>.plan.md` — planes (versionados).
 - `docs/reviews/<slug>.md` — registro final del review (versionado, opcional — ver `TANDEM_PROMOTE_REVIEWS`).
 - `.tandem/` — estado por proyecto, auto-gitignorado y por-feature (clave = target + checksum; una feature nueva nunca pisa el estado de otra): hilos, y prompt/respuesta/eventos POR TURNO (`state/…tN.*`), log append-only del debate (`log/`).
+- `.tandem/state/implement-claude/<slug>.json` + `<slug>.t<N>.report.md` — espejo durable del intento Opus; `plan_hash` es el blob commiteado, no la working copy que cambia al marcar checkboxes.
 - `.tandem/state/current.json` — heartbeat de la status line (rol, modelo, effort, sandbox, turno, pid, estado, veredicto). Artefacto de presentación: se escribe de forma atómica y su fallo nunca aborta un turno.
 
 ## Arquitectura y roadmap

@@ -72,16 +72,33 @@ fi
 
 # model policy (mirrors _common.sh resolve_role)
 printf '\nmodel policy (override via env):\n'
-if [ "${TANDEM_CRITICAL:-0}" = "1" ]; then
-  impl_effort="${TANDEM_IMPLEMENT_EFFORT:-xhigh}"
-else
-  impl_effort="${TANDEM_IMPLEMENT_EFFORT:-high}"
-fi
 info "review/ask:  model=${TANDEM_REVIEW_MODEL:-gpt-5.6-sol} effort=${TANDEM_REVIEW_EFFORT:-xhigh} sandbox=read-only (pinned)"
-info "implement:   model=${TANDEM_IMPLEMENT_MODEL:-gpt-5.6-sol} effort=$impl_effort sandbox=workspace-write (pinned)"
+# Default only when UNSET: a set-but-empty selector is a config error, not opus.
+implementer="${TANDEM_IMPLEMENTER-opus}"
+case "$implementer" in
+  "")
+    bad "TANDEM_IMPLEMENTER is set but empty — expected opus or sol"
+    ;;
+  opus)
+    info "implementer: opus — Claude Opus 5 subagent (default; harness tool allowlist, Bash has no OS sandbox)"
+    info "TANDEM_CRITICAL=${TANDEM_CRITICAL:-0} (under opus, effort is not exposed; review remains mandatory)"
+    ;;
+  sol)
+    if [ "${TANDEM_CRITICAL:-0}" = "1" ]; then
+      impl_effort="${TANDEM_IMPLEMENT_EFFORT:-xhigh}"
+    else
+      impl_effort="${TANDEM_IMPLEMENT_EFFORT:-high}"
+    fi
+    info "implementer: sol — Codex CLI transport"
+    info "implement:   model=${TANDEM_IMPLEMENT_MODEL:-gpt-5.6-sol} effort=$impl_effort sandbox=workspace-write (pinned)"
+    info "TANDEM_CRITICAL=${TANDEM_CRITICAL:-0} (1 raises Sol implementation effort to xhigh)"
+    ;;
+  *)
+    bad "TANDEM_IMPLEMENTER=$implementer is invalid — expected opus or sol"
+    ;;
+esac
 info "image:       model=${TANDEM_IMAGE_MODEL:-gpt-5.6-sol} effort=${TANDEM_IMAGE_EFFORT:-high} sandbox=workspace-write (pinned)"
 info "ultra seats: judge=${TANDEM_ULTRA_JUDGE_MODEL:-gpt-5.6-sol}/${TANDEM_ULTRA_JUDGE_EFFORT:-xhigh} worker=${TANDEM_ULTRA_WORKER_MODEL:-gpt-5.6-sol}/${TANDEM_ULTRA_WORKER_EFFORT:-high} scout=${TANDEM_ULTRA_SCOUT_MODEL:-gpt-5.6-luna}/${TANDEM_ULTRA_SCOUT_EFFORT:-high} sandbox=read-only (pinned) concurrency=${TANDEM_ULTRA_CONCURRENCY:-4}"
-info "TANDEM_CRITICAL=${TANDEM_CRITICAL:-0} (1 raises implementation effort to xhigh)"
 info "TANDEM_AUTONOMOUS=${TANDEM_AUTONOMOUS:-0} (1 replaces human gates with APPROVED+green-gate policy; commits stay on the tandem branch, never push/merge)"
 if [ "${TANDEM_AUTONOMOUS:-0}" = "1" ] && [ -z "${TANDEM_PROMOTE_REVIEWS:-}" ]; then
   bad "TANDEM_AUTONOMOUS=1 but TANDEM_PROMOTE_REVIEWS is unset — autonomous runs must not ask mid-run; set it to 0 or 1"

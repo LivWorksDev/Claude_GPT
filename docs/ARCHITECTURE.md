@@ -12,8 +12,11 @@ flowchart TD
     S1 -->|VERDICT: APPROVED<br/>o cap 5 rondas| H1{Gate humano:<br/>¿aprobar plan?}
 
     H1 -->|sí, tandem:implement| G[Gates: árbol limpio +<br/>rama tandem/slug]
-    G --> L[Codex · GPT-5.6 Sol high<br/>xhigh si TANDEM_CRITICAL=1<br/>hilo B · workspace-write]
-    L --> V[Fable: lee el diff COMPLETO<br/>fidelidad al plan · fixes directos<br/>testing gate bloqueante]
+    G --> L{Implementador seleccionable<br/>TANDEM_IMPLEMENTER<br/>opus default · sol opcional}
+    L -->|opus| O[Claude Opus 5<br/>subagente B restringido<br/>allowlist harness]
+    L -->|sol| B[Codex · GPT-5.6 Sol high<br/>xhigh si TANDEM_CRITICAL=1<br/>hilo B · workspace-write]
+    O --> V[Fable: lee el diff COMPLETO<br/>fidelidad al plan · fixes directos<br/>testing gate bloqueante]
+    B --> V
 
     V -->|tandem:review| S2[Codex · GPT-5.6 Sol · xhigh<br/>hilo C NUEVO · read-only<br/>sin contexto del debate]
     S2 -->|VERDICT: REQUEST_CHANGES<br/>cap 3 rondas| V
@@ -32,17 +35,21 @@ Cambio de rol                → hilo nuevo (el revisor final llega sin contamin
 ```
 
 - Sol revisa el plan, Fable corrige, Sol re-revisa → **hilo A** siempre.
-- Empieza la implementación → **hilo B** nuevo (Sol, effort high).
+- Empieza la implementación → **hilo/subagente B** nuevo. Con el default `opus`, es `tandem:implementer` y sus rondas continúan vía `SendMessage`; con `TANDEM_IMPLEMENTER=sol`, es el hilo Codex CLI existente (Sol, effort high).
 - Review final del código → **hilo C** nuevo (Sol), clave de estado `cr-<slug>`.
 - El implementador nunca aprueba su propia implementación.
+
+El hilo B Opus tiene espejo durable en `.tandem/state/implement-claude/<slug>.json`: agent id/nombre, rondas consumidas, último sentinel e informe, worktree e identidad del intento (`plan_path`, `plan_hash`, `branch`). `plan_hash` siempre es `git rev-parse HEAD:docs/plans/<slug>.plan.md`, el blob commiteado; nunca la working copy que cambia al marcar checkboxes. Identidad coincidente permite reanudar o un reset deliberado; mismatch solo permite descartar o parar. Ningún reset usa `SendMessage` como sonda ni ocurre sin agente inactivo comprobado y, si está registrado, worktree limpio. Ante incertidumbre autonomous termina `FAILED` preservando el estado.
 
 ## Protocolo de conversación entre modelos
 
 Nunca "discutid hasta acordar". Cada ronda es: crítica estructurada (P1/P2 o Critical→Suggestion, con evidencia file:line) → Fable arbitra cada hallazgo (ACCEPTED con el cambio / REJECTED con la razón) → el MISMO hilo re-verifica solo sus hallazgos y lo nuevo. Sentinel machine-parseable en la última línea (`VERDICT: …`, `IMPLEMENTATION_…`). Loops acotados (plan 5, code review 3, continuaciones 2). Deadlock = resultado legítimo que se muestra al usuario con ambas posiciones.
 
-## Por qué CLI y no MCP (fase 1 → fase 2)
+## Transportes actuales y por qué CLI, no MCP (fase 1 → fase 2)
 
-**Fase 1 (esta)**: `codex exec` vía scripts endurecidos. Verificado contra el código fuente de la CLI (2026-07):
+El implementador default usa un subagente Claude `model: opus` con allowlist de harness (`Read, Edit, Write, Glob, Grep, Bash`), sin MCP, web ni Agent anidado. Esa frontera no es un sandbox OS: Bash conserva capacidad residual para ejecutar comandos que la sesión permita. El system prompt y el template prohíben commit/push/cambios de rama o remoto y fijan una única ruta absoluta; Fable compara después rama, `HEAD` y remotos antes del gate. Con `TANDEM_WORKTREE=1`, prompt, verificación y testing gate quedan anclados al cwd absoluto del worktree. Agent no expone effort, así que `TANDEM_CRITICAL=1` no altera el esfuerzo Opus, aunque mantiene obligatoria la review.
+
+**Fase 1 (esta)**: Sol sigue usando `codex exec` vía scripts endurecidos para plan/review/ask y para implementación cuando `TANDEM_IMPLEMENTER=sol`. Verificado contra el código fuente de la CLI (2026-07):
 
 - `codex exec resume` NO define `--sandbox`/`--model` propios; las opciones compartidas van en el padre: `codex exec --sandbox read-only … resume <id> …`. Los scripts además fuerzan `-c sandbox_mode=…` como cinturón y tirantes. Así ninguna reanudación hereda el default del `config.toml` del usuario (el fallo principal de TRIP-workflow).
 - Prompt por stdin desde archivo (`- <file`): elimina cuelgues de stdin no-TTY y bugs de quoting a la vez.
@@ -50,7 +57,7 @@ Nunca "discutid hasta acordar". Cada ronda es: crítica estructurada (P1/P2 o Cr
 - Eventos y stderr capturados POR TURNO en `.tandem/state/…` (nunca `2>/dev/null`): los fallos de auth/red/modelo son visibles.
 - Detección del fallback silencioso de `resume` (un id corrupto puede adjuntarse a otra sesión): si el turno reporta un `thread_id` distinto del pedido, fallo duro.
 
-**Fase 2 (roadmap)**: sustituir los scripts por el servidor MCP oficial (`codex mcp-server`, tools `codex` y `codex-reply` con parámetros `model`, `sandbox`, `cwd`, `approval-policy`, `threadId`). Las skills no cambian de lógica — solo de transporte. Registro cuando se decida migrar:
+**Fase 2 (roadmap)**: sustituir los scripts Codex por el servidor MCP oficial (`codex mcp-server`, tools `codex` y `codex-reply` con parámetros `model`, `sandbox`, `cwd`, `approval-policy`, `threadId`). Las skills no cambian de lógica — solo de transporte. Registro cuando se decida migrar:
 
 ```bash
 claude mcp add --scope user --transport stdio codex -- codex mcp-server
@@ -64,8 +71,10 @@ No se registra en el plugin todavía para no arrancar un proceso codex en cada s
 
 | Decisión | Motivo |
 | --- | --- |
+| Opus 5 implementa por defecto; Sol sigue red-team/review | Separa las familias generador/revisor; `TANDEM_IMPLEMENTER=sol` restaura el transporte anterior |
+| Allowlist harness para Opus, sandbox OS para Sol | El agent type elimina MCP/web/Agent, pero Bash queda como riesgo residual explícito; equivalencia total con `workspace-write` queda fuera de v1 |
 | Estado en `.tandem/` del proyecto, no dentro del plugin | El plugin instalado es de solo lectura y su ruta cambia en cada update; TRIP guardaba estado dentro de `.claude/skills/` |
-| Sin `--yolo` ni `danger-full-access` en ningún caso | `grill-me-codex` da bypass total al implementador; `workspace-write` basta y contiene el radio de daño |
+| Sin `--yolo` ni `danger-full-access` en ningún transporte Codex | `grill-me-codex` da bypass total al implementador; para Sol, `workspace-write` basta y contiene el radio de daño |
 | Sandbox re-fijado en cada resume | TRIP asumía herencia; el comportamiento real depende de la versión de la CLI y del config del usuario |
 | Rutas de salida por turno, nunca `/tmp` fijo | Los archivos fijos de grill colisionan entre sesiones y sirven veredictos rancios si un resume falla |
 | Thread IDs persistidos a disco | En grill viven solo en la conversación: una compactación de Claude los pierde |
@@ -79,7 +88,14 @@ No se registra en el plugin todavía para no arrancar un proceso codex en cada s
 | Trabajo | Flujo |
 | --- | --- |
 | Trivial (pocas líneas, docs) | Fable directamente, sin tandem |
-| Feature normal | `tandem:run` con defaults (Sol `high` implementa) |
-| Auth, migraciones, pagos, multi-tenancy, concurrencia | `tandem:run` con `TANDEM_CRITICAL=1`, review nunca omitida |
+| Feature normal | `tandem:run` con defaults (Opus 5 implementa; Sol revisa) |
+| Rollback al transporte anterior | `TANDEM_IMPLEMENTER=sol tandem:run` (Sol `high` implementa) |
+| Auth, migraciones, pagos, multi-tenancy, concurrencia | `tandem:run` con `TANDEM_CRITICAL=1`, review nunca omitida; el effort solo sube a xhigh bajo `sol` |
 | Assets de imagen (iconos, sprites, mockups) | `tandem:image` — fuera del pipeline plan→review; gate visual de Fable + auditoría de escrituras |
 | Destructivo o regulado | Lo anterior + aprobación humana adicional antes de cada fase |
+
+## Sesgo del árbitro con Opus
+
+Con el transporte default, Fable arbitra hallazgos de Sol sobre código producido por otro modelo Claude. Esa cercanía de familia puede introducir sesgo. La mitigación es procedimental y no se relaja: cada hallazgo de Sol debe traer evidencia `file:line`, y Fable debe registrar una disposición razonada finding a finding antes de aceptar o rechazarlo. Los gates humanos permanecen intactos.
+
+La segunda línea de la status line solo refleja turnos Codex; durante una implementación Opus queda muda en v1 y Claude Code muestra el progreso nativo del subagente.
