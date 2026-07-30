@@ -165,6 +165,12 @@ Run with Bash `run_in_background: true` for any real feature (implementation reg
 
 Exit 2 → a thread already exists for this plan: resume with `continue.tpl` (new scope) or reset first if starting the implementation over.
 
+### Token accounting (both transports, unconditional)
+
+Under `sol`, every Codex turn — the Step 1 launch and each Step 2 continuation — prints exactly one `USAGE: {…}` line on stderr, absent only when the stream carried no `turn.completed`. Append it to that turn's line in `.tandem/log/<slug>.md` as `tokens: in <input_tokens> · out <output_tokens>` (or `tokens: n/a`), **before** you read the `IMPLEMENTATION_` sentinel and regardless of what that sentinel turns out to be: a turn that ended PARTIAL, or with no sentinel at all, spent the same quota as a complete one.
+
+Under `opus` there are no Codex turns to account for, so the log line reads `tokens: n/a (transporte opus)` — written explicitly, exactly once per attempt, so the absence is a recorded fact and not a forgotten step. Claude Code's own usage reporting covers the subagent.
+
 ## Step 2 — Parse the report
 
 The reply ends with `IMPLEMENTATION_COMPLETE` or `IMPLEMENTATION_PARTIAL`.
@@ -191,7 +197,7 @@ TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-resume.sh" implement docs/pla
 1. `git -C "$WORK_ROOT" status -s` and read the **full diff** (`git -C "$WORK_ROOT" diff`), like reviewing a contributor's PR: fidelity to the plan, unplanned deviations, plan checkboxes actually done. `git diff` does not show untracked files — Read every `??` entry in full, by absolute `$WORK_ROOT/...` path; new files are usually the bulk of the change.
 2. Compare the current branch, `HEAD`, and `git -C "$WORK_ROOT" remote -v` with the attempt's baseline — under `opus`, the durable `base_head`/`remote_snapshot` from the JSON (never conversation memory, so this works after recovery too); under `sol`, the pre-launch snapshot. Any implementer commit, branch change, or remote mutation is a hard safety failure; stop and surface it. This check mitigates the Opus transport's unsandboxed Bash and applies identically to Sol.
 3. Fix small issues DIRECTLY yourself — ping-ponging trivia through delegation burns more than it saves. Large deviations → one continuation of the selected transport, then take over if still wrong.
-4. Append to the log: transport, files changed, deviations, your assessment. With Opus, note that its status-line second row is intentionally absent in v1; Claude Code's native subagent progress is the progress display.
+4. Append to the log: transport, files changed, deviations, your assessment, and the phase's token total (the sum of the per-turn `tokens:` lines; `n/a (transporte opus)` under the default transport). With Opus, note that its status-line second row is intentionally absent in v1; Claude Code's native subagent progress is the progress display.
 
 ## Step 4 — Testing gate (blocking)
 

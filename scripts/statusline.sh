@@ -105,12 +105,20 @@ fi
 [ -n "$HB" ] || exit 0
 
 # Same unit-separator transport as line 1 — an empty verdict must not shift
-# the events path into the wrong variable.
-IFS=$'\x1f' read -r HB_ROLE HB_MODEL HB_EFFORT HB_SANDBOX HB_TARGET HB_TURN HB_PID HB_START HB_UPDATED HB_STATUS HB_VERDICT HB_EVENTS <<EOF
+# the events path into the wrong variable. The token fields sit at the END of
+# the list on purpose: a heartbeat written by an older version simply has none,
+# and the missing values must degrade to empty instead of shifting every field
+# after them (the v0.5.0 bug this transport exists to prevent). They cross the
+# transport only when they really are JSON numbers: a string, an array or an
+# object there is corruption, and it must not survive as text that looks like a
+# token count — nor make `join` fail and take the whole line down with it.
+IFS=$'\x1f' read -r HB_ROLE HB_MODEL HB_EFFORT HB_SANDBOX HB_TARGET HB_TURN HB_PID HB_START HB_UPDATED HB_STATUS HB_VERDICT HB_EVENTS HB_TOK_IN HB_TOK_OUT <<EOF
 $(jq -r '
   [ (.role // "?"), (.model // "?"), (.effort // ""), (.sandbox // ""),
     (.target // ""), (.turn // 0), (.pid // 0), (.started_at // 0),
-    (.updated_at // 0), (.status // "?"), (.verdict // ""), (.events // "")
+    (.updated_at // 0), (.status // "?"), (.verdict // ""), (.events // ""),
+    (if (.tokens_in | type) == "number" then (.tokens_in | tostring) else "" end),
+    (if (.tokens_out | type) == "number" then (.tokens_out | tostring) else "" end)
   ] | join("\u001f")' "$HB" 2>/dev/null)
 EOF
 [ -n "${HB_STATUS:-}" ] || exit 0
@@ -184,6 +192,43 @@ if [ "$HB_START" -gt 0 ]; then
   [ "$EL" -lt 0 ] && EL=0
   if [ "$EL" -ge 60 ]; then ELAPSED="$((EL / 60))m$((EL % 60))s"; else ELAPSED="${EL}s"; fi
   LINE2="${LINE2}${SEP}${COL}${ELAPSED}${R}"
+fi
+
+# What the turn cost, once it is over. Both values must be plain non-negative
+# integers or the whole segment disappears — a string, a decimal, a negative or
+# a corrupt field is sanitized away exactly like the pid and the timestamps
+# above, before any arithmetic can print "integer expression expected" into the
+# UI. 'running' never shows them: the heartbeat carries null by contract.
+hb_tok_ok() {
+  # hb_tok_ok <value> — a decimal integer bash can safely do arithmetic on.
+  case "${1:-}" in
+    '' | *[!0-9]*) return 1 ;;
+  esac
+  # 16+ digits would overflow bash's signed arithmetic and print nonsense.
+  [ "${#1}" -le 15 ] || return 1
+  return 0
+}
+
+hb_tok_human() {
+  # hb_tok_human <integer> — 999 · 1.2k · 12k · 1.5M, at most one decimal.
+  # Integer arithmetic only: bash 3.2 ships no bc and no floating point.
+  local n=$((10#$1)) d
+  if [ "$n" -lt 1000 ]; then
+    printf '%s' "$n"
+  elif [ "$n" -lt 1000000 ]; then
+    d=$(((n % 1000) / 100))
+    if [ "$n" -ge 10000 ] || [ "$d" -eq 0 ]; then printf '%sk' "$((n / 1000))"
+    else printf '%s.%sk' "$((n / 1000))" "$d"; fi
+  else
+    d=$(((n % 1000000) / 100000))
+    if [ "$n" -ge 10000000 ] || [ "$d" -eq 0 ]; then printf '%sM' "$((n / 1000000))"
+    else printf '%s.%sM' "$((n / 1000000))" "$d"; fi
+  fi
+}
+
+if { [ "$HB_STATUS" = "done" ] || [ "$HB_STATUS" = "failed" ]; } \
+   && hb_tok_ok "${HB_TOK_IN:-}" && hb_tok_ok "${HB_TOK_OUT:-}"; then
+  LINE2="${LINE2}${SEP}${GREY}$(hb_tok_human "$HB_TOK_IN")→$(hb_tok_human "$HB_TOK_OUT")${R}"
 fi
 
 if [ -n "${HB_VERDICT:-}" ] && [ "$HB_STATUS" != "running" ]; then

@@ -37,8 +37,15 @@ assert_file_contains "$ERR" "resuming codex thread thr_resume_1"
 assert_file_contains "$OUT" "--- codex reply (gpt-5.6-sol, turn 2) ---"
 assert_file_contains "$OUT" "THREAD_ID: thr_resume_1"
 
+# Token accounting rides on the turn number, like every other per-turn artefact.
+assert_file "$SD/$KEY.t2.usage.json"
+assert_json "$SD/$KEY.t2.usage.json" '. == {"input_tokens":1234,"output_tokens":56}'
+assert_file_contains "$ERR" 'USAGE: {"input_tokens":1234,"output_tokens":56}'
+assert_eq "1" "$(grep -c '^USAGE: ' "$ERR" | tr -d ' ')" "USAGE footer lines"
+
 HB="$CLAUDE_PROJECT_DIR/.tandem/state/current.json"
 assert_json "$HB" '.status == "done" and .turn == 2 and .role == "review"'
+assert_json "$HB" '.tokens_in == 1234 and .tokens_out == 56'
 
 # Whitespace in the thread file is stripped before the id reaches argv.
 printf '  thr_resume_1 \n\n' >"$SD/$KEY.thread"

@@ -21,6 +21,13 @@ assert_no_file "$SD/$KEY.last.txt"
 assert_file_contains "$SD/$KEY.t1.reply.txt" "stub reply"
 assert_json "$HB" '.status == "failed"'
 
+# A turn with no thread id still cost real quota: exit code unchanged, ledger
+# written, 'failed' heartbeat carrying the tokens, footer on stderr.
+assert_file "$SD/$KEY.t1.usage.json"
+assert_json "$SD/$KEY.t1.usage.json" '. == {"input_tokens":1234,"output_tokens":56}'
+assert_json "$HB" '.tokens_in == 1234 and .tokens_out == 56'
+assert_file_contains "$ERR" 'USAGE: {"input_tokens":1234,"output_tokens":56}'
+
 # A stream jq cannot slurp (garbage interleaved) lands in the same place: the
 # jq error is swallowed and the emptiness check owns the outcome, so a jq exit
 # code never leaks past the documented contract.

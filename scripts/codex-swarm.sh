@@ -24,7 +24,9 @@
 #
 # Differences vs codex-start.sh, all deliberate:
 #   - No thread persistence and no resume: seat independence is the point of a
-#     swarm (fresh context per seat); retrying a seat overwrites its files.
+#     swarm (fresh context per seat); retrying a seat overwrites its files —
+#     every one of them EXCEPT the token ledger `<seat>.t<N>.usage.json`, which
+#     gains one file per attempt because spent quota cannot be un-spent.
 #   - No shared heartbeat: N parallel turns would fight over current.json.
 #     The Workflow progress UI and the shell-panel milestones narrate instead.
 #   - Sandbox is read-only for EVERY tier and not overridable: swarm seats
@@ -140,6 +142,24 @@ codex exec \
   | tee "$EVENTS_FILE" | stream_milestones
 rc="${PIPESTATUS[0]}"
 set -e
+
+# Token accounting, BEFORE any check (same rule as codex-start.sh: a seat that
+# produced a `turn.completed` burned its quota even if the wrapper rejects it),
+# but kept as a LEDGER: retrying a seat overwrites its reply/prompt/events by
+# contract, while the tokens the previous attempt spent are already gone. Each
+# attempt therefore lands in its own `.t<N>.usage.json` and never overwrites an
+# earlier one; the aggregate of a run is the sum of every attempt of every seat.
+USAGE_JSON="$(turn_usage "$EVENTS_FILE")"
+if [ -n "$USAGE_JSON" ]; then
+  USAGE_FILE="$STATE_DIR/$SEAT_KEY.t$(usage_next_index "$STATE_DIR/$SEAT_KEY").usage.json"
+  printf 'USAGE: %s\n' "$USAGE_JSON" >&2
+  # The path is advertised only once it really landed: the wrapper reports it
+  # verbatim, and a footer pointing at a file that does not exist would be worse
+  # than an absent one.
+  if usage_persist "$USAGE_FILE" "$USAGE_JSON"; then
+    printf 'USAGE_FILE: %s\n' "$USAGE_FILE" >&2
+  fi
+fi
 
 if [ "$rc" -ne 0 ]; then
   printf 'tandem: codex exec failed (exit %s). Last stderr lines:\n' "$rc" >&2

@@ -71,6 +71,29 @@ write_hb "$HB" "status=done" "started_at=$((NOW + 1000))" "updated_at=$NOW"
 show
 assert_file_contains "$OUT" "0s"
 
+# --- what the turn cost, humanized, only once it is over ---------------------
+write_hb "$HB" "status=done" "tokens_in=1234" "tokens_out=56"
+show
+assert_file_contains "$OUT" "1.2k→56"
+# k/M with at most one decimal, integer arithmetic only (no bc in bash 3.2).
+write_hb "$HB" "status=done" "tokens_in=999" "tokens_out=0"
+show
+assert_file_contains "$OUT" "999→0"
+write_hb "$HB" "status=done" "tokens_in=12345" "tokens_out=1500000"
+show
+assert_file_contains "$OUT" "12k→1.5M"
+# A failed turn spent its tokens too, and says so.
+write_hb "$HB" "status=failed" "tokens_in=2048" "tokens_out=16"
+show
+assert_file_contains "$OUT" "✗ codex gpt-5.6-sol"
+assert_file_contains "$OUT" "2k→16"
+# 'running' never shows them: the heartbeat carries null by contract, and the
+# tokens of a PREVIOUS turn must not be painted onto the current one.
+write_hb "$HB" "status=running" "pid=$$" "tokens_in=1234" "tokens_out=56"
+show
+assert_not_contains "$OUT" "1.2k"
+assert_not_contains "$OUT" "→"
+
 # NO_COLOR keeps the icons and drops the escapes.
 export NO_COLOR=1
 write_hb "$HB" "status=done" "verdict=APPROVED"

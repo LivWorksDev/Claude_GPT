@@ -46,10 +46,18 @@ You are a mechanical seat runner. Do exactly this and nothing else:
    markers, extract the seat's final output contract and return it as your
    structured result. Add nothing of your own. If the script fails, return
    the error field filled with its last stderr lines.
+4. From stderr, also extract the 'USAGE: {…}' line and the
+   'USAGE_FILE: <path>' line and return them verbatim in the `usage` and
+   `usage_file` fields — ALWAYS, including when the script exited non-zero:
+   a seat that failed after completing its turn spent that quota anyway.
+   Either line may be absent (a genuine turn.failed emits neither); return
+   null for a missing one and never invent a value.
 
 BRIEF:
 <the seat's brief>
 ```
+
+Every seat's `schema` carries, besides that seat's own output contract, `usage` (string or **null**) and `usage_file` (string or **null**) — both nullable, both returned by EVERY seat including the ones that exited non-zero, filled from step 4.
 
 Resolve `<PREAMBLE>`/`<SCRIPTS>` to absolute paths when authoring the script. The preamble travels as a **path**, never as text a wrapper retypes: `codex-swarm.sh` concatenates it ahead of the brief byte for byte, and the staged `.tandem/state/ultra/<run-id>/<seat>.prompt.txt` is what the seat actually received. Seat briefs must be **self-contained** (a seat sees nothing else: name concrete paths, paste the diff hunk or plan section it must judge) and must end by demanding the output contract — a fenced JSON object matching the wrapper's schema as the last thing in the reply.
 
@@ -64,7 +72,8 @@ Concurrency: read `TANDEM_ULTRA_CONCURRENCY` (default 4) in the session and pass
 
 ## Results
 
-- Append a run report to `.tandem/log/ultra-<run-id>.md`: shape, seats and tiers, per-seat outcome, dropped/refuted findings, final synthesis. Seat replies persist under `.tandem/state/ultra/<run-id>/` (gitignored, like all of `.tandem/`).
+- Append a run report to `.tandem/log/ultra-<run-id>.md`: shape, seats and tiers, per-seat outcome, dropped/refuted findings, final synthesis, and the run's token total. Seat replies persist under `.tandem/state/ultra/<run-id>/` (gitignored, like all of `.tandem/`).
+- **Token accounting — one authoritative algorithm, no second way to do it.** The run TOTAL is the sum of the `<seat>.t<N>.usage.json` files of the ledger in `.tandem/state/ultra/<run-id>/`, adding each file EXACTLY ONCE per seat (a retried seat has several: every attempt spent real quota). The `usage` a wrapper returned is display metadata for that one invocation and is **NEVER** added to the total — the attempt it describes is already in the ledger, and adding it again is exactly the double-count this rule exists to forbid. `usage_file` serves ONLY to match each seat's ledger prefix with the seat→tier assignment you yourself authored; never reconstruct that prefix from `target_key` (it carries a checksum and is not reversible). When a retry fails without a footer, keep the metadata of the earlier successful attempt — the ledger already holds both.
 - Present the synthesis with disagreements **visible**: split judge votes are reported as split — the deadlock-honesty rule applies to swarms too.
 - An ultra review feeds the pipeline, it never replaces it: its output is a finding list or plan feedback, not an approval. `tandem:review`'s independent gate (and the human/autonomous commit policy) stands untouched.
 

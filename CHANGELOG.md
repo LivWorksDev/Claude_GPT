@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.14.0 — 2026-07-31
+
+- **Contabilidad de tokens por turno, ronda y run** (M9 del backlog, tarea 2/6 de la cola
+  autónoma). Cada `turn.completed` del NDJSON ya persistido trae el `usage` del turno y
+  hasta ahora se narraba en vivo y se descartaba — con la cuota ChatGPT como restricción
+  operativa real, un run no tenía coste conocible. Nuevo `turn_usage` en `_common.sh`: suma
+  campo a campo del `.usage` de TODOS los `turn.completed` del stream (36/36 streams reales
+  archivados traen exactamente uno, así que la suma es el objeto verbatim; si el CLI emitiera
+  eventos por-intento, sumar contabiliza los reintentos en vez de descartarlos), nombres de
+  campo de codex verbatim (numéricos futuros viajan gratis; no numéricos se descartan),
+  tolerante a líneas malformadas.
+- **La extracción ocurre tras el pipeline y ANTES de cualquier check**: una reply vacía, un
+  thread ausente o un fallback rechazado ya quemaron su cuota — se persiste
+  `.t<N>.usage.json` (escritura atómica best-effort que jamás cambia el exit code ni deja
+  JSON truncado), el heartbeat gana `tokens_in`/`tokens_out` (null SIEMPRE en `running`;
+  poblados también en el heartbeat `failed` de un turno rechazado) y se emite exactamente
+  una línea `USAGE: {…}` por stderr en TODOS los caminos — la que las skills copian al log
+  sin recomputar checksums de `target_key`. En swarm el usage es un LEDGER por intento
+  (`<seat>.t<N>.usage.json`, nunca pisado por un retry: la cuota gastada no se des-gasta)
+  con footers `USAGE:`/`USAGE_FILE:`.
+- **Statusline**: dos campos nuevos al FINAL del transporte `\x1f` (un heartbeat pre-M9
+  degrada sin desplazar campos — la lección del bug v0.5.0) y render humanizado `1.2k→56`
+  solo en estados terminales y solo con enteros no negativos: string, decimal, negativo o
+  corrupto omiten el segmento sin ruido, como pid y timestamps.
+- **Las cinco skills ganan el paso de contabilidad incondicional**, antes de ramificar por
+  veredicto (una ronda APPROVED a la primera cuesta lo mismo que una REVISE y hasta ahora no
+  dejaba rastro), con total por fase en cada resolución, agregado por fase + total del run
+  en el informe final de TODOS los estados terminales (DEADLOCK/PARTIAL/FAILED incluidos), y
+  en ultra el algoritmo de agregación único: el total sale del ledger exactamente una vez
+  por seat, el `usage` devuelto por el wrapper es metadato de display y nunca se re-suma,
+  `usage`/`usage_file` nullables también en seats fallidos. Bajo transporte opus el log
+  anota `tokens: n/a (transporte opus)` — ausencia registrada, no olvido.
+- Suite: 55 casos (de 53): `common-turn-usage` (suma, verbatim, garbage, no numéricos) y
+  `skill-token-accounting-contract` (anclas de las cinco skills + los footers realmente
+  emitidos por los tres wrappers) nuevos; 12 tests ampliados (usage con igualdad jq exacta
+  en happy paths, cuota quemada contabilizada en los tres caminos de fallo, persistencia
+  blindada, ledger t1→t2 con retry fallido que no corrompe, heartbeat nulls, statusline con
+  tokens malformados y heartbeat pre-M9) y `lib.sh` (write_hb con tokens).
+
 ## 0.13.0 — 2026-07-31
 
 - **El preámbulo de los enjambres ultra lo concatena el script, no un modelo** (M8 del

@@ -43,7 +43,16 @@ fi
 EXTRA="$(read_optional_file "$EXTRA_FILE")"
 NOTES="$(read_optional_file "$NOTES_FILE")"
 
-TURN=1
+# The attempt number is monotonic across FAILED starts of the same target: a
+# post-pipeline failure (empty reply, missing thread id) exits before the
+# thread file is written, so the retry comes back through start — and its paid
+# predecessor must keep its t<N> artefacts, the usage ledger above all: spent
+# quota cannot be un-spent, and a retry that overwrote t1 would erase exactly
+# the expensive attempt the accounting exists to expose. Same sanitizer and
+# base-10 forcing as codex-resume.sh ('08'/'09' would abort as octal).
+TURN="$(cat "$TURN_FILE" 2>/dev/null || printf '0')"
+case "$TURN" in '' | *[!0-9]*) TURN=0 ;; esac
+TURN=$((10#$TURN + 1))
 printf '%s\n' "$TURN" >"$TURN_FILE"
 PROMPT_FILE="$STATE_DIR/$KEY.t$TURN.prompt.txt"
 MSG_FILE="$STATE_DIR/$KEY.t$TURN.reply.txt"
@@ -73,6 +82,24 @@ codex exec \
   | tee "$EVENTS_FILE" | stream_milestones
 rc="${PIPESTATUS[0]}"
 set -e
+
+# Token accounting, BEFORE any check on purpose: a turn that produced a
+# `turn.completed` already burned its quota even when the wrapper is about to
+# reject it (empty reply, missing thread id). "No usage" means "the stream
+# carries no turn.completed", never "the wrapper exited non-zero" — counting
+# only successful turns would under-report exactly the expensive failures.
+# Persistence is hardened: a write that cannot land is swallowed, never an
+# aborted turn and never a truncated file (see usage_persist).
+USAGE_JSON="$(turn_usage "$EVENTS_FILE")"
+if [ -n "$USAGE_JSON" ]; then
+  usage_persist "$STATE_DIR/$KEY.t$TURN.usage.json" "$USAGE_JSON" || true
+  HB_TOKENS_IN="$(usage_number "$USAGE_JSON" input_tokens)"
+  HB_TOKENS_OUT="$(usage_number "$USAGE_JSON" output_tokens)"
+  # One parseable line, on every path: the failure reports (FAILED/DEADLOCK) are
+  # exactly where the orchestrator needs it, and copying a line beats
+  # recomputing the target_key checksum to find the file.
+  printf 'USAGE: %s\n' "$USAGE_JSON" >&2
+fi
 
 if [ "$rc" -ne 0 ]; then
   printf 'tandem: codex exec failed (exit %s). Last stderr lines:\n' "$rc" >&2

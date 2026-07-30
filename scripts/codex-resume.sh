@@ -79,6 +79,24 @@ codex exec \
 rc="${PIPESTATUS[0]}"
 set -e
 
+# Token accounting, BEFORE any check on purpose: a turn that produced a
+# `turn.completed` already burned its quota even when the wrapper is about to
+# reject it (empty reply, a fallback to another thread). "No usage" means "the
+# stream carries no turn.completed", never "the wrapper exited non-zero" —
+# counting only successful turns would under-report exactly the expensive
+# failures. Persistence is hardened: a write that cannot land is swallowed,
+# never an aborted turn and never a truncated file (see usage_persist).
+USAGE_JSON="$(turn_usage "$EVENTS_FILE")"
+if [ -n "$USAGE_JSON" ]; then
+  usage_persist "$STATE_DIR/$KEY.t$TURN.usage.json" "$USAGE_JSON" || true
+  HB_TOKENS_IN="$(usage_number "$USAGE_JSON" input_tokens)"
+  HB_TOKENS_OUT="$(usage_number "$USAGE_JSON" output_tokens)"
+  # One parseable line, on every path: the failure reports (FAILED/DEADLOCK) are
+  # exactly where the orchestrator needs it, and copying a line beats
+  # recomputing the target_key checksum to find the file.
+  printf 'USAGE: %s\n' "$USAGE_JSON" >&2
+fi
+
 if [ "$rc" -ne 0 ]; then
   printf 'tandem: codex exec resume failed (exit %s). Last stderr lines:\n' "$rc" >&2
   tail -n 20 "$EVENTS_FILE.stderr" >&2 || true

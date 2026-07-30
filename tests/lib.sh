@@ -225,13 +225,25 @@ write_hb() {
   json="$(jq -n --argjson now "$now" '{
     role:"review", model:"gpt-5.6-sol", effort:"xhigh", sandbox:"read-only",
     target:"demo", turn:1, pid:0, started_at:($now - 5), updated_at:$now,
-    status:"done", verdict:null, events:null }')"
+    status:"done", verdict:null, events:null, tokens_in:null, tokens_out:null }')"
   for kv in "$@"; do
     k="${kv%%=*}"
     v="${kv#*=}"
     case "$k" in
       turn | pid | started_at | updated_at)
         json="$(printf '%s' "$json" | jq --arg k "$k" --argjson v "$v" '.[$k] = $v')"
+        ;;
+      tokens_in | tokens_out)
+        # A number where a number belongs, but a corrupt heartbeat is exactly
+        # what the status line has to survive: anything that is not valid JSON
+        # is injected as the string it is.
+        if [ "$v" = "null" ]; then
+          json="$(printf '%s' "$json" | jq --arg k "$k" '.[$k] = null')"
+        elif printf '%s' "$v" | jq -e . >/dev/null 2>&1; then
+          json="$(printf '%s' "$json" | jq --arg k "$k" --argjson v "$v" '.[$k] = $v')"
+        else
+          json="$(printf '%s' "$json" | jq --arg k "$k" --arg v "$v" '.[$k] = $v')"
+        fi
         ;;
       *)
         if [ "$v" = "null" ]; then

@@ -37,6 +37,14 @@ assert_file_contains "$SD/$KEY.t4.events.ndjson" "thr_somewhere_else"
 # 5. the EXIT guard closed the heartbeat as failed.
 assert_json "$CLAUDE_PROJECT_DIR/.tandem/state/current.json" \
   '.status == "failed" and .turn == 4'
+# 6. the rejected turn is still accounted for: a fallback the guard refuses to
+#    trust already burned its quota, so the ledger, the 'failed' heartbeat and
+#    the footer all carry it — the exit code is what stays untouched.
+assert_file "$SD/$KEY.t4.usage.json"
+assert_json "$SD/$KEY.t4.usage.json" '. == {"input_tokens":1234,"output_tokens":56}'
+assert_json "$CLAUDE_PROJECT_DIR/.tandem/state/current.json" \
+  '.tokens_in == 1234 and .tokens_out == 56'
+assert_file_contains "$ERR" 'USAGE: {"input_tokens":1234,"output_tokens":56}'
 
 # codex-start.sh has no such guard to trip: it has nothing to compare against.
 # Same scenario, fresh target -> the id that was reported is the id persisted.

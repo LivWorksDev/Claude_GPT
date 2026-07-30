@@ -41,6 +41,8 @@ bash "$SCRIPTS/codex-start.sh" review docs/plans/<slug>.plan.md \
 
 Exit 2 means a thread already exists for this plan: resume it if you are continuing the same work, or `codex-reset.sh review docs/plans/<slug>.plan.md` if this is a fresh plan under a reused name.
 
+**Token accounting — every round, unconditionally, before reading the `VERDICT:` line.** Every Codex turn prints exactly one `USAGE: {…}` line on stderr, absent only when the stream carried no `turn.completed` (the turn never completed at all). Copy it into that round's line of `.tandem/log/<slug>.md` — `## Round <n> — Sol · tokens: in <input_tokens> · out <output_tokens>`, or `tokens: n/a` when the line is absent — **before** you branch on the verdict. A round that comes back APPROVED at the first attempt, or NEEDS_REWORK, burned exactly as much ChatGPT quota as a REVISE round; until now only the REVISE branch ever wrote to the log, and that is precisely the accounting hole this step closes.
+
 **Each round**, read the reply's final `VERDICT:` line:
 
 - No `VERDICT:` line at all → resume the SAME thread asking only for the missing verdict line; this counts as a round. If it happens twice, treat the reply as REVISE and note the anomaly in the log.
@@ -48,7 +50,7 @@ Exit 2 means a thread already exists for this plan: resume it if you are continu
 - `VERDICT: NEEDS_REWORK` → stop the loop and escalate to the user with Sol's reasoning; do not silently rewrite everything. In autonomous mode there is no one to escalate to: this is a terminal DEADLOCK — report and stop.
 - `VERDICT: REVISE` → you arbitrate every finding:
   1. For each finding decide ACCEPTED (revise the plan) or REJECTED (with a reason). Never accept everything blindly; never ignore the critic.
-  2. Append to `.tandem/log/<slug>.md`: `## Round <n> — Sol` (full critique) and `### Dispositions` (finding → decision → reason/change).
+  2. Append to `.tandem/log/<slug>.md`, BENEATH the round heading the accounting step already wrote — never a second `## Round <n>` heading (one token-bearing entry per round is the accounting contract): the full critique and `### Dispositions` (finding → decision → reason/change).
   3. Write the dispositions block to `.tandem/tmp/<slug>-dispositions.md`.
   4. Resume the SAME thread (timeout: 600000). The 4th arg (extra-file) is unused here — pass `""`; the 5th arg fills `{{NOTES}}`:
 
@@ -62,7 +64,7 @@ bash "$SCRIPTS/codex-resume.sh" review docs/plans/<slug>.plan.md \
 
 ## Resolution — human gate
 
-Present: final plan, 3-bullet summary, Sol's final verdict, rounds used. Ask the user (AskUserQuestion): approve and continue to `/tandem:implement`, revise further, or stop. Do not start implementing without explicit approval.
+Present: final plan, 3-bullet summary, Sol's final verdict, rounds used, and the phase's token total — the sum of the per-round `tokens:` lines you wrote in the log, in and out. Ask the user (AskUserQuestion): approve and continue to `/tandem:implement`, revise further, or stop. Do not start implementing without explicit approval.
 
 On approval, run the approval transition — never a bare commit on the user's branch:
 

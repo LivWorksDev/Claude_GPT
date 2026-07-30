@@ -60,3 +60,49 @@ assert_file_contains "$SANDBOX/a.out" "» thread thr_stub_1"
 assert_file_contains "$SANDBOX/b.out" "» thread thr_stub_1"
 assert_file_contains "$SANDBOX/a.err" "seat=seat-a"
 assert_file_contains "$SANDBOX/b.err" "seat=seat-b"
+
+# --- the token ledger: one file per ATTEMPT, per seat ------------------------
+# Each seat's first attempt is t1, in its own run namespace, and each seat
+# advertises its own ledger path so the aggregation never has to reconstruct a
+# target_key checksum to find it.
+assert_json "$UD/$AK.t1.usage.json" '. == {"input_tokens":1234,"output_tokens":56}'
+assert_json "$UD/$BK.t1.usage.json" '. == {"input_tokens":1234,"output_tokens":56}'
+assert_file_contains "$SANDBOX/a.err" 'USAGE: {"input_tokens":1234,"output_tokens":56}'
+assert_file_contains "$SANDBOX/a.err" "USAGE_FILE: $UD/$AK.t1.usage.json"
+assert_file_contains "$SANDBOX/b.err" "USAGE_FILE: $UD/$BK.t1.usage.json"
+
+# A retry overwrites the seat's reply by contract — but never its ledger: the
+# quota the first attempt spent is already gone, so t2 is ADDED next to t1.
+unset CODEX_STUB_SLEEP
+export CODEX_STUB_LOG="$SANDBOX/logs/a2"
+export CODEX_STUB_REPLY="retry from A"
+run bash "$SCRIPTS/codex-swarm.sh" worker run-x seat-a "$SANDBOX/a.txt"
+assert_rc 0 "successful retry"
+assert_file_contains "$UD/$AK.reply.txt" "retry from A"
+assert_json "$UD/$AK.t1.usage.json" '. == {"input_tokens":1234,"output_tokens":56}'
+assert_json "$UD/$AK.t2.usage.json" '. == {"input_tokens":1234,"output_tokens":56}'
+assert_file_contains "$ERR" "USAGE_FILE: $UD/$AK.t2.usage.json"
+
+# A retry that burns quota and THEN fails is accounted for exactly the same way:
+# the exit code is the failure's, the ledger grows anyway.
+export CODEX_STUB_SCENARIO=empty-reply
+export CODEX_STUB_LOG="$SANDBOX/logs/a3"
+run bash "$SCRIPTS/codex-swarm.sh" worker run-x seat-a "$SANDBOX/a.txt"
+assert_rc 1 "retry with an empty reply"
+assert_json "$UD/$AK.t3.usage.json" '. == {"input_tokens":1234,"output_tokens":56}'
+assert_file_contains "$ERR" 'USAGE: {"input_tokens":1234,"output_tokens":56}'
+assert_file_contains "$ERR" "USAGE_FILE: $UD/$AK.t3.usage.json"
+
+# A genuine turn.failed never completed a turn: nothing is added, nothing is
+# corrupted, and no footer is emitted for the wrapper's schema to fill.
+export CODEX_STUB_SCENARIO=fail
+export CODEX_STUB_LOG="$SANDBOX/logs/a4"
+run bash "$SCRIPTS/codex-swarm.sh" worker run-x seat-a "$SANDBOX/a.txt"
+assert_rc 1 "retry that never completed a turn"
+assert_no_file "$UD/$AK.t4.usage.json"
+assert_not_contains "$ERR" "USAGE:"
+assert_not_contains "$ERR" "USAGE_FILE:"
+assert_json "$UD/$AK.t1.usage.json" '. == {"input_tokens":1234,"output_tokens":56}'
+assert_json "$UD/$AK.t3.usage.json" '. == {"input_tokens":1234,"output_tokens":56}'
+# Seat B's ledger was never touched by any of seat A's attempts.
+assert_no_file "$UD/$BK.t2.usage.json"

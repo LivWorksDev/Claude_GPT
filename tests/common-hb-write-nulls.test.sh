@@ -16,6 +16,8 @@ hbw() (
   TURN="${TURN_IN:-3}"
   HB_STARTED_AT=1700000000
   EVENTS_FILE="${EVENTS_IN:-}"
+  HB_TOKENS_IN="${TOK_IN:-}"
+  HB_TOKENS_OUT="${TOK_OUT:-}"
   HB_ROOT="$ROOT"
   hb_write "$1" "${2:-}"
 )
@@ -32,14 +34,30 @@ assert_json "$HB" '(.updated_at | type) == "number" and .updated_at > 1700000000
 assert_json "$HB" '.status == "running" and .role == "review"'
 assert_json "$HB" '.model == "gpt-5.6-sol" and .effort == "xhigh"'
 assert_json "$HB" '.sandbox == "read-only" and .target == "demo target"'
-# Exactly the twelve documented keys, no more.
-assert_json "$HB" '[keys_unsorted[]] | length == 12'
+# Absent token counts are JSON nulls too — never 0, which would claim a turn
+# was free, and never "" where the status line expects a number.
+assert_json "$HB" '.tokens_in == null and .tokens_out == null'
+assert_json "$HB" '(.tokens_in | type) == "null"'
+# Exactly the fourteen documented keys, no more.
+assert_json "$HB" '[keys_unsorted[]] | length == 14'
 
 # --- present values are strings ---------------------------------------------
 EVENTS_IN="$SANDBOX/e.ndjson" hbw "done" APPROVED
 assert_json "$HB" '.verdict == "APPROVED"'
 assert_json "$HB" '.events == "'"$SANDBOX/e.ndjson"'"'
 assert_json "$HB" '.status == "done"'
+
+# --- token counts: numbers when closed, ALWAYS null while running ------------
+TOK_IN=1234 TOK_OUT=56 hbw "done" APPROVED
+assert_json "$HB" '.tokens_in == 1234 and .tokens_out == 56'
+assert_json "$HB" '(.tokens_in | type) == "number" and (.tokens_out | type) == "number"'
+
+TOK_IN=1234 TOK_OUT=56 hbw running
+assert_json "$HB" '.tokens_in == null and .tokens_out == null'
+
+# Anything that is not a number degrades to null instead of poisoning the field.
+TOK_IN="lots" TOK_OUT="" hbw "done"
+assert_json "$HB" '.tokens_in == null and .tokens_out == null'
 
 # --- the file is replaced atomically: no half-written object, no temp litter --
 assert_eq "1" "$(find "$ROOT/state" -maxdepth 1 -type f | wc -l | tr -d ' ')" \

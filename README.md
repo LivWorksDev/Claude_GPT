@@ -142,7 +142,7 @@ Invariantes del modo: sandbox `workspace-write` fijado; los turnos de imagen sol
 - `docs/BACKLOG.md` — backlog trazable de mejoras (auditoría 2026-07-30): hallazgo → plan → estado.
 - `.tandem/` — estado por proyecto, auto-gitignorado y por-feature (clave = target + checksum; una feature nueva nunca pisa el estado de otra): hilos, y prompt/respuesta/eventos POR TURNO (`state/…tN.*`), log append-only del debate (`log/`).
 - `.tandem/state/implement-claude/<slug>.json` + `<slug>.t<N>.report.md` — espejo durable del intento Opus; `plan_hash` es el blob commiteado, no la working copy que cambia al marcar checkboxes.
-- `.tandem/state/current.json` — heartbeat de la status line (rol, modelo, effort, sandbox, turno, pid, estado, veredicto). Artefacto de presentación: se escribe de forma atómica y su fallo nunca aborta un turno.
+- `.tandem/state/current.json` — heartbeat de la status line (rol, modelo, effort, sandbox, turno, pid, estado, veredicto, y `tokens_in`/`tokens_out` del turno — null mientras `running`, poblados al cerrar; la status line los muestra humanizados, `1.2k→56`). Artefacto de presentación: se escribe de forma atómica y su fallo nunca aborta un turno.
 
 ## Tests
 

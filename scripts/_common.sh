@@ -151,6 +151,96 @@ state_init() {
   fi
 }
 
+# --- token accounting ------------------------------------------------------
+# Every `turn.completed` event carries the turn's `usage`. The ChatGPT quota is
+# the real operating constraint of a tandem run, so that number is persisted
+# next to the turn's other artefacts instead of scrolling past in the live
+# panel. The scripts only ever record the raw datum: who sums it per round, per
+# phase or per run is the orchestrator's business (the skills), because a
+# wrapper knows nothing about rounds or runs.
+
+# turn_usage <events-file> — prints ONE compact JSON object: the field-by-field
+# SUM of the `.usage` of EVERY `turn.completed` in the stream. Prints nothing
+# (and returns 0) when the file is absent, empty, malformed, or carries no such
+# event.
+#
+# Why a sum and not "the last one wins": 36/36 real streams archived under
+# .tandem/state/review/ (codex-cli 0.144.4) carry EXACTLY ONE `turn.completed`,
+# so for every stream ever observed here the sum IS the object verbatim. Should
+# the CLI ever emit one event per internal attempt, summing counts what the
+# retries cost — discarding them would under-report precisely the expensive
+# turns this ledger exists to expose, and that is the one unrecoverable error.
+#
+# Field names are codex's, verbatim (`input_tokens`, `cached_input_tokens`,
+# `output_tokens`, `reasoning_output_tokens` observed), so a future NUMERIC
+# field rides along for free; a non-numeric value is dropped rather than allowed
+# to break the sum. Malformed lines are skipped exactly like stream_milestones
+# (fromjson?), and a jq failure degrades to "no usage", never to an error.
+turn_usage() {
+  local f="${1:-}"
+  [ -n "$f" ] && [ -f "$f" ] || return 0
+  jq -Rrs '
+    [ split("\n")[] | fromjson? | objects
+      | select(.type == "turn.completed") | .usage | objects ]
+    | if length == 0 then empty
+      else
+        reduce .[] as $u ({};
+          reduce ($u | to_entries[]) as $e (.;
+            if ($e.value | type) == "number"
+            then .[$e.key] = ((.[$e.key] // 0) + $e.value)
+            else . end))
+        | tojson
+      end' "$f" 2>/dev/null || true
+  return 0
+}
+
+# usage_number <usage-json> <key> — the value of <key> when it really is a
+# number, nothing otherwise: the heartbeat must never carry a string where the
+# status line expects an integer.
+usage_number() {
+  printf '%s' "${1:-}" | jq -r --arg k "${2:-}" \
+    'if (.[$k] | type) == "number" then .[$k] else empty end' 2>/dev/null || true
+  return 0
+}
+
+# usage_persist <dest> <json> — atomic best-effort write (temp file in the same
+# directory + mv). Returns non-zero when the file did not land, so a caller can
+# decide whether to advertise the path, but it NEVER aborts the turn: under
+# `set -euo pipefail` a failed redirection would take down a turn that already
+# burned real quota, and half a JSON object on disk is worse than none. Same
+# contract as the heartbeat — accounting is a ledger, never a gate.
+#
+# A destination that exists and is not a plain file is left alone (`mv` would
+# move the temp file INSIDE a directory and call it a success): it is not ours
+# to replace, and reporting failure keeps the footer honest.
+usage_persist() {
+  local dest="${1:-}" json="${2:-}" dir tmp
+  [ -n "$dest" ] || return 1
+  if [ -e "$dest" ] && [ ! -f "$dest" ]; then return 1; fi
+  dir="$(dirname -- "$dest")"
+  [ -d "$dir" ] || return 1
+  tmp="$(mktemp "$dir/.usage.XXXXXX" 2>/dev/null)" || return 1
+  if printf '%s\n' "$json" >"$tmp" 2>/dev/null \
+    && mv -f "$tmp" "$dest" 2>/dev/null && [ -f "$dest" ]; then
+    return 0
+  fi
+  rm -f "$tmp" 2>/dev/null || true
+  return 1
+}
+
+# usage_next_index <prefix> — the next free N for `<prefix>.t<N>.usage.json`.
+# Swarm seats have no turn counter (a retry overwrites the seat's files by
+# contract), but the quota a previous attempt burned is already spent, so its
+# usage accumulates as a ledger instead of being overwritten. Retries of one
+# seat are sequential, so scanning for the first free slot is enough.
+usage_next_index() {
+  local prefix="${1:-}" n=1
+  while [ -e "$prefix.t$n.usage.json" ]; do
+    n=$((n + 1))
+  done
+  printf '%s' "$n"
+}
+
 # --- heartbeat -------------------------------------------------------------
 # A single JSON file the status line reads to show what Codex is doing right
 # now. It is a *display* artefact: every write is best-effort and must never
@@ -161,6 +251,11 @@ state_init() {
 # refresh can never observe a half-written object.
 
 # hb_write <status> [verdict] — status: running | done | failed
+#
+# tokens_in/tokens_out come from $HB_TOKENS_IN/$HB_TOKENS_OUT, which the
+# wrappers fill from the turn's usage the moment the pipeline ends. They are
+# ALWAYS null while 'running': the usage only exists once the turn closes, and
+# showing the previous turn's tokens during a new one would simply be a lie.
 hb_write() {
   local status="$1" verdict="${2:-}" tmp root
   root="${HB_ROOT:-${STATE_ROOT:-}}"
@@ -177,6 +272,8 @@ hb_write() {
     --arg status "$status" \
     --arg verdict "$verdict" \
     --arg events "${EVENTS_FILE:-}" \
+    --arg tokens_in "${HB_TOKENS_IN:-}" \
+    --arg tokens_out "${HB_TOKENS_OUT:-}" \
     --argjson turn "${TURN:-0}" \
     --argjson pid "$$" \
     --argjson started_at "${HB_STARTED_AT:-0}" \
@@ -185,7 +282,11 @@ hb_write() {
       target:$target, turn:$turn, pid:$pid, started_at:$started_at,
       updated_at:$updated_at, status:$status,
       verdict:(if $verdict == "" then null else $verdict end),
-      events:(if $events == "" then null else $events end)}' \
+      events:(if $events == "" then null else $events end),
+      tokens_in:(if $status == "running" then null
+                 else (($tokens_in | tonumber?) // null) end),
+      tokens_out:(if $status == "running" then null
+                  else (($tokens_out | tonumber?) // null) end)}' \
     >"$tmp" 2>/dev/null
   then
     mv -f "$tmp" "$root/state/current.json" 2>/dev/null || rm -f "$tmp"

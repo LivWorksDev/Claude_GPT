@@ -25,7 +25,7 @@ Risk calibration (recommend to the user, they decide):
 - Need the previous Codex CLI implementation transport → `TANDEM_IMPLEMENTER=sol` (Sol implements at effort high).
 - Auth / migrations / payments / multi-tenancy / concurrency → `TANDEM_CRITICAL=1` and never skip the review phase. With the default Opus transport, Agent exposes no effort control, so the flag does not alter implementation effort; with `TANDEM_IMPLEMENTER=sol`, it raises Sol to xhigh.
 
-Rules that hold across all phases: deadlock is presented, never papered over; the implementer never commits; nothing is committed without the user's explicit approval (in autonomous mode that approval is delegated to the policies below, and commits still land only on the tandem branch); every phase appends to `.tandem/log/<slug>.md`.
+Rules that hold across all phases: deadlock is presented, never papered over; the implementer never commits; nothing is committed without the user's explicit approval (in autonomous mode that approval is delegated to the policies below, and commits still land only on the tandem branch); every phase appends to `.tandem/log/<slug>.md`, token accounting included — each phase writes a `tokens:` figure on every round line, and the run's closing summary aggregates them per phase and for the whole run.
 
 ## Autonomous mode — `TANDEM_AUTONOMOUS=1`
 
@@ -42,7 +42,7 @@ End-to-end without mid-run interaction. HITL moves to the edges: a complete brie
 
 **Red lines (identical to interactive mode):** never push, never merge, never touch the default branch; sandboxes, models and round caps unchanged; deadlock is terminal — an APPROVED that never arrived is never synthesized, overridden or "approved by exhaustion".
 
-**Terminal states** — every autonomous run ends in exactly one, with a final report (assumptions applied, verdict + rounds per phase, diffstat, testing-gate summary, branch name, log path):
+**Terminal states** — every autonomous run ends in exactly one, with a final report (assumptions applied, verdict + rounds per phase, diffstat, testing-gate summary, branch name, log path, and the token accounting: the aggregate per phase plus the total for the whole run, summed from the per-round `tokens:` lines each phase wrote to `.tandem/log/<slug>.md`; a phase implemented under the `opus` transport reports `n/a (transporte opus)`). The token accounting is part of the report in EVERY terminal state, DEADLOCK, PARTIAL and FAILED included — a run that ended without a commit still spent the quota of every turn it ran, and that is exactly when knowing the cost matters:
 - `COMPLETED` — committed on `tandem/<slug>`, ready for human review and merge.
 - `DEADLOCK` — plan or review never reached APPROVED (including NEEDS_REWORK); nothing committed beyond an already-approved plan, and that one lives on `tandem/<slug>`; main is left intact.
 - `PARTIAL` — implementation incomplete after the continuation cap; nothing committed.

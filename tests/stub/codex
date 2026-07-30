@@ -193,7 +193,10 @@ emit_events() {
       emit '{"type":"turn.failed","error":{"message":"stub forced failure"}}'
       ;;
     *)
-      emit '{"type":"turn.completed","usage":{"input_tokens":1234,"output_tokens":56}}'
+      # Usage values overridable per invocation so a retry test can tell two
+      # attempts' ledger entries apart; defaults preserve every existing
+      # assertion.
+      emit "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":${CODEX_STUB_TOKENS_IN:-1234},\"output_tokens\":${CODEX_STUB_TOKENS_OUT:-56}}}"
       ;;
   esac
 }

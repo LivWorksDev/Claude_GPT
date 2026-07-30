@@ -56,13 +56,15 @@ TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-start.sh" review cr-<slug> \
 
 ## Step 3 — Loop (max $TANDEM_CR_ROUNDS or 3)
 
+**Token accounting — every round, unconditionally, before reading the `VERDICT:` line.** Every Codex turn of this skill (Step 2's launch and each round's resume) prints exactly one `USAGE: {…}` line on stderr, absent only when the stream carried no `turn.completed`. Copy it into that round's line of `.tandem/log/<slug>.md` — `## Round <n> — code review · tokens: in <input_tokens> · out <output_tokens>`, or `tokens: n/a` when the line is absent — **before** you branch on the verdict. An APPROVED-at-the-first-attempt review costs quota exactly like a REQUEST_CHANGES one, so its round line is written too.
+
 Read the final `VERDICT:` line:
 
 - No `VERDICT:` line at all → resume the SAME thread asking only for the missing verdict line; this counts as a round. If it happens twice, treat the reply as REQUEST_CHANGES and note the anomaly in the log.
 - `VERDICT: APPROVED` → go to Step 4.
 - `VERDICT: REQUEST_CHANGES` → arbitrate each finding by severity (Critical/Major must be fixed or explicitly rebutted with evidence; Minor/Suggestion at your judgment):
   1. Apply fixes yourself — every file by absolute `$WORK_ROOT/...` path — or resume the *implement* thread for large ones (that resume also carries `TANDEM_CODEX_CWD="$WORK_ROOT"`). Re-run the testing gate after any fix, `cd "$WORK_ROOT" && …`.
-  2. Log round + dispositions in `.tandem/log/<slug>.md`; write dispositions to `.tandem/tmp/<slug>-cr-dispositions.md`. If Step 2 needed the inline-DIFF fallback, append the UPDATED diff (`git -C "$WORK_ROOT" diff`) under a `DIFF:` heading at the end of that same dispositions file — otherwise the reviewer cannot see your fixes.
+  2. Log the round's findings + dispositions in `.tandem/log/<slug>.md`, BENEATH the round heading the accounting step already wrote — never a second `## Round <n>` heading (one token-bearing entry per round); write dispositions to `.tandem/tmp/<slug>-cr-dispositions.md`. If Step 2 needed the inline-DIFF fallback, append the UPDATED diff (`git -C "$WORK_ROOT" diff`) under a `DIFF:` heading at the end of that same dispositions file — otherwise the reviewer cannot see your fixes.
   3. Resume the SAME reviewer thread (Bash timeout: 600000):
 
 ```bash
@@ -75,7 +77,7 @@ TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-resume.sh" review cr-<slug> \
 
 ## Step 4 — Human gate, then commit
 
-Present: diff summary, gate summary, reviewer verdict, rounds used, link to the log. Ask the user to approve the diff (AskUserQuestion).
+Present: diff summary, gate summary, reviewer verdict, rounds used, this phase's token total (the sum of the per-round `tokens:` lines in the log, in and out), link to the log. Ask the user to approve the diff (AskUserQuestion).
 
 **`TANDEM_AUTONOMOUS=1`**: the gate becomes policy — commit without asking ONLY when the reviewer's verdict is `APPROVED` **and** the testing-gate summary in the log is green (re-run after any fix). `TANDEM_PROMOTE_REVIEWS` was validated as set (0/1) at the run preflight — honor its value, never ask. The commit lands on `tandem/<slug>` and the run ends there: no push, no merge, no PR — those remain human.
 
