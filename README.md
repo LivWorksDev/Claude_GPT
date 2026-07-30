@@ -72,11 +72,25 @@ Además, los turnos lanzados en background narran su progreso en el panel **Shel
 | Implementador Sol crítico (`TANDEM_CRITICAL=1`) | `gpt-5.6-sol` | `xhigh` | Sandbox OS `workspace-write` |
 | Generador de imágenes | `gpt-5.6-sol` | `high` | `workspace-write` (fijado, no sobreescribible) |
 
+Política forzada en **todos** los turnos Codex (start, resume y asientos de enjambre), con el argv congelado byte a byte por la suite:
+
+| Frontera | Cómo se fuerza | Alcance |
+| --- | --- | --- |
+| Config del usuario | `--ignore-user-config` + `--ignore-rules` | Todos: ni `config.toml` ni execpolicies `.rules` llegan al turno (el login sigue funcionando) |
+| Sandbox | `--sandbox <modo>` + `-c sandbox_mode=<modo>` | Todos |
+| Red de comandos | `-c sandbox_workspace_write.network_access=false` | Todos |
+| Raíces escribibles | `-c sandbox_workspace_write.writable_roots=[]` | Todos (los roots del config se AÑADEN a la primaria: sin el pin, el checkout principal seguiría escribible) |
+| Aprobaciones | `-c approval_policy=never -c approvals_reviewer=user` | Todos: un turno headless nunca auto-aprueba un escape de sandbox |
+| Búsqueda web nativa | `-c web_search=disabled` | Solo roles de **escritura** (`implement`, `image`), donde el prompt promete que no hay red. `review`/`ask`/`ultra` la conservan: no pueden escribir y el default deja de depender del config del usuario |
+| Temp roots (`/tmp`, `$TMPDIR`) | sin pin, a propósito | Escribibles: las herramientas los necesitan y no son el árbol del proyecto |
+
+`scripts/config-probe.sh` vigila que ninguna de esas claves se haya renombrado en silencio (la CLI acepta una clave desconocida con rc 0), y el smoke semanal lo ejecuta contra la CLI pineada y `@latest`.
+
 La frontera Opus es una allowlist aplicada por Claude Code: elimina herramientas MCP, conectores, web y subagentes anidados, pero Bash no equivale a un sandbox OS y podría ejecutar comandos fuera de esa lista si la sesión los permite. El agent type y el prompt prohíben commits, pushes, cambios de rama/remotos y trabajo fuera de la ruta indicada; Fable comprueba después rama, `HEAD`, remotos y diff. El transporte Sol conserva el sandbox OS existente. `CLAUDE_CODE_SUBAGENT_MODEL`, si está definida, debe valer exactamente `opus` o el preflight para; el modelo auto-reportado por el subagente es informativo, no una verificación runtime robusta.
 
 Por encima de `xhigh` existen `max` y `ultra`; para una revisión final especialmente delicada puedes usar `TANDEM_REVIEW_EFFORT=ultra` puntualmente.
 
-Overrides por entorno: `TANDEM_IMPLEMENTER` (`opus` default / `sol`; cualquier otro valor falla), `TANDEM_REVIEW_MODEL`, `TANDEM_REVIEW_EFFORT`, `TANDEM_IMPLEMENT_MODEL`, `TANDEM_IMPLEMENT_EFFORT` (estos dos últimos solo afectan al transporte Sol), `TANDEM_IMAGE_MODEL`, `TANDEM_IMAGE_EFFORT`, `TANDEM_PLAN_ROUNDS`, `TANDEM_CR_ROUNDS`, `TANDEM_IMPL_ROUNDS`, `TANDEM_WORKTREE`, `TANDEM_AUTONOMOUS`, `TANDEM_PROMOTE_REVIEWS` (`1` siempre / `0` nunca / sin definir: se ofrece en el gate), y para los enjambres `TANDEM_ULTRA_{JUDGE,WORKER,SCOUT}_MODEL`/`_EFFORT` y `TANDEM_ULTRA_CONCURRENCY`. Los sandboxes Codex no se pueden sobreescribir y `danger-full-access`/`--yolo` no se usan nunca.
+Overrides por entorno: `TANDEM_IMPLEMENTER` (`opus` default / `sol`; cualquier otro valor falla), `TANDEM_REVIEW_MODEL`, `TANDEM_REVIEW_EFFORT`, `TANDEM_IMPLEMENT_MODEL`, `TANDEM_IMPLEMENT_EFFORT` (estos dos últimos solo afectan al transporte Sol), `TANDEM_IMAGE_MODEL`, `TANDEM_IMAGE_EFFORT`, `TANDEM_PLAN_ROUNDS`, `TANDEM_CR_ROUNDS`, `TANDEM_IMPL_ROUNDS`, `TANDEM_WORKTREE` (**implement/review-only**: `ask` e `image` nunca se anclan a un worktree), `TANDEM_CODEX_CWD` (raíz de trabajo del turno; se reenvía literal como `codex exec --cd` y debe nombrar un directorio existente — vacío o inexistente falla con 64. Las skills la resuelven con `scripts/worktree-root.sh <slug>`, que falla cerrado en vez de caer al checkout principal), `TANDEM_AUTONOMOUS`, `TANDEM_PROMOTE_REVIEWS` (`1` siempre / `0` nunca / sin definir: se ofrece en el gate), y para los enjambres `TANDEM_ULTRA_{JUDGE,WORKER,SCOUT}_MODEL`/`_EFFORT` y `TANDEM_ULTRA_CONCURRENCY`. Los sandboxes Codex no se pueden sobreescribir y `danger-full-access`/`--yolo` no se usan nunca.
 
 ## Modo autonomous
 
@@ -114,7 +128,7 @@ Invariantes del modo: sandbox `workspace-write` fijado; los turnos de imagen sol
 ## Invariantes de seguridad
 
 - El revisor nunca escribe. El implementador Opus recibe una única ruta de trabajo y una allowlist mínima; Bash sin sandbox OS queda como riesgo residual explícito. El implementador Sol no sale de `workspace-write`.
-- El sandbox Codex se re-fija en **cada** reanudación (`codex exec --sandbox … resume …` + `-c sandbox_mode=…`): nunca se hereda del `config.toml` del usuario.
+- El sandbox Codex se re-fija en **cada** turno, arranque y reanudación (`codex exec --sandbox …` + `-c sandbox_mode=…`), y el `config.toml` del usuario ni siquiera se carga (`--ignore-user-config` + `--ignore-rules`): ningún turno hereda red de comandos, raíces escribibles extra, auto-aprobaciones, servidores MCP ni execpolicies del entorno.
 - Árbol git limpio obligatorio antes de delegar escritura en un intento fresco; reanudar un intento coincidente (identidad validada contra el estado durable) llega legítimamente con su propio trabajo sin commitear. Rama dedicada siempre; worktree opcional.
 - Thread IDs Codex persistidos en `.tandem/state/`; los intentos Opus reflejan identidad, agente, rondas, sentinel e informes en `.tandem/state/implement-claude/`. Ambos sobreviven a compactaciones de la sesión de Claude.
 - Loops acotados con el deadlock como resultado legítimo: los desacuerdos se muestran, no se maquillan.

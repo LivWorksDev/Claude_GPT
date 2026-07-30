@@ -6,6 +6,10 @@
 #   target  plan path or kebab-case topic label; it is the state key, reuse it verbatim
 #   extra-file / notes-file  optional files whose content fills {{EXTRA}} / {{NOTES}}
 #
+# env: TANDEM_CODEX_CWD  optional working root for the turn (`--cd`); the thread
+#      state and the heartbeat stay where CLAUDE_PROJECT_DIR points — see
+#      codex_cwd_validate/codex_pins in _common.sh for the whole policy block.
+#
 # exit codes: 0 ok · 1 codex failure · 2 thread already exists (resume instead)
 #             3 missing dependency · 64 usage error
 
@@ -17,9 +21,11 @@ SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 [ $# -ge 3 ] || die "usage: codex-start.sh <role> <target> <template.tpl> [extra-file] [notes-file]" 64
 ROLE_ARG="$1" TARGET="$2" TPL="$3" EXTRA_FILE="${4:-}" NOTES_FILE="${5:-}"
 
+codex_cwd_validate
 need_codex
 need_jq
 resolve_role "$ROLE_ARG"
+codex_pins
 state_init
 
 KEY="$(target_key "$TARGET")"
@@ -61,6 +67,7 @@ codex exec \
   --model "$CODEX_MODEL" \
   --sandbox "$CODEX_SANDBOX" \
   -c model_reasoning_effort="$CODEX_EFFORT" \
+  "${CODEX_PINS[@]}" \
   --output-last-message "$MSG_FILE" \
   - <"$PROMPT_FILE" 2>"$EVENTS_FILE.stderr" \
   | tee "$EVENTS_FILE" | stream_milestones

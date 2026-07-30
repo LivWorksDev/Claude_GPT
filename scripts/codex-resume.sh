@@ -2,11 +2,13 @@
 # tandem — resume an EXISTING Codex thread, re-pinning model, effort and sandbox.
 #
 # `codex exec resume` accepts the shared options only BEFORE the subcommand,
-# so they are passed to the parent `exec`; the sandbox is additionally forced
-# via `-c sandbox_mode=...` so a resumed turn can never fall back to whatever
-# default lives in the user's ~/.codex/config.toml.
+# so they are passed to the parent `exec`; the whole policy block (sandbox,
+# network, writable roots, approvals — see codex_pins in _common.sh) rides
+# there too, so a resumed turn can never fall back to whatever default lives in
+# the user's ~/.codex/config.toml.
 #
 # usage: codex-resume.sh <role> <target> <prompt-template.tpl> [extra-file] [notes-file]
+# env:   TANDEM_CODEX_CWD  optional working root for the turn (`--cd`)
 # exit codes: 0 ok · 1 codex failure · 2 no thread yet (start instead)
 #             3 missing dependency · 64 usage error
 
@@ -18,9 +20,11 @@ SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 [ $# -ge 3 ] || die "usage: codex-resume.sh <role> <target> <template.tpl> [extra-file] [notes-file]" 64
 ROLE_ARG="$1" TARGET="$2" TPL="$3" EXTRA_FILE="${4:-}" NOTES_FILE="${5:-}"
 
+codex_cwd_validate
 need_codex
 need_jq
 resolve_role "$ROLE_ARG"
+codex_pins
 state_init
 
 KEY="$(target_key "$TARGET")"
@@ -68,7 +72,7 @@ codex exec \
   --model "$CODEX_MODEL" \
   --sandbox "$CODEX_SANDBOX" \
   -c model_reasoning_effort="$CODEX_EFFORT" \
-  -c sandbox_mode="$CODEX_SANDBOX" \
+  "${CODEX_PINS[@]}" \
   --output-last-message "$MSG_FILE" \
   resume "$THREAD_ID" - <"$PROMPT_FILE" 2>"$EVENTS_FILE.stderr" \
   | tee "$EVENTS_FILE" | stream_milestones

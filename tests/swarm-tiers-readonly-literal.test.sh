@@ -18,7 +18,7 @@ check() {
   runkey="$(tkey run-1)"
   seatkey="$(tkey "$seat")"
   msg="$CLAUDE_PROJECT_DIR/.tandem/state/ultra/$runkey/$seatkey.reply.txt"
-  assert_argv "$N" "exec${US}--json${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}${model}${US}--sandbox${US}read-only${US}-c${US}model_reasoning_effort=${effort}${US}--output-last-message${US}${msg}${US}-"
+  assert_argv "$N" "exec${US}--json${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}${model}${US}--sandbox${US}read-only${US}-c${US}model_reasoning_effort=${effort}${US}--ignore-user-config${US}--ignore-rules${US}-c${US}sandbox_mode=read-only${US}-c${US}sandbox_workspace_write.network_access=false${US}-c${US}sandbox_workspace_write.writable_roots=[]${US}-c${US}approval_policy=never${US}-c${US}approvals_reviewer=user${US}--output-last-message${US}${msg}${US}-"
   assert_file_contains "$CLAUDE_PROJECT_DIR/.tandem/state/ultra/$runkey/$seatkey.prompt.txt" \
     "fully rendered seat prompt"
   assert_file_contains "$(stub_stdin "$N")" "fully rendered seat prompt"
@@ -45,14 +45,19 @@ export TANDEM_ULTRA_SANDBOX=danger-full-access
 check judge s-judge3 j-model low
 unset CODEX_SANDBOX TANDEM_ULTRA_SANDBOX
 
-# `read-only` is a literal in every recorded argv, and no seat ever emitted
-# -c sandbox_mode= (that is resume's business).
+# `read-only` is a literal in every recorded argv — as the --sandbox value AND
+# as the `-c sandbox_mode=` belt every seat now carries. `workspace-write`
+# survives only as the prefix of the network/roots pin keys, never as a value,
+# so the negative assertion targets the values it could wrongly take.
 i=1
 while [ "$i" -le "$N" ]; do
   assert_file_contains "$CODEX_STUB_LOG.argv.$i" "read-only"
-  assert_not_contains "$CODEX_STUB_LOG.argv.$i" "workspace-write"
+  assert_file_contains "$CODEX_STUB_LOG.argv.$i" "sandbox_mode=read-only"
+  assert_not_contains "$CODEX_STUB_LOG.argv.$i" "--sandbox${US}workspace-write"
+  assert_not_contains "$CODEX_STUB_LOG.argv.$i" "sandbox_mode=workspace-write"
   assert_not_contains "$CODEX_STUB_LOG.argv.$i" "danger-full-access"
-  assert_not_contains "$CODEX_STUB_LOG.argv.$i" "sandbox_mode="
+  # Swarm seats are read-only, so they keep the native search tool.
+  assert_not_contains "$CODEX_STUB_LOG.argv.$i" "web_search"
   i=$((i + 1))
 done
 

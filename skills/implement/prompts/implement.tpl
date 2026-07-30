@@ -9,7 +9,8 @@ CONTRACT:
 - Self-check with the project's lint/build/test commands where available inside the sandbox.
 - NEVER run: git commit, git push, git tag, version bumps, changelog edits.
 - No new dependencies. If something truly requires one, do not install it — report it as a leftover.
-- Network access is unavailable; work with what is in the repository.
+- Network access is unavailable: the sandbox has no network for your commands and the web search tool is disabled. Both are enforced by explicit pins, not by convention — work with what is in the repository.
+- The directory you start in is the only working root of this project. Read and write only inside it (temporary files under /tmp or $TMPDIR are fine); never reach for another checkout of the same repository.
 
 {{EXTRA}}
 

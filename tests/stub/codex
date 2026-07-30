@@ -23,6 +23,14 @@
 #   CODEX_STUB_SLEEP        seconds to sleep before emitting anything
 #   CODEX_STUB_VERSION_RC   exit code of `codex --version` (default 0)
 #   CODEX_STUB_LOGIN_RC     exit code of `codex login …`   (default 0)
+#   CODEX_STUB_CONFIG_REJECT  space-separated list of `-c` keys that `codex
+#                           debug …` still KNOWS: it rejects a bad value for
+#                           them (rc 1, naming the key). Every other key is
+#                           accepted in SILENCE (rc 0) — the real 0.144.4
+#                           behaviour for a key that does not exist, and the
+#                           way a test simulates one being renamed away.
+#   CODEX_STUB_DEBUG_RC     exit code of `codex debug …` with no `-c` at all
+#                           (default 0 — the probe's preflight)
 #   CODEX_STUB_HB_FILE      heartbeat snapshotted during the RUNNING phase
 #                           (default $CLAUDE_PROJECT_DIR/.tandem/state/current.json)
 #
@@ -52,7 +60,7 @@ SCENARIO="${CODEX_STUB_SCENARIO:-ok}"
 TID="${CODEX_STUB_THREAD_ID:-thr_stub_1}"
 TID2="${CODEX_STUB_THREAD_ID_2:-thr_stub_2}"
 
-# --- dispatch: --version wins, then login, then the exec branch -------------
+# --- dispatch: --version wins, then login, then debug, then the exec branch --
 if [ "${1:-}" = "--version" ]; then
   rc="${CODEX_STUB_VERSION_RC:-0}"
   [ "$SCENARIO" = "version-fail" ] && rc="${CODEX_STUB_VERSION_RC:-1}"
@@ -66,6 +74,29 @@ fi
 
 if [ "${1:-}" = "login" ]; then
   exit "${CODEX_STUB_LOGIN_RC:-0}"
+fi
+
+# `codex debug prompt-input …` validates the config and exits WITHOUT calling
+# the model. It deliberately shares nothing with the exec branch below — in
+# particular it does not advance the invocation counter, so a test can prove
+# that scripts/config-probe.sh never started a real turn simply by asserting
+# that no argv was ever recorded.
+if [ "${1:-}" = "debug" ]; then
+  stub_prev=""
+  for a in "$@"; do
+    if [ "$stub_prev" = "-c" ]; then
+      stub_key="${a%%=*}"
+      stub_val="${a#*=}"
+      case " ${CODEX_STUB_CONFIG_REJECT:-} " in
+        *" $stub_key "*)
+          printf 'Error: unknown variant `%s` in `%s`\n' "$stub_val" "$stub_key" >&2
+          exit 1
+          ;;
+      esac
+    fi
+    stub_prev="$a"
+  done
+  exit "${CODEX_STUB_DEBUG_RC:-0}"
 fi
 
 # --- exec branch ------------------------------------------------------------

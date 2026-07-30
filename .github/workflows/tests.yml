@@ -156,6 +156,7 @@ jobs:
             ask smoke-pinned "$proj/ask.tpl"
           echo "proj=$proj" >> "$GITHUB_OUTPUT"
 
+
       # Pass B: what the README actually tells users to install. A smoke that
       # only ever exercises the pinned version stays green forever while a new
       # incompatible CLI breaks production.
@@ -203,6 +204,8 @@ jobs:
             echo "| --- | --- |"
             echo "| A — pinned 0.144.4 | ${A:-skipped} |"
             echo "| B — @latest + drift | ${B:-skipped} |"
+            echo ''
+            echo "Config-key drift is reported by the ungated config-drift job."
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "${GATE:-false}" != "true" ]; then
             echo "no secret configured — nothing ran."
@@ -211,4 +214,64 @@ jobs:
           rc=0
           [ "${A:-skipped}" = "failure" ] && rc=1
           [ "${B:-skipped}" = "failure" ] && rc=1
+          exit "$rc"
+
+  # The key-drift watch needs NO credentials: config-probe.sh runs
+  # `codex debug prompt-input` under a throwaway CODEX_HOME, which validates the
+  # config and exits without ever calling a model. Keeping it inside the
+  # secret-gated smoke would mean that a repository without OPENAI_API_KEY — the
+  # common case for a fork — never learns that a security pin stopped applying.
+  # So it lives here, ungated, and only real model turns stay behind the secret.
+  config-drift:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: probe A — the pinned CLI still knows every pinned config key
+        id: probe_a
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          npm install -g @openai/codex@0.144.4
+          codex --version
+          bash "$GITHUB_WORKSPACE/scripts/config-probe.sh"
+
+      - name: probe B — @latest still knows every pinned config key
+        id: probe_b
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          npm install -g @openai/codex@latest
+          ver="$(codex --version)"
+          echo "resolved \`@openai/codex@latest\` = \`$ver\`" >> "$GITHUB_STEP_SUMMARY"
+          bash "$GITHUB_WORKSPACE/scripts/config-probe.sh"
+
+      - name: drift summary
+        if: always()
+        env:
+          PA: ${{ steps.probe_a.outcome }}
+          PB: ${{ steps.probe_b.outcome }}
+        run: |
+          set -uo pipefail
+          {
+            echo '### config key drift'
+            echo ''
+            echo "| probe | outcome |"
+            echo "| --- | --- |"
+            echo "| A — pinned 0.144.4 | ${PA:-skipped} |"
+            echo "| B — @latest | ${PB:-skipped} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          # The steps tolerate their own failure so that a dead pin in one CLI
+          # still lets the other be probed; the SIGNAL has to survive that, or a
+          # dead security pin would leave this job green forever. Job-level
+          # continue-on-error keeps the workflow non-blocking.
+          rc=0
+          [ "${PA:-skipped}" = "failure" ] && rc=1
+          [ "${PB:-skipped}" = "failure" ] && rc=1
           exit "$rc"

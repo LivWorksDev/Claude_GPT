@@ -10,16 +10,62 @@ You are the orchestrator. Claude Opus 5 implements by default; Sol is the opt-in
 
 Shared scripts: `SCRIPTS="${CLAUDE_SKILL_DIR}/../../scripts"`. Log: `.tandem/log/<slug>.md`.
 
-## Step 0 — Selector and hard gates (all non-negotiable)
+## Step 0 — Working root, selector and hard gates (all non-negotiable)
+
+### 0.0 — Working root: which route you are on decides WHEN you resolve it
+
+`WORK_ROOT` is the one variable everything downstream is anchored to, and an unset one
+silently means "the main checkout". But the resolver is fail-closed: with
+`TANDEM_WORKTREE=1` it exits 65 while the branch or the worktree does not exist yet — which
+is precisely the state a fresh attempt starts in. So branch **first**, on the durable
+attempt state (gate 4's check, which reads a file and touches nothing):
+
+- **Resume or recovery** (durable state exists and its identity matches) — the worktree
+  already exists, so resolve **now, before the gates**, and use `$WORK_ROOT` for gate 4's
+  dirty-path check and everything after:
+
+  ```bash
+  WORK_ROOT="$(bash "$SCRIPTS/worktree-root.sh" <slug>)"
+  ```
+
+- **Fresh attempt** (no state, or state discarded via the reset protocol) — the gates below
+  run against the **main checkout** (that is what the clean-tree gate is about), gate 6
+  creates the branch and, under `TANDEM_WORKTREE=1`, the worktree; resolve **immediately
+  after gate 6**, before Step 1 delegates anything.
+
+Never call the resolver before the worktree exists and never continue past a non-zero exit:
+it is a STOP, not a reason to guess a path.
+
+`worktree-root.sh` prints the main checkout when `TANDEM_WORKTREE` is unset (the default:
+nothing changes), and the absolute path of the worktree **registered** for `tandem/<slug>`
+when it is `1` — read from `git worktree list`, not from the `.worktrees/<slug>`
+convention, so a worktree you reused elsewhere still resolves. Zero matches, several
+matches, or a registered path missing from disk are hard errors (exit 65): it never falls
+back to the main checkout, because a silent fallback is exactly how work lands in the wrong
+tree.
+
+Once resolved, **everything** is anchored to `$WORK_ROOT`: `git -C "$WORK_ROOT" …` for every
+git command, absolute `$WORK_ROOT/...` paths for every Read/Edit/Write of a project file,
+`cd "$WORK_ROOT" && …` in the same command for every non-git command including the testing
+gate, and `TANDEM_CODEX_CWD="$WORK_ROOT"` on every Codex launch. The implementer prompt
+names that path as the **only** working directory. Do not assume a subagent — or your own
+shell — inherits the right cwd between calls.
+
+`TANDEM_WORKTREE` is **implement/review-only**. `tandem:ask` and `tandem:image` are never
+anchored to a worktree: expect no isolation there.
+
+### 0.1 onwards — the gates
 
 1. **Selector, before touching anything**: read `TANDEM_IMPLEMENTER`, defaulting to the exact value `opus` **only when the variable is unset**. The only valid values are `opus` and `sol`; a set-but-empty value is invalid like any other unknown value. Any invalid value is a hard error: report `TANDEM_IMPLEMENTER=<value> is invalid; expected opus or sol` and STOP. Never silently fall back.
 2. **Opus model preflight, also before touching anything**: when the selector is `opus`, if `CLAUDE_CODE_SUBAGENT_MODEL` is defined and its exact value is not `opus`, STOP. That environment variable takes precedence over the agent type's `model: opus`, so continuing would violate the selected transport. There is no reliable in-agent runtime model verification; the report's model field is an informative self-attestation only.
 3. **Plan gate**: `docs/plans/<slug>.plan.md` exists and the user approved it. Missing/unapproved → stop, send them to `/tandem:plan`.
-4. **Attempt-state gate, BEFORE the clean-tree gate**: check for durable state (`.tandem/state/implement-claude/<slug>.json` for `opus`; the thread state key for `sol`). A matching in-progress attempt (identity rules in Step 1) is a **resume**: its uncommitted implementation work is expected, so the clean-tree requirement below does not apply — verify instead that the dirty paths plausibly belong to the attempt (consistent with its last report and the plan's files-to-touch) and continue to Step 2's continuation/recovery flow. Only a fresh attempt (no state, or state discarded via the reset protocol) falls through to the next gate.
-5. **Clean-tree gate (fresh attempts only)**: `git status --porcelain` must be empty. Dirty → STOP and tell the user; never mix pre-existing changes into a delegated diff.
+4. **Attempt-state gate, BEFORE the clean-tree gate**: check for durable state (`.tandem/state/implement-claude/<slug>.json` for `opus`; the thread state key for `sol`). A matching in-progress attempt (identity rules in Step 1) is a **resume**: its uncommitted implementation work is expected, so the clean-tree requirement below does not apply — verify instead that the dirty paths plausibly belong to the attempt — `git -C "$WORK_ROOT" status --porcelain`, using the `WORK_ROOT` you resolved in §0.0 on the resume branch — consistent with its last report and the plan's files-to-touch, and continue to Step 2's continuation/recovery flow. Only a fresh attempt (no state, or state discarded via the reset protocol) falls through to the next gate.
+5. **Clean-tree gate (fresh attempts only)**: `git status --porcelain` in the **main checkout** must be empty — a fresh attempt has no worktree yet, and this gate exists to keep pre-existing changes out of the delegated diff. Dirty → STOP and tell the user; never mix pre-existing changes into a delegated diff.
 6. **Branch — in-place and worktree are mutually exclusive**: record the absolute plan path, `git rev-parse HEAD`, and `git remote -v` for the later safety check — under `opus`, persist these into the durable JSON as `base_head`/`remote_snapshot` the moment the attempt starts (Step 1), so the baseline survives session loss — then:
    - `TANDEM_WORKTREE` unset (default, in-place): `git checkout -b tandem/<slug>` (skip if already on it).
-   - `TANDEM_WORKTREE=1`: do **NOT** check the branch out in the main checkout — `git worktree add` refuses a branch that is already checked out. First ensure `.worktrees/` is ignored in the *user's* project (`grep -qx '.worktrees/' .git/info/exclude 2>/dev/null || echo '.worktrees/' >> .git/info/exclude`); then, if `tandem/<slug>` does not exist yet: `git worktree add .worktrees/<slug> -b tandem/<slug>`; if it already exists (resume): `git worktree add .worktrees/<slug> tandem/<slug>`, or reuse the already-registered worktree. Resolve `.worktrees/<slug>` to an absolute path. The implementer prompt names that path as the **only** working directory, and every verification and testing command below runs against it explicitly (`git -C <abs-path> …`, absolute paths, or `cd <abs-path> && …` in the same command). Do not assume a subagent — or your own shell — inherits the right cwd between calls.
+   - `TANDEM_WORKTREE=1`: do **NOT** check the branch out in the main checkout — `git worktree add` refuses a branch that is already checked out. First ensure `.worktrees/` is ignored in the *user's* project (`grep -qx '.worktrees/' .git/info/exclude 2>/dev/null || echo '.worktrees/' >> .git/info/exclude`); then, if `tandem/<slug>` does not exist yet: `git worktree add .worktrees/<slug> -b tandem/<slug>`; if it already exists (resume): `git worktree add .worktrees/<slug> tandem/<slug>`, or reuse the already-registered worktree.
+
+Fresh attempts resolve the working root **here**, now that the branch and (under `TANDEM_WORKTREE=1`) the worktree exist — `WORK_ROOT="$(bash "$SCRIPTS/worktree-root.sh" <slug>)"` — before Step 1 delegates anything. Resumes already resolved it in §0.0.
 
 ## Step 1 — Delegate through the selected transport
 
@@ -84,9 +130,11 @@ Before **any** reset, run the observational liveness guard, keyed on the **recor
 This is the existing Codex CLI flow, unchanged. For critical work (auth, migrations, concurrency, payments, tenant isolation) prefix the command with `TANDEM_CRITICAL=1` to raise Sol's reasoning effort from high to xhigh.
 
 ```bash
-bash "$SCRIPTS/codex-start.sh" implement docs/plans/<slug>.plan.md \
+TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-start.sh" implement docs/plans/<slug>.plan.md \
   "${CLAUDE_SKILL_DIR}/prompts/implement.tpl"
 ```
+
+`TANDEM_CODEX_CWD` is what makes the turn run inside the worktree (`codex exec --cd`). It deliberately does **not** move `CLAUDE_PROJECT_DIR`: the thread state and the heartbeat stay under the main checkout, so `codex-show`/`codex-reset` keep working from there and deleting the worktree never destroys the thread. Without `TANDEM_WORKTREE`, `WORK_ROOT` is the main checkout and the command is what it always was.
 
 Run with Bash `run_in_background: true` for any real feature (implementation regularly exceeds the 10-minute foreground cap); use foreground with `timeout: 600000` only for small plans. When a background run finishes, announce it clearly before doing anything else.
 
@@ -101,12 +149,12 @@ The reply ends with `IMPLEMENTATION_COMPLETE` or `IMPLEMENTATION_PARTIAL`.
 
 For `opus`, use `SendMessage` on the recorded agent id/name for every continuation; never launch a fresh agent while it still exists. Read `continuation_rounds` from the durable JSON, increment it after each PARTIAL continuation, save the new `.t<N>.report.md`, and update the JSON even when the sentinel is missing or the turn fails — including the continuation's new `task_id` with `status: "running"` at send time and `status: "terminal"` when its result arrives. The cap never resets on compaction or a new orchestrator session.
 
-If the recorded Opus agent no longer exists, launch a fresh `tandem:implementer` only as recovery of the same matching attempt. Render the Claude template with the complete plan and a recovery appendix containing: `git status -s`, the full tracked `git diff HEAD`, an explicit order to open and read every `??` file in full because it is absent from `git diff`, and the pending items from the last persisted report. Store the new agent identity without resetting `continuation_rounds`.
+If the recorded Opus agent no longer exists, launch a fresh `tandem:implementer` only as recovery of the same matching attempt. Render the Claude template with the complete plan and a recovery appendix containing: `git -C "$WORK_ROOT" status -s`, the full tracked `git -C "$WORK_ROOT" diff HEAD`, an explicit order to open and read every `??` file in full **by absolute `$WORK_ROOT/...` path** because it is absent from `git diff`, and the pending items from the last persisted report. Unqualified git here would read the main checkout and hand the recovered agent someone else's context. Store the new agent identity without resetting `continuation_rounds`.
 
 For `sol`, continue with the existing command and template, unchanged:
 
 ```bash
-bash "$SCRIPTS/codex-resume.sh" implement docs/plans/<slug>.plan.md \
+TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-resume.sh" implement docs/plans/<slug>.plan.md \
   "${CLAUDE_SKILL_DIR}/prompts/continue.tpl" \
   .tandem/tmp/<slug>-continue.md
 ```
@@ -115,14 +163,14 @@ bash "$SCRIPTS/codex-resume.sh" implement docs/plans/<slug>.plan.md \
 
 ## Step 3 — Your verification (never delegated)
 
-1. `git status -s` and read the **full diff** (`git diff`), like reviewing a contributor's PR: fidelity to the plan, unplanned deviations, plan checkboxes actually done. `git diff` does not show untracked files — Read every `??` entry in full; new files are usually the bulk of the change.
-2. Compare the current branch, `HEAD`, and `git remote -v` with the attempt's baseline — under `opus`, the durable `base_head`/`remote_snapshot` from the JSON (never conversation memory, so this works after recovery too); under `sol`, the pre-launch snapshot. Any implementer commit, branch change, or remote mutation is a hard safety failure; stop and surface it. This check mitigates the Opus transport's unsandboxed Bash and applies identically to Sol.
+1. `git -C "$WORK_ROOT" status -s` and read the **full diff** (`git -C "$WORK_ROOT" diff`), like reviewing a contributor's PR: fidelity to the plan, unplanned deviations, plan checkboxes actually done. `git diff` does not show untracked files — Read every `??` entry in full, by absolute `$WORK_ROOT/...` path; new files are usually the bulk of the change.
+2. Compare the current branch, `HEAD`, and `git -C "$WORK_ROOT" remote -v` with the attempt's baseline — under `opus`, the durable `base_head`/`remote_snapshot` from the JSON (never conversation memory, so this works after recovery too); under `sol`, the pre-launch snapshot. Any implementer commit, branch change, or remote mutation is a hard safety failure; stop and surface it. This check mitigates the Opus transport's unsandboxed Bash and applies identically to Sol.
 3. Fix small issues DIRECTLY yourself — ping-ponging trivia through delegation burns more than it saves. Large deviations → one continuation of the selected transport, then take over if still wrong.
 4. Append to the log: transport, files changed, deviations, your assessment. With Opus, note that its status-line second row is intentionally absent in v1; Claude Code's native subagent progress is the progress display.
 
 ## Step 4 — Testing gate (blocking)
 
-Run yourself — Codex's pasted output never counts as proof:
+Run yourself, every command anchored (`cd "$WORK_ROOT" && …` in the same command) — Codex's pasted output never counts as proof:
 1. Lint and typecheck (project's commands).
 2. The plan's PROOF command and affected tests.
 3. Add independent test cases where you see gaps the plan missed.

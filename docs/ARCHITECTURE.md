@@ -57,6 +57,38 @@ El implementador default usa un subagente Claude `model: opus` con allowlist de 
 - Eventos y stderr capturados POR TURNO en `.tandem/state/…` (nunca `2>/dev/null`): los fallos de auth/red/modelo son visibles.
 - Detección del fallback silencioso de `resume` (un id corrupto puede adjuntarse a otra sesión): si el turno reporta un `thread_id` distinto del pedido, fallo duro.
 
+### Pins de argv: qué NO puede heredar un turno de tandem
+
+Los tres wrappers (`codex-start.sh`, `codex-resume.sh`, `codex-swarm.sh`) llevan el mismo bloque de política en posición fija, generado por un único helper (`codex_pins()` en `scripts/_common.sh`) y congelado byte a byte por la suite:
+
+| Pin | Por qué |
+| --- | --- |
+| `--ignore-user-config` | Pinear claves una a una nunca cubre lo que no se enumera: servidores MCP con capacidad de red, claves futuras. Ignorar el `config.toml` del usuario elimina la clase entera; el login sobrevive porque auth usa `CODEX_HOME` |
+| `--ignore-rules` | Lo mismo para los ficheros execpolicy `.rules` de usuario o proyecto |
+| `-c sandbox_mode=<sandbox>` | Cinturón del `--sandbox`, ahora en los tres scripts y no solo en resume |
+| `-c sandbox_workspace_write.network_access=false` | Los comandos del sandbox se quedan sin red |
+| `-c sandbox_workspace_write.writable_roots=[]` | `--cd` aporta la raíz primaria, pero los roots configurados se AÑADEN: sin este pin, un `writable_roots` heredado mantiene escribible el checkout principal desde un turno anclado al worktree |
+| `-c approval_policy=never -c approvals_reviewer=user` | Con `approvals_reviewer=auto_review` en el config del usuario, un turno headless deja de forzar `never` y las peticiones de escape de sandbox o de red pasan a ser auto-aprobables |
+| `-c web_search=disabled` (solo roles de escritura) | `network_access` gobierna la red de los comandos, no la herramienta nativa de búsqueda; sin el pin, `implement.tpl` prometería "sin red" en falso |
+
+Los `-c` **siguen aplicándose y validándose** con `--ignore-user-config` puesto: flag y pins son complementarios, y los pins explícitos quedan como defensa en profundidad y declaración de intención verificable. Coste aceptado y deliberado: la personalización legítima del usuario (modelo por defecto, MCP propios) no llega a los turnos de tandem.
+
+Los roles read-only (`review`, `ask`, y todos los asientos `ultra`) conservan la búsqueda web **sin pin**, por decisión de gate humano: un asiento que no puede escribir conserva capacidad útil y, con el config del usuario ignorado, su comportamiento pasa a ser el default determinista de la CLI. Residual documentado: un asiento read-only con búsqueda activa podría transmitir contenido del repo en una query.
+
+Los temp roots (`/tmp`, `$TMPDIR`) siguen escribibles a propósito (`exclude_*` en su default `false`): las herramientas los necesitan y no son el árbol del proyecto. Lo que prohíbe escribir fuera de la raíz de trabajo es el lenguaje del prompt, no el sandbox.
+
+### Verificar una clave de config sin gastar cuota
+
+`codex debug prompt-input -c <clave>=<valor> hola` valida la configuración y sale **sin llamar al modelo**. Aviso crítico: una clave *desconocida* se acepta EN SILENCIO con rc 0 (`-c web_search_mode=disabled` no falla — simplemente no hace nada; la clave real es `web_search`). Por eso una clave solo se da por viva cuando **rechaza un valor inválido**, nunca porque acepte el override.
+
+`scripts/config-probe.sh` automatiza justo eso para las cinco claves pineadas, bajo un `CODEX_HOME` temporal y borrado con `trap EXIT` (`debug prompt-input` no acepta `--ignore-user-config`, que es exclusivo de `codex exec`, así que el aislamiento se consigue con un home vacío). Usa `debug prompt-input` y nunca `codex exec`: con `exec`, el caso que el probe existe para detectar — la clave desaparecida — aceptaría el override y arrancaría un turno real. El job `config-drift` lo ejecuta semanalmente contra la CLI pineada y contra `@latest`, que es lo que convierte un rename silencioso en una señal. Ese job va **sin gate de secret** a propósito: el probe no necesita credenciales, y dejarlo dentro del `codex-smoke` gateado significaría que un repo sin `OPENAI_API_KEY` nunca se entera de que un pin dejó de aplicar.
+
+### Raíz de trabajo: ejecución en el worktree, estado en el principal
+
+`TANDEM_CODEX_CWD` (opcional) fija el directorio del turno vía `codex exec --cd`, como un único token y sin normalización propia. `CLAUDE_PROJECT_DIR` **no** se reapunta: el estado de hilos y el heartbeat siguen bajo el checkout principal, así que `codex-show`/`codex-reset` funcionan desde ahí y borrar el worktree no destruye el hilo — se recrea y el mismo hilo reanuda.
+
+`scripts/worktree-root.sh <slug>` es quien resuelve esa raíz y lo que ambas skills invocan: sin `TANDEM_WORKTREE=1` imprime el checkout principal; con él, la ruta del worktree **registrado** para `refs/heads/tandem/<slug>` leída de `git worktree list` — no la convención `.worktrees/<slug>`, que un worktree reutilizado en otra ruta rompería. Cero coincidencias, varias, o una ruta registrada ausente del disco son error duro (65): jamás un fallback silencioso al principal. `TANDEM_WORKTREE` es **implement/review-only**; `ask` e `image` no se anclan y no hay que esperar aislamiento ahí.
+
 **Fase 2 (roadmap)**: sustituir los scripts Codex por el servidor MCP oficial (`codex mcp-server`, tools `codex` y `codex-reply` con parámetros `model`, `sandbox`, `cwd`, `approval-policy`, `threadId`). Las skills no cambian de lógica — solo de transporte. Registro cuando se decida migrar:
 
 ```bash

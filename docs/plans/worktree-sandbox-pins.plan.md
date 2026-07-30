@@ -55,7 +55,7 @@ query.
 En los tres scripts (`codex-start.sh`, `codex-resume.sh`, `codex-swarm.sh`), en todos los
 roles, con posición fija en el argv:
 
-- [ ] `--ignore-user-config` y `--ignore-rules` — **hallazgo P1 del red-team**: pinear
+- [x] `--ignore-user-config` y `--ignore-rules` — **hallazgo P1 del red-team**: pinear
   claves una a una nunca puede cubrir lo que no se enumera (servidores MCP con capacidad de
   red, execpolicies, claves futuras). Ignorar el fichero de config del usuario elimina la
   clase entera; el login sigue funcionando (auth usa `CODEX_HOME`). Los pins explícitos de
@@ -64,49 +64,49 @@ roles, con posición fija en el argv:
   Coste aceptado y documentado: la personalización legítima del usuario (modelo por
   defecto, MCP propios) no llega a los turnos de tandem — que es exactamente el objetivo.
 
-- [ ] `-c sandbox_mode="$CODEX_SANDBOX"` — cinturón que hoy solo lleva resume (M4).
-- [ ] `-c sandbox_workspace_write.network_access=false` (M2).
-- [ ] `-c sandbox_workspace_write.writable_roots=[]` — **hallazgo P1**: `--cd` aporta la
+- [x] `-c sandbox_mode="$CODEX_SANDBOX"` — cinturón que hoy solo lleva resume (M4).
+- [x] `-c sandbox_workspace_write.network_access=false` (M2).
+- [x] `-c sandbox_workspace_write.writable_roots=[]` — **hallazgo P1**: `--cd` aporta la
   raíz primaria pero los roots configurados por el usuario se AÑADEN; sin este pin, un
   `writable_roots` hostil mantiene escribible el checkout principal desde un turno anclado
   al worktree.
-- [ ] `-c approval_policy=never -c approvals_reviewer=user` — **hallazgo P1**: con
+- [x] `-c approval_policy=never -c approvals_reviewer=user` — **hallazgo P1**: con
   `approvals_reviewer=auto_review` en el config del usuario, un turno headless deja de
   forzar `never` y las peticiones de escape de sandbox o de red pasan a ser auto-aprobables.
-- [ ] `-c web_search=disabled` **solo en roles de escritura** (implement, image) —
+- [x] `-c web_search=disabled` **solo en roles de escritura** (implement, image) —
   `network_access` gobierna la red de los comandos del sandbox, no la herramienta nativa de
   búsqueda; sin este pin, `implement.tpl` promete "Network access is unavailable" en falso.
   Los roles read-only (review, ask, ultra) conservan la **postura sin pin** aprobada en gate
   humano; con `--ignore-user-config` su comportamiento pasa a ser el default de la CLI,
   determinista, en vez de depender del config del usuario.
-- [ ] Los temp roots (`/tmp`, `$TMPDIR`) siguen escribibles a propósito (defaults
+- [x] Los temp roots (`/tmp`, `$TMPDIR`) siguen escribibles a propósito (defaults
   `exclude_*=false`): las herramientas los necesitan y no son el árbol del proyecto. El
   lenguaje de aceptación y el prompt dicen exactamente eso — prohibido escribir en el
   proyecto fuera del worktree, permitido lo efímero.
 
 ### 2. Workdir explícito (M1, mecanismo)
 
-- [ ] Nueva env opcional `TANDEM_CODEX_CWD`: si está **definida**, los tres scripts la
+- [x] Nueva env opcional `TANDEM_CODEX_CWD`: si está **definida**, los tres scripts la
   validan (debe nombrar un directorio existente; vacío o no-directorio → `die` 64) y añaden
   `--cd "$TANDEM_CODEX_CWD"` al argv, como UN solo token. Sin la variable, argv idéntico al
   actual.
-- [ ] La validación va **antes de `need_codex`**, para que el fallo sea del argumento y no
+- [x] La validación va **antes de `need_codex`**, para que el fallo sea del argumento y no
   dependa del toolchain.
-- [ ] Sin normalización propia (no `pwd -P`): el contrato es "un directorio existente,
+- [x] Sin normalización propia (no `pwd -P`): el contrato es "un directorio existente,
   reenviado literal"; las skills pasan siempre rutas absolutas. Codex resuelve el `--cd`
   preservando symlinks; imponer canonicalización sería un contrato semántico nuevo
   (hallazgo `test-ci-2`, REFUTADO por el judge, se recoge como decisión explícita).
 
 ### 3. Estado durable vs directorio de ejecución (M1, corrección P2 del enjambre)
 
-- [ ] `CLAUDE_PROJECT_DIR` **NO** se reapunta al worktree. El estado de hilos sigue bajo el
+- [x] `CLAUDE_PROJECT_DIR` **NO** se reapunta al worktree. El estado de hilos sigue bajo el
   checkout principal, junto al heartbeat: si viviera en el worktree, `codex-show`/`codex-reset`
   desde el principal no lo verían y borrar el worktree destruiría el hilo y su historial de
   turnos.
-- [ ] El anclaje se hace **solo** con `TANDEM_CODEX_CWD=<abs-worktree>`: ejecución en el
+- [x] El anclaje se hace **solo** con `TANDEM_CODEX_CWD=<abs-worktree>`: ejecución en el
   worktree, estado y heartbeat en el principal. Un worktree borrado y recreado reanuda el
   mismo hilo.
-- [ ] `state_init` no cambia.
+- [x] `state_init` no cambia.
 
 ### 4. Resolución del worktree como helper ejecutable (M1, corrección P2 del red-team)
 
@@ -114,7 +114,7 @@ roles, con posición fija en el argv:
 correcto solo probaría el wrapper: una implementación que olvide cablear una skill pasaría
 `verify.sh` en verde con M1 abierto. Por eso la lógica sale de las skills a un script:
 
-- [ ] `scripts/worktree-root.sh <slug>` — resuelve y valida la raíz de trabajo, y es lo que
+- [x] `scripts/worktree-root.sh <slug>` — resuelve y valida la raíz de trabajo, y es lo que
   ambas skills invocan:
   - Sin `TANDEM_WORKTREE=1` → imprime la raíz del checkout principal.
   - Con `TANDEM_WORKTREE=1` → localiza el worktree **registrado** para
@@ -123,10 +123,10 @@ correcto solo probaría el wrapper: una implementación que olvide cablear una s
     ruta), valida que existe y que su rama es la esperada, e imprime su ruta absoluta.
   - Cero o más de una coincidencia → `die` con mensaje explícito (**fail closed**), nunca
     un fallback silencioso al checkout principal.
-- [ ] Tests propios del helper: sin worktree, con worktree en ruta no-default, worktree
+- [x] Tests propios del helper: sin worktree, con worktree en ruta no-default, worktree
   registrado pero borrado del disco, rama ausente, y ambigüedad — cubriendo el modo de fallo
   que los tests de argv no pueden ver.
-- [ ] **Test de contrato de las skills** (el helper no basta: invocarlo sigue siendo una
+- [x] **Test de contrato de las skills** (el helper no basta: invocarlo sigue siendo una
   instrucción en Markdown, y olvidar UN solo bloque de comando deja M1 abierto con la suite
   en verde). `tests/skill-worktree-contract.test.sh` parsea
   `skills/implement/SKILL.md` y `skills/review/SKILL.md` y exige que **cada** invocación de
@@ -136,11 +136,11 @@ correcto solo probaría el wrapper: una implementación que olvide cablear una s
 
 ### 5. Cableado en las skills (M1)
 
-- [ ] `skills/implement/SKILL.md`, transporte sol: resuelve `WORK_ROOT` con el helper y
+- [x] `skills/implement/SKILL.md`, transporte sol: resuelve `WORK_ROOT` con el helper y
   lanza todo `codex-start.sh`/`codex-resume.sh` (incluidas las continuaciones con
   `continue.tpl`) con `TANDEM_CODEX_CWD="$WORK_ROOT"`. Sin worktree, `WORK_ROOT` es el
   checkout principal y nada cambia.
-- [ ] `skills/review/SKILL.md`: contrato de worktree para **todos** los pasos 0–4, no solo
+- [x] `skills/review/SKILL.md`: contrato de worktree para **todos** los pasos 0–4, no solo
   el arranque (**hallazgo P1**: hoy el reset del hilo viejo, los fixes, el DIFF actualizado
   del fallback inline, las re-ejecuciones del gate, la promoción del review y **el commit
   final** son operaciones sin cualificar — con `tandem/<slug>` checked out solo en el
@@ -150,24 +150,24 @@ correcto solo probaría el wrapper: una implementación que olvide cablear una s
   `$WORK_ROOT/...` en cada Read/Edit/Write de ficheros del proyecto (los fixes que Fable
   aplica a mano son parte del hueco que el red-team señaló); `cd "$WORK_ROOT" && …` en cada
   comando no-git, incluido el testing gate; y `TANDEM_CODEX_CWD` en cada lanzamiento.
-- [ ] `skills/implement/prompts/implement.tpl`: la promesa de red se ajusta a la verdad
+- [x] `skills/implement/prompts/implement.tpl`: la promesa de red se ajusta a la verdad
   (sin red de comandos y sin búsqueda web, ambas forzadas por pin) y se añade la línea de
   working root: el directorio inicial es la única raíz de trabajo del proyecto.
-- [ ] `ask` e `image` quedan **fuera** del anclaje automático (hallazgo `worktree-4`,
+- [x] `ask` e `image` quedan **fuera** del anclaje automático (hallazgo `worktree-4`,
   REFUTADO por el judge): M1 cubre implementación sol + review final, e `image` está por
   diseño fuera del pipeline plan→review. Se documenta explícitamente que `TANDEM_WORKTREE`
   es implement/review-only, para que nadie espere aislamiento en esas dos skills.
 
 ### 6. Documentación
 
-- [ ] `docs/ARCHITECTURE.md`: los pins nuevos con su porqué; la decisión de web search
+- [x] `docs/ARCHITECTURE.md`: los pins nuevos con su porqué; la decisión de web search
   (pin en roles de escritura, postura documentada en read-only, con la clave correcta
   `web_search`); el alcance implement/review-only de `TANDEM_WORKTREE`; y el truco de
   verificación `codex debug prompt-input` con la advertencia de que las claves desconocidas
   se ignoran en silencio.
-- [ ] `README.md`: tabla de política (frontera de red y aprobaciones forzadas) y
+- [x] `README.md`: tabla de política (frontera de red y aprobaciones forzadas) y
   `TANDEM_CODEX_CWD` en los overrides.
-- [ ] **Propiedad del orquestador, NO del implementador** (hallazgo P2-4 del red-team: ambos
+- [x] **Propiedad del orquestador, NO del implementador** (hallazgo P2-4 del red-team: ambos
   transportes prohíben explícitamente editar changelog y versiones, así que pedírselo obliga
   a violar su contrato o a reportar el plan incompleto): `CHANGELOG.md` 0.11.0,
   `.claude-plugin/plugin.json` a `0.11.0` y `docs/BACKLOG.md` (M1/M2/M4 → estado) los
@@ -175,25 +175,25 @@ correcto solo probaría el wrapper: una implementación que olvide cablear una s
 
 ### 7. Tests (lockstep con el argv)
 
-- [ ] Actualizar los tres tests de argv byte a byte (`start-argv-exact-order`,
+- [x] Actualizar los tres tests de argv byte a byte (`start-argv-exact-order`,
   `resume-happy-argv-repin`, `swarm-tiers-readonly-literal`) con los pins nuevos y su orden;
   **revisar además las aserciones negativas** de `sandbox_mode` en start/swarm, que ahora se
   invierten.
-- [ ] `web_search=disabled` presente en implement/image y **ausente** en review/ask/ultra
+- [x] `web_search=disabled` presente en implement/image y **ausente** en review/ask/ultra
   (aserción en ambos sentidos, por rol).
-- [ ] Caso nuevo `cwd-pin`: `--cd` presente y posicionado con valor válido; **inválido y
+- [x] Caso nuevo `cwd-pin`: `--cd` presente y posicionado con valor válido; **inválido y
   vacío → 64 exacto**, con `CODEX_STUB_SCENARIO=version-fail` para probar que la validación
   ocurre ANTES de `need_codex` (el stub no registra las sondas `--version`, así que "sin
   argv" por sí solo no probaría nada); un directorio con espacios llega como un solo token;
   ausente → sin `--cd`.
-- [ ] Caso nuevo/extendido `worktree-sol-anchored`: lanzamiento con
+- [x] Caso nuevo/extendido `worktree-sol-anchored`: lanzamiento con
   `TANDEM_CODEX_CWD=<worktree>` sin tocar `CLAUDE_PROJECT_DIR` → `--cd` en el argv, estado
   del hilo y heartbeat en el checkout principal, y `codex-show`/`codex-resume` desde el
   principal encuentran el hilo tras borrar y recrear el worktree.
-- [ ] Caso nuevo `worktree-root` para el helper de la §4: sin `TANDEM_WORKTREE` → checkout
+- [x] Caso nuevo `worktree-root` para el helper de la §4: sin `TANDEM_WORKTREE` → checkout
   principal; worktree registrado en ruta NO-default → esa ruta; registrado pero ausente del
   disco, rama inexistente, o ambigüedad → fallo explícito (nunca fallback silencioso).
-- [ ] Caso nuevo `config-probe` para `scripts/config-probe.sh` (§8): clave cuyo valor
+- [x] Caso nuevo `config-probe` para `scripts/config-probe.sh` (§8): clave cuyo valor
   inválido es rechazado → OK; clave que acepta cualquier valor (renombrada o desaparecida)
   → fallo nombrándola. Requiere **extender `tests/stub/codex`**: hoy todo lo que no es
   `--version`/`login` cae en la rama exec y no sabe simular ni el subcomando
@@ -207,7 +207,7 @@ Los pins son silenciosos si una versión futura renombra una clave, y el smoke a
 lanza un turno `ask` normal — seguiría verde. Sin esto, la mitigación que el plan afirma
 tener no existe:
 
-- [ ] `scripts/config-probe.sh` — para cada clave pineada, lanza
+- [x] `scripts/config-probe.sh` — para cada clave pineada, lanza
   **`codex debug prompt-input`** (NO `codex exec`) con un valor deliberadamente inválido y
   exige que la CLI la rechace nombrándola; una clave que acepta cualquier cosa es una clave
   que ya no existe. El subcomando importa: con `codex exec`, el caso que el probe existe
@@ -221,7 +221,7 @@ tener no existe:
   (`network_access` espera boolean, `writable_roots` sequence, `approval_policy`,
   `approvals_reviewer` y `web_search` enumeran sus variantes), mientras que una clave
   inexistente devuelve rc 0 en silencio — que es justo la señal de drift.
-- [ ] `.github/workflows/tests.yml` entra en el alcance: el job `codex-smoke` ejecuta el
+- [x] `.github/workflows/tests.yml` entra en el alcance: el job `codex-smoke` ejecuta el
   probe contra la CLI **pineada y `@latest`**, de modo que un rename silencioso salga en el
   informe semanal.
 

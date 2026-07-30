@@ -21,6 +21,8 @@
 #     reason and report — they never write. Writing stays in the tandem
 #     pipeline (implement), with its clean-tree and dedicated-branch rules.
 #
+# env: TANDEM_CODEX_CWD  optional working root for the seat (`--cd`)
+#
 # exit codes: 0 ok · 1 codex failure · 3 missing dependency · 64 usage error
 
 set -euo pipefail
@@ -31,6 +33,7 @@ SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 [ $# -eq 4 ] || die "usage: codex-swarm.sh <tier> <run-id> <seat> <prompt-file>" 64
 TIER="$1" RUN_ID="$2" SEAT="$3" PROMPT_FILE="$4"
 
+codex_cwd_validate
 need_codex
 need_jq
 
@@ -52,6 +55,7 @@ case "$TIER" in
     ;;
 esac
 CODEX_SANDBOX="read-only"
+codex_pins
 
 [ -f "$PROMPT_FILE" ] || die "prompt file not found: $PROMPT_FILE" 64
 
@@ -83,6 +87,7 @@ codex exec \
   --model "$CODEX_MODEL" \
   --sandbox "$CODEX_SANDBOX" \
   -c model_reasoning_effort="$CODEX_EFFORT" \
+  "${CODEX_PINS[@]}" \
   --output-last-message "$MSG_FILE" \
   - <"$PROMPT_FILE" 2>"$EVENTS_FILE.stderr" \
   | tee "$EVENTS_FILE" | stream_milestones

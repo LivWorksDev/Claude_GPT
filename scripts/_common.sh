@@ -62,6 +62,69 @@ resolve_role() {
   esac
 }
 
+# codex_cwd_validate — TANDEM_CODEX_CWD is the optional working-root pin: when
+# DEFINED it must name an existing directory, forwarded to codex as a single
+# `--cd <DIR>` token. No normalization of our own (no `pwd -P`): the contract is
+# "an existing directory, passed through literally", and the skills always pass
+# absolute paths — canonicalizing here would invent a semantic contract codex
+# itself does not have (it resolves --cd preserving symlinks).
+#
+# Called BEFORE need_codex on purpose: a bad argument must fail as a usage
+# error, never as a missing toolchain.
+codex_cwd_validate() {
+  case "${TANDEM_CODEX_CWD+set}" in
+    set) : ;;
+    *) return 0 ;;
+  esac
+  [ -n "$TANDEM_CODEX_CWD" ] \
+    || die "TANDEM_CODEX_CWD is set but empty — unset it, or name an existing directory" 64
+  [ -d "$TANDEM_CODEX_CWD" ] \
+    || die "TANDEM_CODEX_CWD is not an existing directory: $TANDEM_CODEX_CWD" 64
+}
+
+# codex_pins — fills the CODEX_PINS array with the policy block EVERY codex turn
+# carries, in a fixed order (the suite asserts the argv byte for byte). Requires
+# CODEX_SANDBOX; call it after resolve_role.
+#
+#   --ignore-user-config  the user's config.toml never reaches a tandem turn.
+#     Pinning keys one by one can only cover what it enumerates, and a config
+#     can add MCP servers with network capability, extra writable roots or
+#     auto-approvals that no list anticipates — ignoring the file removes the
+#     whole class. Auth still resolves through CODEX_HOME, so the login lives.
+#   --ignore-rules        the same argument for the execpolicy `.rules` files.
+#   -c …                  kept as defence in depth and as a verifiable
+#     statement of intent: overrides are still applied AND validated with the
+#     flag in place. An UNKNOWN key is accepted in silence by the CLI, so a
+#     future rename would turn a pin into a no-op without a word:
+#     scripts/config-probe.sh is the watchdog for exactly that.
+#
+# The temp roots (/tmp, $TMPDIR) stay writable on purpose (`exclude_*` left at
+# their false defaults): tools need them and they are not the project tree.
+# What forbids writing outside the working root is the prompt's language.
+codex_pins() {
+  CODEX_PINS=(
+    --ignore-user-config
+    --ignore-rules
+    -c "sandbox_mode=$CODEX_SANDBOX"
+    -c sandbox_workspace_write.network_access=false
+    -c "sandbox_workspace_write.writable_roots=[]"
+    -c approval_policy=never
+    -c approvals_reviewer=user
+  )
+  # web_search is the NATIVE search tool and is NOT governed by network_access.
+  # It is pinned off exactly where a turn can write (implement, image), because
+  # implement.tpl promises the model that no network is available. Read-only
+  # seats keep it: a seat that cannot write keeps a useful capability, and with
+  # --ignore-user-config that behaviour is the CLI default — deterministic
+  # instead of whatever the user configured.
+  if [ "$CODEX_SANDBOX" = "workspace-write" ]; then
+    CODEX_PINS+=(-c web_search=disabled)
+  fi
+  case "${TANDEM_CODEX_CWD+set}" in
+    set) CODEX_PINS+=(--cd "$TANDEM_CODEX_CWD") ;;
+  esac
+}
+
 # state_init — sets STATE_ROOT/STATE_DIR under the *project* (never inside the
 # installed plugin, which is read-only and moves on updates) and keeps the
 # whole .tandem/ tree out of git.
