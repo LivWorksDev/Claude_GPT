@@ -19,7 +19,7 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
 | --- | --- | --- | --- | --- | --- |
 | M1 | Worktree cableado también para transporte sol y review | Transporte | P1 | M | hecha (v0.11.0) |
 | M2 | Pin de `network_access` en sandboxes de escritura | Seguridad | P1 | S | hecha (v0.11.0) |
-| M3 | Commit del plan en la rama tandem, nunca en la del usuario | Workflow | P1 | S | pendiente |
+| M3 | Commit del plan en la rama tandem, nunca en la del usuario | Workflow | P1 | S | hecha (v0.12.0) |
 | M4 | `-c sandbox_mode=` también en start y swarm | Seguridad | P3 | S | hecha (v0.11.0) |
 | M5 | Override de effort para turnos-recordatorio | Modelos | P2 | S | pendiente |
 | M6 | `TANDEM_CRITICAL` con efecto real bajo Opus | Modelos | P2 | M | pendiente |

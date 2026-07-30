@@ -37,14 +37,14 @@ End-to-end without mid-run interaction. HITL moves to the edges: a complete brie
 3. Doctor + clean tree, as always. Doctor rejects unknown `TANDEM_IMPLEMENTER` values; `tandem:implement` also fails closed before touching anything.
 
 **Policy replacing each human gate** (details live in the phase skills):
-- Plan gate → plan auto-committed ONLY on `VERDICT: APPROVED`.
+- Plan gate → plan auto-committed ONLY on `VERDICT: APPROVED`, and ONLY on `tandem/<slug>` (via `scripts/plan-approve.sh`, which creates that branch at the approval): the user's branch receives no commit at any point of the run.
 - Final gate → auto-commit on `tandem/<slug>` ONLY on review `APPROVED` + green testing gate. The review phase is never skippable in autonomous mode.
 
 **Red lines (identical to interactive mode):** never push, never merge, never touch the default branch; sandboxes, models and round caps unchanged; deadlock is terminal — an APPROVED that never arrived is never synthesized, overridden or "approved by exhaustion".
 
 **Terminal states** — every autonomous run ends in exactly one, with a final report (assumptions applied, verdict + rounds per phase, diffstat, testing-gate summary, branch name, log path):
 - `COMPLETED` — committed on `tandem/<slug>`, ready for human review and merge.
-- `DEADLOCK` — plan or review never reached APPROVED (including NEEDS_REWORK); nothing committed beyond an already-approved plan.
+- `DEADLOCK` — plan or review never reached APPROVED (including NEEDS_REWORK); nothing committed beyond an already-approved plan, and that one lives on `tandem/<slug>`; main is left intact.
 - `PARTIAL` — implementation incomplete after the continuation cap; nothing committed.
 - `FAILED` — toolchain or selected-transport error; state preserved.
 

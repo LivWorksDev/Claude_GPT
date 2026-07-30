@@ -77,6 +77,8 @@ assert_file "$SCRIPTS/worktree-root.sh"
 run bash "$SCRIPTS/worktree-root.sh"
 assert_rc 64 "worktree-root.sh usage"
 
-# TANDEM_WORKTREE is implement/review-only: the limit is documented where a
-# reader would otherwise assume isolation.
-assert_file_contains "$REPO_ROOT/skills/implement/SKILL.md" "implement/review-only"
+# TANDEM_WORKTREE's scope is documented where a reader would otherwise assume
+# isolation. Since 0.12 the flag also decides where the plan-approval commit
+# lands, so the sentence names both phases: ask/image are still never anchored.
+assert_file_contains "$REPO_ROOT/skills/implement/SKILL.md" \
+  "plan approval and implement/review only"

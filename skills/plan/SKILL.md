@@ -64,6 +64,19 @@ bash "$SCRIPTS/codex-resume.sh" review docs/plans/<slug>.plan.md \
 
 Present: final plan, 3-bullet summary, Sol's final verdict, rounds used. Ask the user (AskUserQuestion): approve and continue to `/tandem:implement`, revise further, or stop. Do not start implementing without explicit approval.
 
-On approval, commit the plan — ONLY the plan file (`git add docs/plans/<slug>.plan.md && git commit`); this commit is sanctioned by the human gate and keeps the tree clean for tandem:implement's clean-tree gate. Implementation changes remain forbidden to commit until the final diff gate in tandem:review.
+On approval, run the approval transition — never a bare commit on the user's branch:
 
-**`TANDEM_AUTONOMOUS=1`**: the gate becomes policy — `VERDICT: APPROVED` is the approval; commit the plan (same plan-file-only rule) and continue without asking. Anything else (NEEDS_REWORK, round cap without APPROVED) is a terminal DEADLOCK: report both positions honestly and stop — never approve by exhaustion, never proceed on a non-APPROVED plan.
+```bash
+bash "$SCRIPTS/plan-approve.sh" <slug> "Plan: <slug> — <one-line summary> (aprobado, N rondas Sol)"
+```
+
+It creates `tandem/<slug>` from the current HEAD and lands the plan commit — ONLY the plan file — inside that branch, so the user's branch (typically main) receives no commit during a tandem run, not even an abandoned one. It is fail-closed and idempotent: exit 0 on a fresh approval or on an identical re-run, exit 65 on anything it must not resolve on its own (a slug whose plan is already tracked on the user's branch, a pre-existing `tandem/<slug>` without a concordant approval state, a divergent plan text, a mode mismatch), and a commit that does not land is rolled back completely with the plan file preserved. Never work around a 65 by committing by hand: read the message, fix the cause (usually: pick another slug) and re-run.
+
+Effects the user must be told about, per mode:
+
+- **In-place (default, `TANDEM_WORKTREE` unset)**: the session is left ON `tandem/<slug>`, exactly as `tandem:implement` used to leave it. `docs/plans/<slug>.plan.md` is tracked there.
+- **`TANDEM_WORKTREE=1`**: the main checkout stays clean and on the user's branch, and the plan MOVES into `.worktrees/<slug>` — it is no longer visible in the main checkout until the branch is merged. Read it from the printed `work_root` path.
+
+Implementation changes remain forbidden to commit until the final diff gate in tandem:review.
+
+**`TANDEM_AUTONOMOUS=1`**: the gate becomes policy — `VERDICT: APPROVED` is the approval; run the same `plan-approve.sh` transition and continue without asking. Anything else (NEEDS_REWORK, round cap without APPROVED) is a terminal DEADLOCK: report both positions honestly and stop — never approve by exhaustion, never proceed on a non-APPROVED plan. A non-zero exit from `plan-approve.sh` is a terminal `FAILED`, never a reason to commit the plan another way.

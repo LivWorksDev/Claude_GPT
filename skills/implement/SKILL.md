@@ -6,7 +6,7 @@ argument-hint: "[slug of the approved plan]"
 
 # tandem:implement — implementador seleccionable, tú verificas
 
-You are the orchestrator. Claude Opus 5 implements by default; Sol is the opt-in Codex CLI transport. **You** read the diff, run the tests and own the result. The implementer NEVER commits — and you commit no implementation changes until the user approves the final diff after `/tandem:review` (the plan file itself was already committed at the tandem:plan human gate).
+You are the orchestrator. Claude Opus 5 implements by default; Sol is the opt-in Codex CLI transport. **You** read the diff, run the tests and own the result. The implementer NEVER commits — and you commit no implementation changes until the user approves the final diff after `/tandem:review` (the plan file itself was already committed **on `tandem/<slug>`** at the tandem:plan human gate, which is where `scripts/plan-approve.sh` created that branch; the user's branch has no tandem commits at all).
 
 Shared scripts: `SCRIPTS="${CLAUDE_SKILL_DIR}/../../scripts"`. Log: `.tandem/log/<slug>.md`.
 
@@ -16,22 +16,43 @@ Shared scripts: `SCRIPTS="${CLAUDE_SKILL_DIR}/../../scripts"`. Log: `.tandem/log
 
 `WORK_ROOT` is the one variable everything downstream is anchored to, and an unset one
 silently means "the main checkout". But the resolver is fail-closed: with
-`TANDEM_WORKTREE=1` it exits 65 while the branch or the worktree does not exist yet — which
-is precisely the state a fresh attempt starts in. So branch **first**, on the durable
-attempt state (gate 4's check, which reads a file and touches nothing):
+`TANDEM_WORKTREE=1` it exits 65 while the branch or the worktree does not exist yet. Since
+0.12 that is no longer what a fresh attempt looks like: `scripts/plan-approve.sh` created
+`tandem/<slug>` — and, under `TANDEM_WORKTREE=1`, its worktree — at the plan's approval
+gate, so a fresh attempt normally arrives with both already in place. What decides when you
+resolve is therefore the **branch**, not the attempt state:
 
-- **Resume or recovery** (durable state exists and its identity matches) — the worktree
-  already exists, so resolve **now, before the gates**, and use `$WORK_ROOT` for gate 4's
-  dirty-path check and everything after:
+```bash
+git show-ref --verify --quiet refs/heads/tandem/<slug>   # exit 0 → it already exists
+```
+
+- **Branch exists** (the normal case: resume, recovery, or a fresh attempt on a plan
+  approved through `plan-approve.sh`) — the requested mode must first agree with the
+  RECORDED one: when the durable approval state `.tandem/state/plan-approve/<slug>.json`
+  exists, its `mode` field is authoritative — `worktree` recorded while `TANDEM_WORKTREE`
+  is not `1`, or `in-place` recorded while it is `1`, is a STOP (re-run with the matching
+  mode), the same fail-closed rule `plan-approve.sh` applies. This check matters MOST when
+  `git worktree list` has zero registrations for the branch: git then has nothing to derive
+  the real mode from, the environment alone would silently flip an approval from one mode to
+  the other, and only a legacy branch (no approval state at all) may follow the environment.
+  On a resume, the attempt state's recorded `worktree` must agree with the root you resolve
+  as well. Only then, under `TANDEM_WORKTREE=1`, make the resolver reachable: if no worktree
+  is registered for `refs/heads/tandem/<slug>` (deleted or pruned since the approval),
+  re-attach it BEFORE calling the resolver — ensure `.worktrees/` is excluded
+  (`grep -qx '.worktrees/' .git/info/exclude 2>/dev/null || echo '.worktrees/' >> .git/info/exclude`),
+  then `git worktree add .worktrees/<slug> tandem/<slug>`; if the path `.worktrees/<slug>`
+  already exists while unregistered, STOP — it is not yours to overwrite. Then resolve
+  **now, before the gates**, and use `$WORK_ROOT` for gate 3's plan check, gate 4's
+  dirty-path check, gate 5's clean-tree check and everything after:
 
   ```bash
   WORK_ROOT="$(bash "$SCRIPTS/worktree-root.sh" <slug>)"
   ```
 
-- **Fresh attempt** (no state, or state discarded via the reset protocol) — the gates below
-  run against the **main checkout** (that is what the clean-tree gate is about), gate 6
-  creates the branch and, under `TANDEM_WORKTREE=1`, the worktree; resolve **immediately
-  after gate 6**, before Step 1 delegates anything.
+- **Legacy: no branch** (a plan approved before 0.12, committed on the user's branch with no
+  `tandem/<slug>`) — the gates below run against the **main checkout**, gate 6 creates the
+  branch and, under `TANDEM_WORKTREE=1`, the worktree; resolve **immediately after gate 6**,
+  before Step 1 delegates anything.
 
 Never call the resolver before the worktree exists and never continue past a non-zero exit:
 it is a STOP, not a reason to guess a path.
@@ -51,21 +72,25 @@ gate, and `TANDEM_CODEX_CWD="$WORK_ROOT"` on every Codex launch. The implementer
 names that path as the **only** working directory. Do not assume a subagent — or your own
 shell — inherits the right cwd between calls.
 
-`TANDEM_WORKTREE` is **implement/review-only**. `tandem:ask` and `tandem:image` are never
-anchored to a worktree: expect no isolation there.
+`TANDEM_WORKTREE` governs **plan approval and implement/review only** — since 0.12 it also
+decides where the plan-approval commit lands (main checkout vs `.worktrees/<slug>`), and it
+must carry the same value across the phases of one run. `tandem:ask` and `tandem:image` are
+never anchored to a worktree: expect no isolation there.
 
 ### 0.1 onwards — the gates
 
 1. **Selector, before touching anything**: read `TANDEM_IMPLEMENTER`, defaulting to the exact value `opus` **only when the variable is unset**. The only valid values are `opus` and `sol`; a set-but-empty value is invalid like any other unknown value. Any invalid value is a hard error: report `TANDEM_IMPLEMENTER=<value> is invalid; expected opus or sol` and STOP. Never silently fall back.
 2. **Opus model preflight, also before touching anything**: when the selector is `opus`, if `CLAUDE_CODE_SUBAGENT_MODEL` is defined and its exact value is not `opus`, STOP. That environment variable takes precedence over the agent type's `model: opus`, so continuing would violate the selected transport. There is no reliable in-agent runtime model verification; the report's model field is an informative self-attestation only.
-3. **Plan gate**: `docs/plans/<slug>.plan.md` exists and the user approved it. Missing/unapproved → stop, send them to `/tandem:plan`.
+3. **Plan gate**: the approved plan lives on the tandem branch, so verify it THERE, never in the main checkout by assumption — `git cat-file -e tandem/<slug>:docs/plans/<slug>.plan.md` (or, equivalently, `$WORK_ROOT/docs/plans/<slug>.plan.md` once §0.0 resolved it). In the legacy route the branch does not exist yet and the plan is the committed file in the main checkout. Missing/unapproved → stop, send them to `/tandem:plan`.
 4. **Attempt-state gate, BEFORE the clean-tree gate**: check for durable state (`.tandem/state/implement-claude/<slug>.json` for `opus`; the thread state key for `sol`). A matching in-progress attempt (identity rules in Step 1) is a **resume**: its uncommitted implementation work is expected, so the clean-tree requirement below does not apply — verify instead that the dirty paths plausibly belong to the attempt — `git -C "$WORK_ROOT" status --porcelain`, using the `WORK_ROOT` you resolved in §0.0 on the resume branch — consistent with its last report and the plan's files-to-touch, and continue to Step 2's continuation/recovery flow. Only a fresh attempt (no state, or state discarded via the reset protocol) falls through to the next gate.
-5. **Clean-tree gate (fresh attempts only)**: `git status --porcelain` in the **main checkout** must be empty — a fresh attempt has no worktree yet, and this gate exists to keep pre-existing changes out of the delegated diff. Dirty → STOP and tell the user; never mix pre-existing changes into a delegated diff.
-6. **Branch — in-place and worktree are mutually exclusive**: record the absolute plan path, `git rev-parse HEAD`, and `git remote -v` for the later safety check — under `opus`, persist these into the durable JSON as `base_head`/`remote_snapshot` the moment the attempt starts (Step 1), so the baseline survives session loss — then:
-   - `TANDEM_WORKTREE` unset (default, in-place): `git checkout -b tandem/<slug>` (skip if already on it).
-   - `TANDEM_WORKTREE=1`: do **NOT** check the branch out in the main checkout — `git worktree add` refuses a branch that is already checked out. First ensure `.worktrees/` is ignored in the *user's* project (`grep -qx '.worktrees/' .git/info/exclude 2>/dev/null || echo '.worktrees/' >> .git/info/exclude`); then, if `tandem/<slug>` does not exist yet: `git worktree add .worktrees/<slug> -b tandem/<slug>`; if it already exists (resume): `git worktree add .worktrees/<slug> tandem/<slug>`, or reuse the already-registered worktree.
+5. **Clean-tree gate (fresh attempts only)**: `git status --porcelain` must be empty in the **main checkout** AND in the `$WORK_ROOT` resolved in §0.0 — run it once when they are the same directory, twice when they are not (`git -C "$WORK_ROOT" status --porcelain`); in the legacy route there is no worktree yet, so the main checkout is the whole gate. Since 0.12 a fresh attempt normally does have a worktree already, created at the approval gate; a pre-existing worktree that is dirty with no attempt state to explain it is a STOP exactly like a dirty main checkout. Dirty → STOP and tell the user; never mix pre-existing or unknown changes into a delegated diff.
+6. **Branch — verify and reuse; create only in the legacy route**: in-place and worktree remain mutually exclusive, and the real mode is derived from `git worktree list`, never from the environment alone (same rule `plan-approve.sh` applies):
+   - **Branch exists** (normal since 0.12): verify, do not create. `TANDEM_WORKTREE` unset → `tandem/<slug>` must be the checked-out branch of the main checkout (`git checkout tandem/<slug>` if the session drifted off it); `TANDEM_WORKTREE=1` → it must be checked out in a **linked** worktree, which §0.0 already resolved as `$WORK_ROOT` — a missing registration was already re-attached there, BEFORE the resolver ran, so reaching this gate with zero registrations is a hard error, not a case to repair here. A branch checked out in a linked worktree while `TANDEM_WORKTREE` is unset — or checked out in the main checkout while it is `1` — is a mode mismatch: STOP and say so explicitly; never guess.
+   - **Legacy route only** (no `tandem/<slug>`, plan approved before 0.12): create it now. `TANDEM_WORKTREE` unset: `git checkout -b tandem/<slug>`. `TANDEM_WORKTREE=1`: do **NOT** check the branch out in the main checkout — `git worktree add` refuses a branch that is already checked out. First ensure `.worktrees/` is ignored in the *user's* project (`grep -qx '.worktrees/' .git/info/exclude 2>/dev/null || echo '.worktrees/' >> .git/info/exclude`); then `git worktree add .worktrees/<slug> -b tandem/<slug>`.
 
-Fresh attempts resolve the working root **here**, now that the branch and (under `TANDEM_WORKTREE=1`) the worktree exist — `WORK_ROOT="$(bash "$SCRIPTS/worktree-root.sh" <slug>)"` — before Step 1 delegates anything. Resumes already resolved it in §0.0.
+The legacy route resolves the working root **here**, now that the branch and (under `TANDEM_WORKTREE=1`) the worktree exist — `WORK_ROOT="$(bash "$SCRIPTS/worktree-root.sh" <slug>)"` — before Step 1 delegates anything. Every other route already resolved it in §0.0.
+
+**Safety baseline, captured AFTER the working root is resolved and always anchored**: record the absolute plan path, `git -C "$WORK_ROOT" rev-parse HEAD` (the tip that already carries the plan commit) and `git -C "$WORK_ROOT" remote -v` — under `opus`, persist these into the durable JSON as `base_head`/`remote_snapshot` the moment the attempt starts (Step 1), so the baseline survives session loss. Capturing them from the main checkout would flag every legitimate worktree implementation as a safety violation, because the tandem branch is one commit ahead of the user's branch by construction. `base_head` is the TIP of the tandem branch; the approval state's `source_head` — the user's HEAD at approval time — is a different thing and belongs to `plan-approve.sh`.
 
 ## Step 1 — Delegate through the selected transport
 
@@ -100,8 +125,8 @@ The JSON records at least:
   "plan_path": "docs/plans/<slug>.plan.md",
   "plan_hash": "<committed blob id>",
   "branch": "tandem/<slug>",
-  "base_head": "<git rev-parse HEAD at attempt start>",
-  "remote_snapshot": "<git remote -v output at attempt start>"
+  "base_head": "<git -C \"$WORK_ROOT\" rev-parse HEAD at attempt start>",
+  "remote_snapshot": "<git -C \"$WORK_ROOT\" remote -v at attempt start>"
 }
 ```
 
@@ -109,10 +134,10 @@ The JSON records at least:
 
 Write `status: "running"` (with the new `task_id`) **before or immediately upon** every launch and every `SendMessage` continuation, and rewrite it to `"terminal"` together with the sentinel and report path when the turn's result arrives. While `status` is `running`, `last_sentinel` describes a PREVIOUS turn — never treat it as the current turn's outcome.
 
-Compute `plan_hash` only as the committed plan blob:
+Compute `plan_hash` only as the committed plan blob, anchored to the working root (the plan is committed on `tandem/<slug>`, which under `TANDEM_WORKTREE=1` is not what the main checkout's `HEAD` points at):
 
 ```bash
-git rev-parse HEAD:docs/plans/<slug>.plan.md
+git -C "$WORK_ROOT" rev-parse HEAD:docs/plans/<slug>.plan.md
 ```
 
 Never hash the working copy: the implementer marks plan checkboxes, which must not invalidate a legitimate continuation. Attempt identity is the recorded `plan_hash` + `branch`; `plan_path` is also retained for audit.
