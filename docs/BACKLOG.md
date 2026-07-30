@@ -17,10 +17,10 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
 
 | ID | Mejora | Área | Sev. | Esf. | Estado |
 | --- | --- | --- | --- | --- | --- |
-| M1 | Worktree cableado también para transporte sol y review | Transporte | P1 | M | pendiente |
-| M2 | Pin de `network_access` en sandboxes de escritura | Seguridad | P1 | S | pendiente |
+| M1 | Worktree cableado también para transporte sol y review | Transporte | P1 | M | planificada |
+| M2 | Pin de `network_access` en sandboxes de escritura | Seguridad | P1 | S | planificada |
 | M3 | Commit del plan en la rama tandem, nunca en la del usuario | Workflow | P1 | S | pendiente |
-| M4 | `-c sandbox_mode=` también en start y swarm | Seguridad | P3 | S | pendiente |
+| M4 | `-c sandbox_mode=` también en start y swarm | Seguridad | P3 | S | planificada |
 | M5 | Override de effort para turnos-recordatorio | Modelos | P2 | S | pendiente |
 | M6 | `TANDEM_CRITICAL` con efecto real bajo Opus | Modelos | P2 | M | pendiente |
 | M7 | Doctor: `CLAUDE_CODE_SUBAGENT_MODEL` + smoke de modelos | Diagnóstico | P2 | S | pendiente |
