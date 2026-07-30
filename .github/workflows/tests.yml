@@ -1,0 +1,214 @@
+name: tests
+
+# Without `schedule` and `workflow_dispatch` the codex-smoke job below would
+# never run at all — the drift between the stub and the real CLI is exactly the
+# thing a push-only workflow cannot catch.
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Blocking. Runs the ONE verification entry point developers run locally, so
+  # "green in CI" and "green on my machine" cannot mean different things. It
+  # covers the suite plus shellcheck and actionlint with checksum-pinned
+  # binaries; the OS matrix below is separate evidence, not a duplicate gate.
+  lint:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # ARCHIVES only, never extracted binaries: verify.sh re-verifies each
+      # archive against the sha256 committed in tests/checksums.txt and
+      # re-extracts on every run, so a poisoned or stale cache cannot smuggle a
+      # binary past the pin.
+      - name: Cache the pinned tool archives
+        uses: actions/cache@v4
+        with:
+          path: tests/.tools/archives
+          key: tandem-lint-tools-${{ runner.os }}-${{ hashFiles('tests/checksums.txt') }}
+
+      - name: verify.sh — tests + shellcheck + actionlint (pinned)
+        run: bash tests/verify.sh
+
+  # BSD vs GNU userland and bash 3.2 vs bash 5 are declared targets of this
+  # project, so both are real jobs rather than a footnote.
+  test:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      # `env bash` on a macOS runner resolves to Homebrew's bash 5, which would
+      # quietly test the wrong interpreter. Fail loudly if /bin/bash is not what
+      # we expect on either platform.
+      - name: preflight — the platform bash is the one we mean to test
+        run: |
+          set -euo pipefail
+          ver="$(/bin/bash -c 'printf %s "$BASH_VERSION"')"
+          echo "/bin/bash reports $ver"
+          case "$RUNNER_OS" in
+            macOS)
+              case "$ver" in
+                3.2*) ;;
+                *) echo "::error::expected bash 3.2 at /bin/bash on macOS, got $ver"; exit 1 ;;
+              esac
+              ;;
+            Linux)
+              case "$ver" in
+                5.*) ;;
+                *) echo "::error::expected bash 5.x at /bin/bash on ubuntu, got $ver"; exit 1 ;;
+              esac
+              ;;
+            *)
+              echo "::error::unexpected runner OS: $RUNNER_OS"; exit 1 ;;
+          esac
+
+      - name: suite — macOS, stock bash 3.2 + BSD userland
+        if: runner.os == 'macOS'
+        run: env TESTS_BASH=/bin/bash /bin/bash tests/run.sh
+
+      - name: suite — ubuntu, bash 5 + GNU userland
+        if: runner.os == 'Linux'
+        run: bash tests/run.sh
+
+      # The runner keeps the sandbox of every red case; that is the whole
+      # post-mortem, so it has to leave the machine.
+      - name: upload the red sandboxes
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tandem-tests-${{ matrix.os }}
+          path: ${{ runner.temp }}/tandem-tests.*
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # Non-blocking, weekly and on demand, NEVER on a pull request: it needs a
+  # secret and real network. It is the only thing that can notice the stub has
+  # drifted away from the CLI it claims to imitate.
+  #
+  # The secret gate lives at STEP level on purpose: the `secrets` context is not
+  # available in `jobs.<id>.if`, and using it there invalidates the whole
+  # workflow at parse time.
+  codex-smoke:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: is the smoke secret configured?
+        id: gate
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -n "${OPENAI_API_KEY:-}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::OPENAI_API_KEY is not configured — codex smoke skipped."
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          node-version: '22'
+
+      # Pass A: the CLI the fixtures were recorded against. A reproducible
+      # regression signal. Its own continue-on-error, because the job-level one
+      # does NOT stop a failed step from skipping the steps after it — and a
+      # broken baseline must not suppress the drift check below.
+      - name: pass A — pinned codex 0.144.4 through the real wrappers
+        id: pass_a
+        if: steps.gate.outputs.enabled == 'true'
+        continue-on-error: true
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          npm install -g @openai/codex@0.144.4
+          codex --version
+          # Its OWN project dir: a second codex-start.sh against the same state
+          # would exit 2 ("thread already exists") before doing anything useful.
+          proj="$(mktemp -d)"
+          git -C "$proj" init -q
+          printf 'Reply with exactly the word OK and nothing else.\n' > "$proj/ask.tpl"
+          cd "$proj"
+          CLAUDE_PROJECT_DIR="$proj" bash "$GITHUB_WORKSPACE/scripts/codex-start.sh" \
+            ask smoke-pinned "$proj/ask.tpl"
+          echo "proj=$proj" >> "$GITHUB_OUTPUT"
+
+      # Pass B: what the README actually tells users to install. A smoke that
+      # only ever exercises the pinned version stays green forever while a new
+      # incompatible CLI breaks production.
+      - name: pass B — @openai/codex@latest + fixture drift
+        id: pass_b
+        if: steps.gate.outputs.enabled == 'true'
+        continue-on-error: true
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          npm install -g @openai/codex@latest
+          ver="$(codex --version)"
+          echo "resolved \`@openai/codex@latest\` = \`$ver\`" >> "$GITHUB_STEP_SUMMARY"
+          proj="$(mktemp -d)"
+          git -C "$proj" init -q
+          printf 'Reply with exactly the word OK and nothing else.\n' > "$proj/ask.tpl"
+          cd "$proj"
+          CLAUDE_PROJECT_DIR="$proj" bash "$GITHUB_WORKSPACE/scripts/codex-start.sh" \
+            ask smoke-latest "$proj/ask.tpl"
+          events="$(find "$proj/.tandem/state/ask" -name '*.t1.events.ndjson' | head -n 1)"
+          [ -n "$events" ] || { echo "::error::no events NDJSON was captured"; exit 1; }
+          {
+            echo '### fixture drift vs the captured stream'
+            echo '```'
+            bash "$GITHUB_WORKSPACE/tests/fixtures/ndjson/check-drift.sh" "$events" || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          bash "$GITHUB_WORKSPACE/tests/fixtures/ndjson/check-drift.sh" "$events"
+
+      # Both outcomes are recorded whatever happened, and this step is the one
+      # that reports failure — the job stays non-blocking.
+      - name: smoke summary
+        if: always()
+        env:
+          GATE: ${{ steps.gate.outputs.enabled }}
+          A: ${{ steps.pass_a.outcome }}
+          B: ${{ steps.pass_b.outcome }}
+        run: |
+          set -uo pipefail
+          {
+            echo '### codex smoke'
+            echo ''
+            echo "| pass | outcome |"
+            echo "| --- | --- |"
+            echo "| A — pinned 0.144.4 | ${A:-skipped} |"
+            echo "| B — @latest + drift | ${B:-skipped} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "${GATE:-false}" != "true" ]; then
+            echo "no secret configured — nothing ran."
+            exit 0
+          fi
+          rc=0
+          [ "${A:-skipped}" = "failure" ] && rc=1
+          [ "${B:-skipped}" = "failure" ] && rc=1
+          exit "$rc"

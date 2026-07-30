@@ -1,0 +1,13 @@
+{"type":"thread.started","thread_id":"thr_fixture_happy"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"item_0","item_type":"reasoning","text":"planning"}}
+{"type":"item.completed","item":{"id":"item_0","item_type":"reasoning","text":"planning"}}
+{"type":"item.started","item":{"id":"item_1","item_type":"command_execution","command":"pytest   -q\n  tests/","status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","item_type":"command_execution","command":"pytest -q tests/","aggregated_output":"12 passed","exit_code":0,"status":"completed"}}
+{"type":"item.started","item":{"id":"item_2","item_type":"command_execution","command":"ruff check .","status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_2","item_type":"command_execution","command":"ruff check .","aggregated_output":"1 error","exit_code":1,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_3","item_type":"file_change","changes":[{"path":"src/models.py","kind":"update"}],"status":"completed"}}
+{"type":"item.started","item":{"id":"item_4","item_type":"web_search","query":"bash 3.2 pipestatus"}}
+{"type":"item.completed","item":{"id":"item_4","item_type":"web_search","query":"bash 3.2 pipestatus"}}
+{"type":"item.completed","item":{"id":"item_5","item_type":"agent_message","text":"done"}}
+{"type":"turn.completed","usage":{"input_tokens":18432,"cached_input_tokens":16384,"output_tokens":911}}

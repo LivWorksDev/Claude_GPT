@@ -130,6 +130,43 @@ Invariantes del modo: sandbox `workspace-write` fijado; los turnos de imagen sol
 - `.tandem/state/implement-claude/<slug>.json` + `<slug>.t<N>.report.md` — espejo durable del intento Opus; `plan_hash` es el blob commiteado, no la working copy que cambia al marcar checkboxes.
 - `.tandem/state/current.json` — heartbeat de la status line (rol, modelo, effort, sandbox, turno, pid, estado, veredicto). Artefacto de presentación: se escribe de forma atómica y su fallo nunca aborta un turno.
 
+## Tests
+
+```sh
+bash tests/run.sh                   # la suite completa (~44 casos, < 1 min)
+bash tests/run.sh statusline        # filtra por subcadena del nombre del caso
+bash tests/verify.sh                # PROOF: suite + shellcheck + actionlint pineados
+```
+
+`tests/run.sh` no necesita red, login ni un `codex` real: un stub del binario en
+`tests/stub/codex` emite NDJSON realista y respeta los exit codes, y cada caso corre en su
+propio sandbox bajo `env -i` con allowlist explícita (el `HOME`, el `CLAUDE_CONFIG_DIR` y un
+`codex` de verdad de tu máquina son estructuralmente inalcanzables). Los sandboxes de los
+casos en rojo se conservan para el post-mortem; los verdes se borran.
+
+En macOS los scripts se prueban contra el bash 3.2 del sistema, que es lo que corre el CI.
+Si tu `bash` por defecto es el 5 de Homebrew el self-check del runner te lo dirá; replica el
+CI con:
+
+```sh
+TESTS_BASH=/bin/bash bash tests/run.sh
+```
+
+`tests/verify.sh` es el punto de entrada único de verificación (el mismo que llama el CI):
+ejecuta la suite y después `shellcheck` y `actionlint` con binarios **pineados por
+checksum** que se auto-provisionan en `tests/.tools/` (gitignorado). Una capa que no puede
+correr es un fallo explícito que se nombra a sí mismo, nunca un skip silencioso;
+`TANDEM_VERIFY_OFFLINE=1 bash tests/verify.sh` es la única degradación permitida (solo
+suite) y avisa a gritos de que no es la puerta completa. La primera ejecución necesita red
+para descargar los binarios; después quedan cacheados. Los sha256 viven en
+`tests/checksums.txt` y se rellenan una vez con `bash tests/verify.sh --record-checksums`.
+
+CI (`.github/workflows/tests.yml`): `lint` (bloqueante, llama a `verify.sh`), `test`
+(matriz `ubuntu-latest` + `macos-latest` con preflight de bash y subida de los sandboxes
+rojos como artifact) y `codex-smoke` (semanal y manual, no bloqueante, nunca en PR: corre
+los wrappers reales contra la CLI pineada y contra `@latest`, y pasa
+`tests/fixtures/ndjson/check-drift.sh` para vigilar el drift entre el stub y la CLI real).
+
 ## Arquitectura y roadmap
 
 Esquema completo, decisiones y la migración prevista a Codex MCP en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

@@ -1,0 +1,2 @@
+tem_type":"reasoning","text":"…tail -c cut this line in half"}}
+{"type":"item.started","item":{"id":"item_9","item_type":"command_execution","command":"go test ./... -run TestVeryLongNameThatGetsTruncatedAtFortyChars","status":"in_progress"}}

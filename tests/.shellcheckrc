@@ -1,0 +1,12 @@
+# ShellCheck configuration for tests/ ONLY — scripts/ stays fully strict.
+#
+# SC2030 / SC2031 ("modified in a subshell"): the cases run helpers inside
+# ( … ) subshells ON PURPOSE, so that sourcing scripts/_common.sh (which sets
+# -euo pipefail and defines globals) cannot leak into the next assertion. The
+# checks fire on exactly that intended pattern.
+#
+# SC2016 ("expressions don't expand in single quotes"): the runner passes shell
+# snippets to `bash -c` as single-quoted literals, and several assertions look
+# for literal '$' text (a cost of "$1.24", a template containing '${x}'). Every
+# hit here is deliberate.
+disable=SC2030,SC2031,SC2016

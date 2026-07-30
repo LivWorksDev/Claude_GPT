@@ -82,7 +82,7 @@ printf '%s\n' "$THREAD_ID" >"$THREAD_FILE"
 # Per-turn replies are the durable record; last.txt is a convenience pointer
 # to the newest one, updated only after every success check passed.
 cp "$MSG_FILE" "$LAST_FILE"
-hb_end done "$(hb_verdict "$MSG_FILE")"
+hb_end "done" "$(hb_verdict "$MSG_FILE")"
 
 printf '\n--- codex reply (%s, turn %s) ---\n' "$CODEX_MODEL" "$TURN"
 cat "$MSG_FILE"

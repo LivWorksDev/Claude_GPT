@@ -17,62 +17,62 @@ producción.
 
 ### 1. Stub del binario codex — `tests/stub/codex`
 
-- [ ] Un solo fichero bash 3.2-compatible. El runner lo COPIA a `$SANDBOX/bin/codex` por
+- [x] Un solo fichero bash 3.2-compatible. El runner lo COPIA a `$SANDBOX/bin/codex` por
   test (nunca symlink) y antepone `$SANDBOX/bin` al PATH.
-- [ ] Dispatch: `--version` primero (imprime `codex-cli 0.0.0-stub`, exit
+- [x] Dispatch: `--version` primero (imprime `codex-cli 0.0.0-stub`, exit
   `$CODEX_STUB_VERSION_RC`, default 0 — `need_codex` lo sondea); `login` → exit
   `$CODEX_STUB_LOGIN_RC`; resto → rama exec.
-- [ ] Selección de escenario 100 % por env (`CODEX_STUB_SCENARIO`, `_THREAD_ID`,
+- [x] Selección de escenario 100 % por env (`CODEX_STUB_SCENARIO`, `_THREAD_ID`,
   `_THREAD_ID_2`, `_REPLY`/`_REPLY_FILE`, `_EXIT`, `_FIXTURE`, `_SLEEP`, `_LOG`
   obligatoria). Nada de ficheros de escenario compartidos.
-- [ ] Registro por invocación N: `$CODEX_STUB_LOG.argv.$N` (argv completo unido con `\x1f`
+- [x] Registro por invocación N: `$CODEX_STUB_LOG.argv.$N` (argv completo unido con `\x1f`
   — aserción de orden exacto con una comparación) y `$CODEX_STUB_LOG.stdin.$N` (prompt
   drenado con `cat` antes de emitir eventos).
-- [ ] Snapshot del heartbeat EN FASE RUNNING: antes de emitir eventos, la rama exec copia
+- [x] Snapshot del heartbeat EN FASE RUNNING: antes de emitir eventos, la rama exec copia
   el heartbeat a `$CODEX_STUB_LOG.hb.$N` — cubre el contrato "el heartbeat running lleva la
   ruta del NDJSON" que ningún assert final puede ver. La ruta del heartbeat viene de
   `CODEX_STUB_HB_FILE` (default `$CLAUDE_PROJECT_DIR/.tandem/state/current.json`): en los
   tests de worktree `HB_ROOT` apunta al checkout PRINCIPAL, no a `CLAUDE_PROJECT_DIR`, y el
   test exporta la ruta resuelta — un snapshot incondicional de la ruta por defecto fallaría
   o saltaría en silencio la aserción.
-- [ ] NDJSON inline solo si vio `--json` en argv; honra `--output-last-message` salvo en los
+- [x] NDJSON inline solo si vio `--json` en argv; honra `--output-last-message` salvo en los
   escenarios `empty-reply` y `fail` (que no escriben, haciendo observable el pre-borrado).
-- [ ] Escenarios: `ok`, `multi-thread-started` (primero-vs-último), `resume-fallback`,
+- [x] Escenarios: `ok`, `multi-thread-started` (primero-vs-último), `resume-fallback`,
   `fail` (exit forzable ≠1 para distinguir "exit fijo 1" del rc de codex), `empty-reply`,
   `no-thread-event`, `corrupt-ndjson`, `verdict-multi` (último sentinel gana, prefijo con
   doble espacio), `hang` (para el watchdog), `version-fail`.
 
 ### 2. Runner y librería — `tests/run.sh`, `tests/lib.sh`
 
-- [ ] Bash puro 3.2 (sin mapfile/arrays asociativos/`${var,,}`). Descubrimiento
+- [x] Bash puro 3.2 (sin mapfile/arrays asociativos/`${var,,}`). Descubrimiento
   `tests/*.test.sh` con orden `LC_ALL=C sort`; argumento opcional filtra por subcadena.
-- [ ] Aislamiento TOTAL por test (regla dura post-incidente 2026-07-20): sandbox propio con
+- [x] Aislamiento TOTAL por test (regla dura post-incidente 2026-07-20): sandbox propio con
   `bin/ home/ tmp/ project/ claude-config/ tools/`; ejecución con `env -i` y allowlist
   explícita (PATH, HOME, TMPDIR, CLAUDE_PROJECT_DIR, CLAUDE_CONFIG_DIR, CODEX_STUB_LOG,
   REPO_ROOT, TESTS_DIR, TERM=dumb, LC_ALL=C). `$SANDBOX/tools/` contiene symlinks SOLO a
   los binarios `jq` y `git` concretos — nunca directorios enteros (el dir de Homebrew
   contiene bash 5 y potencialmente el codex real del desarrollador).
-- [ ] Self-check al arranque, dentro del env scrubbed: `command -v codex` debe resolver al
+- [x] Self-check al arranque, dentro del env scrubbed: `command -v codex` debe resolver al
   stub y `bash -c 'echo $BASH_VERSION'` debe casar con `$TESTS_BASH`; FATAL si no.
-- [ ] Guard anti-checkout en `lib.sh`: si `$PWD` o `$CLAUDE_PROJECT_DIR` caen dentro de
+- [x] Guard anti-checkout en `lib.sh`: si `$PWD` o `$CLAUDE_PROJECT_DIR` caen dentro de
   `$REPO_ROOT` → `FATAL` exit 99 (state_init escribiría `.tandem/` real).
-- [ ] Watchdog por test en bash puro: un background job ordinario COMPARTE el grupo de
+- [x] Watchdog por test en bash puro: un background job ordinario COMPARTE el grupo de
   procesos del runner (verificado en bash 3.2), así que el runner lanza cada test con job
   control activo (`set -m` en el subshell que lo lanza) para que reciba su propio grupo,
   verifica que el grupo existe (`kill -0 -- -$PID`) antes de armar el watchdog, y el timeout
   mata el grupo completo (`kill -- -$PID`) — un stub colgado no deja huérfanos (tee/jq)
   vivos. `TEST_TIMEOUT` default 60 s. Aserciones de orden y rc, nunca de duración en
   segundos.
-- [ ] `RUNNER_TMP` bajo `${RUNNER_TEMP:-${TMPDIR:-/tmp}}`, canonicalizado con `pwd -P` una
+- [x] `RUNNER_TMP` bajo `${RUNNER_TEMP:-${TMPDIR:-/tmp}}`, canonicalizado con `pwd -P` una
   sola vez (macOS: `/var` vs `/private/var`); todo lo esperado se deriva de la forma física.
-- [ ] `lib.sh`: `fail` (con file:LINENO), `assert_rc` (igualdad EXACTA, nunca `!= 0`),
+- [x] `lib.sh`: `fail` (con file:LINENO), `assert_rc` (igualdad EXACTA, nunca `!= 0`),
   `assert_eq`, `assert_file_contains` (grep -F), `assert_not_contains`, `assert_argv`
   (cmp contra la cadena `\x1f` esperada), `assert_json` (jq -e), `assert_no_escapes`
   (`if grep -q; then fail; fi` — jamás `grep -c` en negativas), `make_repo`, `seed_key`,
   `write_hb`.
-- [ ] Salida: `ok <nombre>` / `FAIL <nombre> rc=<rc>` + últimas 40 líneas del log; resumen
+- [x] Salida: `ok <nombre>` / `FAIL <nombre> rc=<rc>` + últimas 40 líneas del log; resumen
   final; exit 0 sii 0 fallos. Sandboxes rojos se conservan (CI los sube como artifact).
-- [ ] `tests/verify.sh` — punto de entrada único de verificación: ejecuta `tests/run.sh` y
+- [x] `tests/verify.sh` — punto de entrada único de verificación: ejecuta `tests/run.sh` y
   después las capas de lint con binarios PINEADOS auto-provisionados en `tests/.tools/`
   (shellcheck y actionlint, descargados por `uname -m` con checksum verificado y cacheados).
   `/tests/.tools/` entra en el `.gitignore` del repo — el PROOF no puede dejar binarios sin
@@ -83,16 +83,16 @@ producción.
 
 ### 3. Fixtures — `tests/fixtures/ndjson/`
 
-- [ ] Fixtures NDJSON con las formas de campo EXACTAS que consumen los filtros jq de
+- [x] Fixtures NDJSON con las formas de campo EXACTAS que consumen los filtros jq de
   `_common.sh:141-160` y `statusline.sh:158-174`, incluidos multi-`thread.started`, basura
   intercalada, `turn.failed`, `error` y `file_change` con 4 paths (rama "+N more").
-- [ ] `README.md`: versión de codex-cli de origen (0.144.4), comando exacto de
+- [x] `README.md`: versión de codex-cli de origen (0.144.4), comando exacto de
   regeneración, y qué shapes están validados contra la CLI real vs best-effort.
-- [ ] `check-drift.sh`: compara claves/tipos de eventos reales vs fixtures (lo usa el smoke).
+- [x] `check-drift.sh`: compara claves/tipos de eventos reales vs fixtures (lo usa el smoke).
 
 ### 4. Casos de test — `tests/<id>.test.sh` (~38)
 
-- [ ] Los 35 casos del diseño: `start-happy` (con extra/notes files reales asertados en el
+- [x] Los 35 casos del diseño: `start-happy` (con extra/notes files reales asertados en el
   stdin grabado), `start-argv-exact-order` (parametrizado en tabla rol→model/effort/sandbox
   para las CUATRO filas implement/review/ask/image + overrides de env), `start-thread-exists-exit2`,
   `start-codex-fails-exit1-not-rc`, `start-empty-reply-exit1`, `start-no-thread-event-exit1`,
@@ -113,7 +113,7 @@ producción.
   `statusline-stale-suppression`, `statusline-live-activity`, `worktree-hb-root`,
   `doctor-env-matrix` (unset vs set-vacío de TANDEM_IMPLEMENTER vía `env -u`),
   `statusline-install-lifecycle` (+ reinstalación idempotente, `--force` solo → 64).
-- [ ] Añadidos de la revisión adversarial: `hb-running-snapshot` (status running + ruta
+- [x] Añadidos de la revisión adversarial: `hb-running-snapshot` (status running + ruta
   events + turn + pid en el snapshot del stub), `hb-term-vs-kill` (SIGTERM → trap EXIT corre
   → status `failed` + rc 143; SIGKILL → queda `running` y statusline lo pinta `orphaned` —
   contrato empíricamente verificado), `shim-runtime` (ejecutar el shim generado con las 4
@@ -132,39 +132,39 @@ producción.
 
 ### 5. Fixes de código descubiertos al fijar contratos (mínimos, con test cada uno)
 
-- [ ] `scripts/codex-resume.sh:44` — `TURN=$((10#$TURN + 1))`: hoy un `.turn` con `08`/`09`
+- [x] `scripts/codex-resume.sh:44` — `TURN=$((10#$TURN + 1))`: hoy un `.turn` con `08`/`09`
   pasa el saneador `case` (todo dígitos) pero la aritmética octal revienta con "value too
   great for base" — error crudo de bash, sin `die`, antes de `hb_begin`. El test lo
   consagra: `08` → turno 9.
-- [ ] `scripts/statusline-install.sh` — `write_shim` corre ANTES de la validación de
+- [x] `scripts/statusline-install.sh` — `write_shim` corre ANTES de la validación de
   settings, así que con un settings corrupto el shim SÍ se (re)escribe aunque el `die` diga
   "nothing was changed". Fix: mover `write_shim` tras la validación; el test fija el
   contrato (settings corrupto → ni settings ni shim tocados).
-- [ ] `scripts/codex-start.sh:85` y `scripts/codex-resume.sh:93` — `hb_end done …` pasa el
+- [x] `scripts/codex-start.sh:85` y `scripts/codex-resume.sh:93` — `hb_end done …` pasa el
   literal `done` sin comillas: ShellCheck lo marca SC1010 (verificado localmente con 0.11.0)
   y el job de lint bloqueante nacería en rojo. Fix: `hb_end "done" …` en ambos; cubierto por
   la aceptación "shellcheck limpio".
 
 ### 6. CI — `.github/workflows/tests.yml`
 
-- [ ] Triggers completos: `push`, `pull_request`, `schedule` (cron semanal) y
+- [x] Triggers completos: `push`, `pull_request`, `schedule` (cron semanal) y
   `workflow_dispatch` — sin los dos últimos el smoke jamás se ejecutaría. Guard por evento a
   nivel de job (contexto `github`, que SÍ es válido en `jobs.<id>.if`): `lint` y `test`
   corren en push/PR; `codex-smoke` solo en schedule/dispatch. `concurrency` con
   cancel-in-progress, `timeout-minutes: 15`.
-- [ ] Job `lint` (ubuntu, bloqueante): llama a `tests/verify.sh` (capa lint) — shellcheck
+- [x] Job `lint` (ubuntu, bloqueante): llama a `tests/verify.sh` (capa lint) — shellcheck
   v0.10.0 y actionlint v1.7.7, AMBOS binarios precompilados con sha256 verificado y asset
   elegido por `uname -m` (actionlint no viene en los runners hosted: sin provisión pineada,
   el paso muere con `command not found` o introduce una descarga sin verificar);
   `--source-path=SCRIPTDIR` y `-x` (sigue el `. _common.sh`), dos invocaciones separadas
   (scripts/ y tests/); actionlint valida el propio workflow.
-- [ ] Job `test`, matriz `[ubuntu-latest, macos-latest]`, `fail-fast: false`. Preflight de
+- [x] Job `test`, matriz `[ubuntu-latest, macos-latest]`, `fail-fast: false`. Preflight de
   bash: en macOS `/bin/bash -c 'echo $BASH_VERSION'` debe empezar por `3.2` (falla el job si
   Apple lo cambia — `env bash` resolvería al bash 5 de Homebrew y probaríamos el bash
   equivocado); en ubuntu debe ser 5.x. Ejecución: macOS `env TESTS_BASH=/bin/bash /bin/bash
   tests/run.sh`; ubuntu `bash tests/run.sh`.
-- [ ] `if: failure()` → upload-artifact de `${{ runner.temp }}/tandem-tests.*` por OS.
-- [ ] Job `codex-smoke` (semanal + manual, `continue-on-error`, NUNCA en PR): el gating por
+- [x] `if: failure()` → upload-artifact de `${{ runner.temp }}/tandem-tests.*` por OS.
+- [x] Job `codex-smoke` (semanal + manual, `continue-on-error`, NUNCA en PR): el gating por
   secret va DENTRO del job a nivel de step (el contexto `secrets` no está disponible en
   `jobs.<id>.if` — usarlo ahí invalida el workflow ENTERO al parsear); autentica de verdad
   con el secret y ejecuta `codex-start.sh` rol `ask` (read-only) por los wrappers reales.
@@ -183,12 +183,12 @@ producción.
 
 ### 7. Documentación y cierre
 
-- [ ] `README.md`: sección breve "Tests" (cómo correr, `TESTS_BASH=/bin/bash` para replicar
+- [x] `README.md`: sección breve "Tests" (cómo correr, `TESTS_BASH=/bin/bash` para replicar
   el CI de macOS en local).
-- [ ] `CHANGELOG.md`: entrada 0.10.0 y `.claude-plugin/plugin.json` a `"version": "0.10.0"`
+- [x] `CHANGELOG.md`: entrada 0.10.0 y `.claude-plugin/plugin.json` a `"version": "0.10.0"`
   — el manifiesto es la versión autoritativa del plugin instalado y debe coincidir con la
   entrada más nueva del changelog.
-- [ ] `docs/BACKLOG.md`: M14 → estado actualizado.
+- [x] `docs/BACKLOG.md`: M14 → estado actualizado.
 
 ## Key decisions & tradeoffs
 

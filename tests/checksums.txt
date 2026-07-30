@@ -1,0 +1,25 @@
+# Pinned lint binaries for tests/verify.sh — sha256 of each release asset.
+#
+# Format: <sha256>  <asset-file-name>
+#
+# tests/verify.sh downloads the asset for the current uname -s / uname -m into
+# tests/.tools/ (gitignored) and refuses to execute it unless the sha256 matches
+# the line below. An entry that is still UNPINNED is a HARD FAILURE, never a
+# skip: run `bash tests/verify.sh --record-checksums` once on a trusted,
+# networked machine, move the values from tests/.tools/checksums.recorded into
+# this file, and commit it.
+#
+# Bumping a version means new asset names AND new sums — both are manual, on
+# purpose (that is the cost of reproducible lint findings).
+
+# shellcheck v0.10.0 — https://github.com/koalaman/shellcheck/releases/tag/v0.10.0
+bbd2f14826328eee7679da7221f2bc3afb011f6a928b848c80c321f6046ddf81  shellcheck-v0.10.0.darwin.aarch64.tar.xz
+ef27684f23279d112d8ad84e0823642e43f838993bbb8c0963db9b58a90464c2  shellcheck-v0.10.0.darwin.x86_64.tar.xz
+324a7e89de8fa2aed0d0c28f3dab59cf84c6d74264022c00c22af665ed1a09bb  shellcheck-v0.10.0.linux.aarch64.tar.xz
+6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87  shellcheck-v0.10.0.linux.x86_64.tar.xz
+
+# actionlint v1.7.7 — https://github.com/rhysd/actionlint/releases/tag/v1.7.7
+28e5de5a05fc558474f638323d736d822fff183d2d492f0aecb2b73cc44584f5  actionlint_1.7.7_darwin_amd64.tar.gz
+2693315b9093aeacb4ebd91a993fea54fc215057bf0da2659056b4bc033873db  actionlint_1.7.7_darwin_arm64.tar.gz
+023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757  actionlint_1.7.7_linux_amd64.tar.gz
+401942f9c24ed71e4fe71b76c7d638f66d8633575c4016efd2977ce7c28317d0  actionlint_1.7.7_linux_arm64.tar.gz

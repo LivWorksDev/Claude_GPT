@@ -41,7 +41,10 @@ NOTES="$(read_optional_file "$NOTES_FILE")"
 
 TURN="$(cat "$TURN_FILE" 2>/dev/null || printf '0')"
 case "$TURN" in '' | *[!0-9]*) TURN=0 ;; esac
-TURN=$((TURN + 1))
+# 10# forces base 10: the sanitizer above accepts an all-digits '08'/'09', which
+# bash would otherwise read as octal and abort with "value too great for base"
+# — a raw bash error, before hb_begin, with no die() and no heartbeat.
+TURN=$((10#$TURN + 1))
 printf '%s\n' "$TURN" >"$TURN_FILE"
 PROMPT_FILE="$STATE_DIR/$KEY.t$TURN.prompt.txt"
 MSG_FILE="$STATE_DIR/$KEY.t$TURN.reply.txt"
@@ -90,7 +93,7 @@ fi
 # Per-turn replies are the durable record; last.txt is a convenience pointer
 # to the newest one, updated only after every success check passed.
 cp "$MSG_FILE" "$LAST_FILE"
-hb_end done "$(hb_verdict "$MSG_FILE")"
+hb_end "done" "$(hb_verdict "$MSG_FILE")"
 
 printf '\n--- codex reply (%s, turn %s) ---\n' "$CODEX_MODEL" "$TURN"
 cat "$MSG_FILE"

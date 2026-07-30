@@ -4,3 +4,6 @@ node_modules/
 .env.local
 .tandem/
 .worktrees/
+# pinned lint binaries provisioned by tests/verify.sh — never committed, and
+# never allowed to leak into the plugin package or a clean-tree gate
+/tests/.tools/

@@ -1,0 +1,2 @@
+{"type":"thread.started","thread_id":"thr_fixture_error"}
+{"type":"error","message":"stream disconnected before completion"}

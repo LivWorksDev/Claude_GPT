@@ -30,7 +30,7 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
 | M11 | Nueva skill `/tandem:status` | UX | P2 | M | pendiente |
 | M12 | Statusline visible durante implementaciones Opus | Observabilidad | P2 | S | pendiente |
 | M13 | Semáforo de concurrencia dentro de `codex-swarm.sh` | Ultra | P2 | M | pendiente |
-| M14 | Suite de tests con stub de codex + shellcheck + CI | Infraestructura | P1 | L | planificada |
+| M14 | Suite de tests con stub de codex + shellcheck + CI | Infraestructura | P1 | L | hecha (v0.10.0) |
 | M15 | Review de rangos ya commiteados | Workflow | P3 | M | pendiente |
 
 ## Orden de ataque recomendado

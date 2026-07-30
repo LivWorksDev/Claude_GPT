@@ -1,0 +1,208 @@
+#!/usr/bin/env bash
+# tandem tests — stub of the `codex` CLI binary.
+#
+# The runner COPIES this file to $SANDBOX/bin/codex (never a symlink: a symlink
+# would keep resolving through the repo and a test could not shadow it) and
+# prepends $SANDBOX/bin to PATH. Everything the stub does is selected by
+# environment variables, never by shared scenario files, so two tests can never
+# influence each other.
+#
+# Environment contract
+#   CODEX_STUB_LOG          (required) base path for the per-invocation records
+#   CODEX_STUB_SCENARIO     ok | multi-thread-started | resume-fallback | fail
+#                           | empty-reply | no-thread-event | corrupt-ndjson
+#                           | verdict-multi | hang | version-fail   (default ok)
+#   CODEX_STUB_THREAD_ID    thread id emitted by thread.started (default thr_stub_1)
+#   CODEX_STUB_THREAD_ID_2  second/alternate id (multi-thread-started, resume-fallback)
+#   CODEX_STUB_REPLY        text written to --output-last-message
+#   CODEX_STUB_REPLY_FILE   file whose content is written instead of _REPLY
+#   CODEX_STUB_EXIT         exit code of the `fail` scenario (default 7 — a value
+#                           that is neither 0 nor 1, so a caller that hardcodes
+#                           `exit 1` is distinguishable from one that forwards rc)
+#   CODEX_STUB_FIXTURE      NDJSON file emitted verbatim instead of the inline events
+#   CODEX_STUB_SLEEP        seconds to sleep before emitting anything
+#   CODEX_STUB_VERSION_RC   exit code of `codex --version` (default 0)
+#   CODEX_STUB_LOGIN_RC     exit code of `codex login …`   (default 0)
+#   CODEX_STUB_HB_FILE      heartbeat snapshotted during the RUNNING phase
+#                           (default $CLAUDE_PROJECT_DIR/.tandem/state/current.json)
+#
+# Per-invocation records (N counts EXEC invocations only — `--version` and
+# `login` probes do not advance the counter, so argv.1 is always the first real
+# turn):
+#   $CODEX_STUB_LOG.argv.N    full argv joined with \x1f (exact-order assertions)
+#   $CODEX_STUB_LOG.stdin.N   the prompt, drained before any event is emitted
+#   $CODEX_STUB_LOG.hb.N      copy of the heartbeat as it looked mid-turn
+#   $CODEX_STUB_LOG.n         invocation counter
+#
+# bash 3.2 compatible on purpose: this runs under whatever /bin/bash the
+# platform ships.
+
+set -u
+
+STUB_US=$'\x1f'
+
+stub_die() {
+  printf 'codex-stub: %s\n' "$1" >&2
+  exit 90
+}
+
+[ -n "${CODEX_STUB_LOG:-}" ] || stub_die "CODEX_STUB_LOG is not set (the runner must export it)"
+
+SCENARIO="${CODEX_STUB_SCENARIO:-ok}"
+TID="${CODEX_STUB_THREAD_ID:-thr_stub_1}"
+TID2="${CODEX_STUB_THREAD_ID_2:-thr_stub_2}"
+
+# --- dispatch: --version wins, then login, then the exec branch -------------
+if [ "${1:-}" = "--version" ]; then
+  rc="${CODEX_STUB_VERSION_RC:-0}"
+  [ "$SCENARIO" = "version-fail" ] && rc="${CODEX_STUB_VERSION_RC:-1}"
+  if [ "$rc" -eq 0 ]; then
+    printf 'codex-cli 0.0.0-stub\n'
+  else
+    printf 'codex-stub: simulated broken install\n' >&2
+  fi
+  exit "$rc"
+fi
+
+if [ "${1:-}" = "login" ]; then
+  exit "${CODEX_STUB_LOGIN_RC:-0}"
+fi
+
+# --- exec branch ------------------------------------------------------------
+N_FILE="$CODEX_STUB_LOG.n"
+N=0
+if [ -f "$N_FILE" ]; then
+  N="$(cat "$N_FILE" 2>/dev/null || printf '0')"
+fi
+case "$N" in '' | *[!0-9]*) N=0 ;; esac
+N=$((N + 1))
+printf '%s\n' "$N" >"$N_FILE"
+
+ARGV=""
+SEP=""
+for a in "$@"; do
+  ARGV="$ARGV$SEP$a"
+  SEP="$STUB_US"
+done
+printf '%s' "$ARGV" >"$CODEX_STUB_LOG.argv.$N"
+
+# Drain the prompt BEFORE emitting anything: the callers pipe us into tee and
+# would deadlock on a large prompt otherwise, and the recorded stdin is what the
+# tests assert the rendered template against.
+cat >"$CODEX_STUB_LOG.stdin.$N"
+
+# Snapshot the heartbeat while the turn is RUNNING. This is the only moment the
+# "running heartbeat carries the NDJSON path" contract is observable: by the
+# time the caller returns, hb_end has already overwritten it.
+HB_FILE="${CODEX_STUB_HB_FILE:-${CLAUDE_PROJECT_DIR:-}/.tandem/state/current.json}"
+if [ -n "$HB_FILE" ] && [ -f "$HB_FILE" ]; then
+  cp "$HB_FILE" "$CODEX_STUB_LOG.hb.$N" 2>/dev/null || true
+fi
+
+WANT_JSON=0
+OUT_LAST=""
+prev=""
+for a in "$@"; do
+  [ "$a" = "--json" ] && WANT_JSON=1
+  [ "$prev" = "--output-last-message" ] && OUT_LAST="$a"
+  prev="$a"
+done
+
+if [ -n "${CODEX_STUB_SLEEP:-}" ]; then
+  sleep "$CODEX_STUB_SLEEP"
+fi
+if [ "$SCENARIO" = "hang" ]; then
+  # Long enough that only the runner watchdog can end it.
+  sleep "${CODEX_STUB_HANG_SECONDS:-600}"
+  exit 0
+fi
+
+emit() {
+  [ "$WANT_JSON" -eq 1 ] || return 0
+  printf '%s\n' "$1"
+}
+
+emit_events() {
+  if [ -n "${CODEX_STUB_FIXTURE:-}" ]; then
+    [ "$WANT_JSON" -eq 1 ] || return 0
+    cat "$CODEX_STUB_FIXTURE"
+    return 0
+  fi
+  case "$SCENARIO" in
+    no-thread-event)
+      : ;;
+    multi-thread-started)
+      emit "{\"type\":\"thread.started\",\"thread_id\":\"$TID\"}"
+      ;;
+    resume-fallback)
+      emit "{\"type\":\"thread.started\",\"thread_id\":\"$TID2\"}"
+      ;;
+    corrupt-ndjson)
+      emit 'not json at all'
+      emit '{"type":"thread.started","thread_id":'
+      emit "{\"type\":\"thread.started\",\"thread_id\":\"$TID\"}"
+      ;;
+    *)
+      emit "{\"type\":\"thread.started\",\"thread_id\":\"$TID\"}"
+      ;;
+  esac
+
+  emit '{"type":"item.started","item":{"item_type":"command_execution","command":"echo   hello\nworld"}}'
+  emit '{"type":"item.completed","item":{"item_type":"command_execution","command":"echo hello","exit_code":0}}'
+
+  if [ "$SCENARIO" = "multi-thread-started" ]; then
+    emit "{\"type\":\"thread.started\",\"thread_id\":\"$TID2\"}"
+  fi
+  if [ "$SCENARIO" = "corrupt-ndjson" ]; then
+    emit '}{ still garbage'
+  fi
+
+  case "$SCENARIO" in
+    fail)
+      emit '{"type":"turn.failed","error":{"message":"stub forced failure"}}'
+      ;;
+    *)
+      emit '{"type":"turn.completed","usage":{"input_tokens":1234,"output_tokens":56}}'
+      ;;
+  esac
+}
+
+reply_text() {
+  if [ -n "${CODEX_STUB_REPLY_FILE:-}" ] && [ -f "$CODEX_STUB_REPLY_FILE" ]; then
+    cat "$CODEX_STUB_REPLY_FILE"
+    return 0
+  fi
+  if [ -n "${CODEX_STUB_REPLY:-}" ]; then
+    printf '%s\n' "$CODEX_STUB_REPLY"
+    return 0
+  fi
+  case "$SCENARIO" in
+    verdict-multi)
+      printf 'first pass\nVERDICT: NEEDS_REWORK\nsecond thoughts\nVERDICT:  APPROVED\n'
+      ;;
+    *)
+      printf 'stub reply for %s\n' "$SCENARIO"
+      ;;
+  esac
+}
+
+emit_events
+
+# `empty-reply` and `fail` deliberately do NOT write the last-message file: the
+# callers pre-delete it, so a stale reply from a previous turn can never be
+# mistaken for this turn's output — that pre-deletion is only observable here.
+case "$SCENARIO" in
+  empty-reply | fail) : ;;
+  *)
+    if [ -n "$OUT_LAST" ]; then
+      reply_text >"$OUT_LAST"
+    fi
+    ;;
+esac
+
+if [ "$SCENARIO" = "fail" ]; then
+  printf 'codex-stub: forced failure (scenario=fail)\n' >&2
+  exit "${CODEX_STUB_EXIT:-7}"
+fi
+
+exit 0

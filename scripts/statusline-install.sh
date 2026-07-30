@@ -87,6 +87,15 @@ SHIM_EOF
   mv -f "$tmp" "$SHIM"
 }
 
+# settings_check — validate BEFORE anything is written. write_shim used to run
+# first, so a corrupt settings.json still got the shim (re)written while the
+# die() below claimed "nothing was changed".
+settings_check() {
+  [ -f "$SETTINGS" ] || return 0
+  jq -e . "$SETTINGS" >/dev/null 2>&1 \
+    || die "$SETTINGS is not valid JSON — fix it by hand first (nothing was changed)" 1
+}
+
 settings_set() {
   mkdir -p "$CLAUDE_DIR"
   [ -f "$SETTINGS" ] || printf '{}\n' >"$SETTINGS"
@@ -110,6 +119,7 @@ case "$ACTION" in
       printf 'tandem: re-run with --force to replace it (a backup is kept).\n' >&2
       exit 2
     fi
+    settings_check
     write_shim
     settings_set
     printf 'tandem: status line installed.\n'

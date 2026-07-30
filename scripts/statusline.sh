@@ -118,6 +118,9 @@ EOF
 NOW="$(date +%s)"
 case "${HB_UPDATED:-0}" in '' | *[!0-9]*) HB_UPDATED=0 ;; esac
 case "${HB_START:-0}" in '' | *[!0-9]*) HB_START=0 ;; esac
+# A corrupt pid must degrade silently: `-gt` on a non-number prints an
+# "integer expression expected" to stderr, which surfaces in the UI as noise.
+case "${HB_PID:-0}" in '' | *[!0-9]*) HB_PID=0 ;; esac
 
 # A finished turn stays visible for a while, then stops cluttering the prompt.
 if [ "$HB_STATUS" != "running" ] && [ $((NOW - HB_UPDATED)) -gt 900 ]; then

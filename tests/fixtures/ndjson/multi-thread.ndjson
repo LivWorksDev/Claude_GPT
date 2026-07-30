@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"thr_fixture_first"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","item_type":"agent_message","text":"first turn"}}
+{"type":"thread.started","thread_id":"thr_fixture_second"}
+{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}

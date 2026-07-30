@@ -1,0 +1,7 @@
+Reading prompt from stdin...
+{"type":"thread.started","thread_id":"thr_fixture_corrupt"}
+{"type":"item.started","item":{"id":"item_0","item_type":"command_
+{"type":"item.completed","item":{"id":"item_0","item_type":"command_execution","command":"true","exit_code":0}}
+
+}{ not json either
+{"type":"turn.completed","usage":{"input_tokens":7,"output_tokens":1}}
