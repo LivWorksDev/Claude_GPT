@@ -125,6 +125,7 @@ Invariantes del modo: sandbox `workspace-write` fijado; los turnos de imagen sol
 
 - `docs/plans/<slug>.plan.md` — planes (versionados).
 - `docs/reviews/<slug>.md` — registro final del review (versionado, opcional — ver `TANDEM_PROMOTE_REVIEWS`).
+- `docs/BACKLOG.md` — backlog trazable de mejoras (auditoría 2026-07-30): hallazgo → plan → estado.
 - `.tandem/` — estado por proyecto, auto-gitignorado y por-feature (clave = target + checksum; una feature nueva nunca pisa el estado de otra): hilos, y prompt/respuesta/eventos POR TURNO (`state/…tN.*`), log append-only del debate (`log/`).
 - `.tandem/state/implement-claude/<slug>.json` + `<slug>.t<N>.report.md` — espejo durable del intento Opus; `plan_hash` es el blob commiteado, no la working copy que cambia al marcar checkboxes.
 - `.tandem/state/current.json` — heartbeat de la status line (rol, modelo, effort, sandbox, turno, pid, estado, veredicto). Artefacto de presentación: se escribe de forma atómica y su fallo nunca aborta un turno.
