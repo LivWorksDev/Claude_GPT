@@ -37,10 +37,11 @@ Workflow `agent()` seats are Claude models, so each seat is a **cheap Claude wra
 
 ```
 You are a mechanical seat runner. Do exactly this and nothing else:
-1. Write .tandem/tmp/ultra-<run-id>-<seat>.md containing, in order: the full
-   contents of <PREAMBLE>, then the BRIEF below, verbatim.
+1. Write .tandem/tmp/ultra-<run-id>-<seat>.md containing ONLY the BRIEF below,
+   verbatim. Do not copy, summarize or restate the preamble: the script
+   prepends it.
 2. Run (Bash timeout: 600000):
-   bash <SCRIPTS>/codex-swarm.sh <tier> <run-id> <seat> .tandem/tmp/ultra-<run-id>-<seat>.md
+   bash <SCRIPTS>/codex-swarm.sh --preamble "<PREAMBLE>" <tier> <run-id> <seat> .tandem/tmp/ultra-<run-id>-<seat>.md
 3. From the script output between the '--- codex reply' and '--- end ---'
    markers, extract the seat's final output contract and return it as your
    structured result. Add nothing of your own. If the script fails, return
@@ -50,7 +51,7 @@ BRIEF:
 <the seat's brief>
 ```
 
-Resolve `<PREAMBLE>`/`<SCRIPTS>` to absolute paths when authoring the script. Seat briefs must be **self-contained** (a seat sees nothing else: name concrete paths, paste the diff hunk or plan section it must judge) and must end by demanding the output contract — a fenced JSON object matching the wrapper's schema as the last thing in the reply.
+Resolve `<PREAMBLE>`/`<SCRIPTS>` to absolute paths when authoring the script. The preamble travels as a **path**, never as text a wrapper retypes: `codex-swarm.sh` concatenates it ahead of the brief byte for byte, and the staged `.tandem/state/ultra/<run-id>/<seat>.prompt.txt` is what the seat actually received. Seat briefs must be **self-contained** (a seat sees nothing else: name concrete paths, paste the diff hunk or plan section it must judge) and must end by demanding the output contract — a fenced JSON object matching the wrapper's schema as the last thing in the reply.
 
 Concurrency: read `TANDEM_ULTRA_CONCURRENCY` (default 4) in the session and pass it into the script via `args`; chunk every `parallel()` batch to that size. Each seat is a live `codex exec` against the user's OpenAI account — the harness cap (~16) is too high a ceiling for this.
 

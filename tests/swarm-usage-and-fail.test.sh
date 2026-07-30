@@ -21,7 +21,7 @@ usage worker
 usage worker run-1
 usage worker run-1 seat-a
 usage worker run-1 seat-a "$SANDBOX/seat.txt" extra
-assert_file_contains "$ERR" "usage: codex-swarm.sh <tier> <run-id> <seat> <prompt-file>"
+assert_file_contains "$ERR" "usage: codex-swarm.sh [--preamble <file>] <tier> <run-id> <seat> <prompt-file>"
 
 usage overlord run-1 seat-a "$SANDBOX/seat.txt"
 assert_file_contains "$ERR" "unknown tier 'overlord' (expected: judge, worker or scout)"
@@ -34,6 +34,25 @@ assert_file_contains "$ERR" "run-id produced an empty state key"
 
 usage worker run-1 "..." "$SANDBOX/seat.txt"
 assert_file_contains "$ERR" "seat produced an empty state key"
+
+# --- the --preamble flag, fail-closed ---------------------------------------
+printf 'shared preamble\n' >"$SANDBOX/pre.txt"
+
+usage --preamble
+assert_file_contains "$ERR" "--preamble requires a file argument"
+assert_file_contains "$ERR" "usage: codex-swarm.sh [--preamble <file>] <tier> <run-id> <seat> <prompt-file>"
+
+usage --preamble "$SANDBOX/absent-preamble.txt" worker run-1 seat-a "$SANDBOX/seat.txt"
+assert_file_contains "$ERR" "preamble file not found:"
+
+usage --wat worker run-1 seat-a "$SANDBOX/seat.txt"
+assert_file_contains "$ERR" "unknown option '--wat'"
+assert_file_contains "$ERR" "usage: codex-swarm.sh [--preamble <file>] <tier> <run-id> <seat> <prompt-file>"
+
+# The flag is not a back door to a fifth positional: the arity is exactly four
+# WITH it too, in both directions.
+usage --preamble "$SANDBOX/pre.txt" worker run-1 seat-a "$SANDBOX/seat.txt" extra
+usage --preamble "$SANDBOX/pre.txt" worker run-1 seat-a
 
 assert_no_file "$CODEX_STUB_LOG.argv.1"
 

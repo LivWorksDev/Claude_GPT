@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.13.0 — 2026-07-31
+
+- **El preámbulo de los enjambres ultra lo concatena el script, no un modelo** (M8 del
+  backlog, primera tarea de la cola autónoma). El wrapper `haiku` de cada seat debía
+  reproducir "el contenido completo del preámbulo, verbatim" — un modelo pequeño retecleando
+  texto largo es exactamente donde aparecen mutaciones silenciosas. `codex-swarm.sh` acepta
+  ahora `[--preamble <file>]` (flag opcional ANTES de los posicionales; la aridad de 4
+  posicionales exactos se conserva con y sin flag — nunca un quinto posicional, el contrato
+  que `swarm-usage-and-fail` fija a propósito) y construye el prompt staged como
+  `cat <preamble> <brief>` sin inyectar un solo byte separador; `codex exec` pasa a leer
+  stdin DEL staged en ambos modos, así que el registro durable
+  (`.tandem/state/ultra/<run>/<seat>.prompt.txt`) y lo que codex recibe son el mismo
+  fichero. Validación fail-closed: `--preamble` sin valor, fichero ausente o flag
+  desconocido → 64 con usage. El wrapper de `skills/ultra/SKILL.md` queda reducido a
+  brief + ejecución + extracción, con el preámbulo viajando como RUTA absoluta.
+- Suite: 53 casos (de 51). `swarm-preamble.test.sh` comportamental: `cmp` byte a byte (nunca
+  "contiene") del staged Y del stdin drenado por el stub contra la concatenación de
+  referencia, con el preámbulo en una ruta con espacios y glob (caza filenames sin comillas)
+  y contenido con `%s`, tabs y backslashes (caza expansiones de printf); el argv de codex se
+  aserta libre del flag. `skill-ultra-preamble-contract.test.sh` estático: ancla positiva
+  brief-only, ancla negativa sobre la instrucción vieja de copiar el preámbulo (el bug de
+  preámbulo DUPLICADO — flag nuevo + copia manual retenida — es invisible para el test
+  comportamental), y cada lanzamiento fenced de `codex-swarm.sh` debe llevar `--preamble`
+  antes de los posicionales. `swarm-usage-and-fail` amplía la matriz fail-closed del flag y
+  la aridad en ambas direcciones con el flag presente.
+
 ## 0.12.0 — 2026-07-30
 
 - **El commit del plan aterriza en `tandem/<slug>`, nunca en la rama del usuario** (M3 del backlog). Hasta ahora el plan aprobado se commiteaba en la rama actual (típicamente `main`) y la rama tandem no nacía hasta `implement` Step 0.6 — un commit huérfano en main si el run se abandonaba y, en autonomous, una escritura no supervisada en la rama por defecto que violaba la propia línea roja del modo. Nuevo `scripts/plan-approve.sh <slug> [mensaje]`: crea `tandem/<slug>` desde el HEAD del usuario y aterriza el commit del plan (solo el fichero del plan) dentro de la rama — in-place (`git checkout -b`, la sesión queda en la rama) o worktree (`TANDEM_WORKTREE=1`: worktree en `.worktrees/<slug>` ya en la aprobación y el plan se MUEVE dentro; el checkout principal queda limpio y en la rama del usuario).
