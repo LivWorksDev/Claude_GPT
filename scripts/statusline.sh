@@ -3,9 +3,10 @@
 #
 # Claude Code pipes a JSON session snapshot on stdin (model, effort, context
 # window, cost, workspace) and prints whatever this script writes to stdout
-# below the prompt. Line 1 is always the session; line 2 appears only while a
-# Codex turn is in flight or has just finished, and is read from the heartbeat
-# written by codex-start.sh / codex-resume.sh.
+# below the prompt. Line 1 is always the session; line 2 belongs to whichever
+# implementation is in flight or has just finished — the Codex heartbeat
+# written by codex-start.sh / codex-resume.sh, or the durable Opus attempt
+# state the implement skill writes to .tandem/state/implement-claude/.
 #
 # Contract: never fail, never block. Any missing field, absent .tandem/ tree or
 # missing jq degrades to a shorter line instead of an error — a status line
@@ -83,36 +84,84 @@ fi
 
 printf '%s\n' "$LINE1"
 
-# --- line 2: the Codex gate -------------------------------------------------
-# The heartbeat normally lives in the session's project dir; when the session
-# itself runs inside a linked worktree, fall back to the main checkout
-# (resolved via the common git dir), where codex-start/resume write it.
-HB=""
-for CAND in "${PROJECT_DIR:-}" "${CUR_DIR:-}"; do
-  if [ -n "$CAND" ] && [ -f "$CAND/.tandem/state/current.json" ]; then
-    HB="$CAND/.tandem/state/current.json"; break
-  fi
-done
-if [ -z "$HB" ] && [ -n "${CUR_DIR:-}" ]; then
-  COMMON="$(git -C "$CUR_DIR" rev-parse --git-common-dir 2>/dev/null)"
-  if [ -n "$COMMON" ]; then
-    case "$COMMON" in /*) : ;; *) COMMON="$CUR_DIR/$COMMON" ;; esac
-    MAIN="$(CDPATH='' cd -- "$(dirname -- "$COMMON")" 2>/dev/null && pwd)"
-    [ -n "$MAIN" ] && [ -f "$MAIN/.tandem/state/current.json" ] \
-      && HB="$MAIN/.tandem/state/current.json"
-  fi
-fi
-[ -n "$HB" ] || exit 0
+# --- line 2: the Codex gate, or the Opus attempt ----------------------------
+# Two sources can claim this row: the Codex heartbeat (a turn in flight or just
+# finished) and the durable Opus attempt state the implement skill writes. The
+# rule is "a LIVE Codex turn always wins; between states that are NOT live, the
+# newest one does". Absolute priority for any renderable heartbeat would make
+# the Opus row invisible exactly when it matters: the pipeline runs the Sol
+# plan-review and the implementation back to back, so a lingering terminal
+# heartbeat — or an orphaned one, which never ages out — would cover every
+# future attempt.
+NOW="$(date +%s)"
 
-# Same unit-separator transport as line 1 — an empty verdict must not shift
-# the events path into the wrong variable. The token fields sit at the END of
-# the list on purpose: a heartbeat written by an older version simply has none,
-# and the missing values must degrade to empty instead of shifting every field
-# after them (the v0.5.0 bug this transport exists to prevent). They cross the
-# transport only when they really are JSON numbers: a string, an array or an
-# object there is corruption, and it must not survive as text that looks like a
-# token count — nor make `join` fail and take the whole line down with it.
-IFS=$'\x1f' read -r HB_ROLE HB_MODEL HB_EFFORT HB_SANDBOX HB_TARGET HB_TURN HB_PID HB_START HB_UPDATED HB_STATUS HB_VERDICT HB_EVENTS HB_TOK_IN HB_TOK_OUT <<EOF
+state_is() {
+  # state_is <f|d|j> <path> — the existence test, picked without an eval.
+  # 'j' means "a directory that actually CONTAINS at least one *.json": the
+  # dual-root fallback must resolve on real candidates, because an EMPTY
+  # implement-claude/ in a linked worktree would otherwise mask the main
+  # checkout's perfectly valid attempt state.
+  case "$1" in
+    f) [ -f "$2" ] ;;
+    d) [ -d "$2" ] ;;
+    j)
+      [ -d "$2" ] || return 1
+      local _j
+      for _j in "$2"/*.json; do
+        [ -f "$_j" ] && return 0
+      done
+      return 1
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+state_path() {
+  # state_path <f|d> <path under .tandem/> — state normally lives in the
+  # session's project dir; when the session itself runs inside a linked
+  # worktree, fall back to the main checkout (resolved via the common git dir),
+  # where codex-start/resume and the implement skill write it. Prints nothing
+  # when there is none.
+  local kind="$1" rel="$2" cand common main
+  for cand in "${PROJECT_DIR:-}" "${CUR_DIR:-}"; do
+    [ -n "$cand" ] || continue
+    if state_is "$kind" "$cand/.tandem/$rel"; then
+      printf '%s' "$cand/.tandem/$rel"
+      return 0
+    fi
+  done
+  [ -n "${CUR_DIR:-}" ] || return 1
+  common="$(git -C "$CUR_DIR" rev-parse --git-common-dir 2>/dev/null)"
+  [ -n "$common" ] || return 1
+  case "$common" in /*) : ;; *) common="$CUR_DIR/$common" ;; esac
+  main="$(CDPATH='' cd -- "$(dirname -- "$common")" 2>/dev/null && pwd)"
+  [ -n "$main" ] || return 1
+  state_is "$kind" "$main/.tandem/$rel" || return 1
+  printf '%s' "$main/.tandem/$rel"
+}
+
+# --- candidate 1: the Codex heartbeat ---------------------------------------
+# Parsed and CLASSIFIED, never rendered on the spot except when it is live: a
+# heartbeat that is absent, corrupt or aged out simply stops being a candidate,
+# and that must not exit — the Opus attempt below may still have something to
+# say.
+HB_ROLE="" HB_MODEL="" HB_EFFORT="" HB_SANDBOX="" HB_TARGET="" HB_TURN=0
+HB_PID=0 HB_START=0 HB_UPDATED=0 HB_STATUS="" HB_VERDICT="" HB_EVENTS=""
+HB_TOK_IN="" HB_TOK_OUT=""
+HB_ELIGIBLE=0 HB_LIVE=0
+
+HB="$(state_path f state/current.json)"
+if [ -n "$HB" ]; then
+  # Same unit-separator transport as line 1 — an empty verdict must not shift
+  # the events path into the wrong variable. The token fields sit at the END of
+  # the list on purpose: a heartbeat written by an older version simply has
+  # none, and the missing values must degrade to empty instead of shifting
+  # every field after them (the v0.5.0 bug this transport exists to prevent).
+  # They cross the transport only when they really are JSON numbers: a string,
+  # an array or an object there is corruption, and it must not survive as text
+  # that looks like a token count — nor make `join` fail and take the whole
+  # line down with it.
+  IFS=$'\x1f' read -r HB_ROLE HB_MODEL HB_EFFORT HB_SANDBOX HB_TARGET HB_TURN HB_PID HB_START HB_UPDATED HB_STATUS HB_VERDICT HB_EVENTS HB_TOK_IN HB_TOK_OUT <<EOF
 $(jq -r '
   [ (.role // "?"), (.model // "?"), (.effort // ""), (.sandbox // ""),
     (.target // ""), (.turn // 0), (.pid // 0), (.started_at // 0),
@@ -121,27 +170,168 @@ $(jq -r '
     (if (.tokens_out | type) == "number" then (.tokens_out | tostring) else "" end)
   ] | join("\u001f")' "$HB" 2>/dev/null)
 EOF
-[ -n "${HB_STATUS:-}" ] || exit 0
+  case "${HB_UPDATED:-0}" in '' | *[!0-9]*) HB_UPDATED=0 ;; esac
+  case "${HB_START:-0}" in '' | *[!0-9]*) HB_START=0 ;; esac
+  # A corrupt pid must degrade silently: `-gt` on a non-number prints an
+  # "integer expression expected" to stderr, which surfaces in the UI as noise.
+  case "${HB_PID:-0}" in '' | *[!0-9]*) HB_PID=0 ;; esac
 
-NOW="$(date +%s)"
-case "${HB_UPDATED:-0}" in '' | *[!0-9]*) HB_UPDATED=0 ;; esac
-case "${HB_START:-0}" in '' | *[!0-9]*) HB_START=0 ;; esac
-# A corrupt pid must degrade silently: `-gt` on a non-number prints an
-# "integer expression expected" to stderr, which surfaces in the UI as noise.
-case "${HB_PID:-0}" in '' | *[!0-9]*) HB_PID=0 ;; esac
+  if [ -n "${HB_STATUS:-}" ]; then
+    # A finished turn stays a candidate for a while, then stops cluttering the
+    # prompt; a running one is exempt however old its timestamp is.
+    if [ "$HB_STATUS" != "running" ] && [ $((NOW - HB_UPDATED)) -gt 900 ]; then
+      HB_ELIGIBLE=0
+    else
+      HB_ELIGIBLE=1
+      # A 'running' heartbeat whose process is gone means the turn was killed
+      # without the EXIT guard firing (SIGKILL, terminal closed). Show it as
+      # unknown rather than pretending Codex is still working. A pid of 0 — or
+      # a corrupt one, sanitized to 0 — is UNKNOWN, not dead: only a pid that
+      # is provably gone demotes the turn, everything else keeps the absolute
+      # priority of a live one.
+      if [ "$HB_STATUS" = "running" ] && [ "${HB_PID:-0}" -gt 0 ] \
+         && ! kill -0 "$HB_PID" 2>/dev/null; then
+        HB_STATUS="orphaned"
+      elif [ "$HB_STATUS" = "running" ]; then
+        HB_LIVE=1
+      fi
+    fi
+  fi
+fi
 
-# A finished turn stays visible for a while, then stops cluttering the prompt.
-if [ "$HB_STATUS" != "running" ] && [ $((NOW - HB_UPDATED)) -gt 900 ]; then
+# --- candidate 2: the durable Opus attempt state ----------------------------
+# `.tandem/state/implement-claude/<slug>.json` is rewritten by the implement
+# skill on every launch and every continuation, so it carries presence and
+# outcome — never live activity, which would have to be invented. The newest
+# file by mtime is the attempt this session is about, and the slug is simply
+# its name: attempt state uses the plain slug, not the checksummed target key
+# of the Codex thread state.
+#
+# Skipped entirely while a live Codex turn holds the row.
+OP_JSON="" OP_MTIME="" OP_OK="" OP_STATUS="" OP_SENTINEL="" OP_SLUG=""
+OP_ELIGIBLE=0 OP_STALE=0
+OP_US=$'\x1f'
+
+op_mtime() {
+  # op_mtime <file> — mtime in epoch seconds, BSD flavour then GNU. Neither
+  # branch can be trusted by its exit status alone: GNU's `stat -f` is
+  # --file-system and cheerfully prints a mount point, so a result only counts
+  # when it is a plain number. Empty means "no clock available" — a visible
+  # degradation (the entry renders without its window), never a crash.
+  local m
+  m="$(stat -f %m "$1" 2>/dev/null)"
+  case "$m" in '' | *[!0-9]*) m="$(stat -c %Y "$1" 2>/dev/null)" ;; esac
+  case "$m" in '' | *[!0-9]*) m="" ;; esac
+  printf '%s' "$m"
+}
+
+if [ "$HB_LIVE" != "1" ]; then
+  OP_DIR="$(state_path j state/implement-claude)"
+  if [ -n "$OP_DIR" ]; then
+    for OP_CAND in "$OP_DIR"/*.json; do
+      [ -f "$OP_CAND" ] || continue
+      OP_CAND_M="$(op_mtime "$OP_CAND")"
+      if [ -z "$OP_JSON" ]; then
+        OP_JSON="$OP_CAND" OP_MTIME="$OP_CAND_M"
+      elif [ -n "$OP_CAND_M" ] \
+        && { [ -z "$OP_MTIME" ] || [ "$OP_CAND_M" -gt "$OP_MTIME" ]; }; then
+        OP_JSON="$OP_CAND" OP_MTIME="$OP_CAND_M"
+      fi
+    done
+  fi
+fi
+
+if [ -n "$OP_JSON" ]; then
+  # The same unit-separator transport and the same distrust as the heartbeat: a
+  # status that is not a string, or a sentinel that is neither a string nor
+  # null, is corruption and only removes this candidate from the selection. It
+  # must NEVER exit — one broken historical file would otherwise suppress a
+  # perfectly valid Codex heartbeat.
+  IFS=$'\x1f' read -r OP_OK OP_STATUS OP_SENTINEL <<EOF
+$(jq -r --arg us "$OP_US" '
+  if type == "object"
+     and ((.status | type) == "string")
+     and (((.last_sentinel | type) == "string")
+          or ((.last_sentinel | type) == "null"))
+  then ([ "1", .status, (.last_sentinel // "") ] | join($us))
+  else empty end' "$OP_JSON" 2>/dev/null)
+EOF
+  if [ "${OP_OK:-}" = "1" ]; then
+    case "$OP_STATUS" in
+      running | terminal) OP_ELIGIBLE=1 ;;
+    esac
+  fi
+  OP_SLUG="$(basename "$OP_JSON" 2>/dev/null)"
+  OP_SLUG="${OP_SLUG%.json}"
+fi
+
+# Visibility windows, from the mtime of the JSON: a finished attempt ages out
+# like a finished Codex turn (900 s), while a 'running' one that nothing ever
+# closed is indistinguishable from a dead session after two hours — the longest
+# attempt observed is ~25 min — and says so in grey instead of faking work.
+if [ "$OP_ELIGIBLE" = "1" ] && [ -n "$OP_MTIME" ]; then
+  OP_AGE=$((NOW - OP_MTIME))
+  if [ "$OP_STATUS" = "terminal" ] && [ "$OP_AGE" -gt 900 ]; then
+    OP_ELIGIBLE=0
+  elif [ "$OP_STATUS" = "running" ] && [ "$OP_AGE" -gt 7200 ]; then
+    OP_STALE=1
+  fi
+fi
+
+# --- the winner -------------------------------------------------------------
+# A live Codex turn wins outright. Otherwise the newest timestamp does: the
+# JSON's mtime against the heartbeat's updated_at. Both clocks have second
+# resolution and the pipeline's hand-over is immediate, so an exact tie goes to
+# a 'running' Opus attempt (the state that has just been born) and to Codex in
+# every other case (stable order: when in doubt, the existing path). With no
+# mtime at all there is nothing to compare, so an eligible heartbeat keeps the
+# row and the Opus attempt only renders when it is alone.
+WINNER=""
+if [ "$HB_LIVE" = "1" ]; then
+  WINNER="codex"
+elif [ "$OP_ELIGIBLE" = "1" ] && [ "$HB_ELIGIBLE" = "1" ]; then
+  if [ -z "$OP_MTIME" ]; then
+    WINNER="codex"
+  elif [ "$OP_MTIME" -gt "$HB_UPDATED" ]; then
+    WINNER="opus"
+  elif [ "$OP_MTIME" -lt "$HB_UPDATED" ]; then
+    WINNER="codex"
+  elif [ "$OP_STATUS" = "running" ]; then
+    WINNER="opus"
+  else
+    WINNER="codex"
+  fi
+elif [ "$OP_ELIGIBLE" = "1" ]; then
+  WINNER="opus"
+elif [ "$HB_ELIGIBLE" = "1" ]; then
+  WINNER="codex"
+fi
+
+# --- line 2, the Opus attempt ------------------------------------------------
+# Presence and outcome only. There is no live activity to show: the file
+# changes exactly twice per turn, and anything in between would be invented.
+if [ "$WINNER" = "opus" ]; then
+  if [ "$OP_STALE" = "1" ]; then
+    OP_ICON="⚠" OP_COL="$GREY" OP_WHAT="sin señal"
+  elif [ "$OP_STATUS" = "running" ]; then
+    OP_ICON="⚒" OP_COL="$YELLOW" OP_WHAT="running"
+  else
+    OP_WHAT="$OP_SENTINEL"
+    case "$OP_SENTINEL" in
+      IMPLEMENTATION_COMPLETE) OP_ICON="✓" OP_COL="$GREEN" ;;
+      IMPLEMENTATION_PARTIAL)  OP_ICON="↺" OP_COL="$YELLOW" ;;
+      *)                       OP_ICON="·" OP_COL="$GREY" ;;
+    esac
+  fi
+  LINE2="${OP_COL}${OP_ICON} opus implement${R}"
+  [ -n "$OP_WHAT" ] && LINE2="${LINE2}${SEP}${OP_COL}${OP_WHAT}${R}"
+  [ -n "$OP_SLUG" ] && LINE2="${LINE2}${SEP}${DIM}${OP_SLUG}${R}"
+  printf '%s\n' "$LINE2"
   exit 0
 fi
 
-# A 'running' heartbeat whose process is gone means the turn was killed without
-# the EXIT guard firing (SIGKILL, terminal closed). Show it as unknown rather
-# than pretending Codex is still working.
-if [ "$HB_STATUS" = "running" ] && [ "${HB_PID:-0}" -gt 0 ] \
-   && ! kill -0 "$HB_PID" 2>/dev/null; then
-  HB_STATUS="orphaned"
-fi
+# --- line 2, the Codex turn --------------------------------------------------
+[ "$WINNER" = "codex" ] || exit 0
 
 case "$HB_STATUS" in
   running)   ICON="⚙" COL="$YELLOW" ;;

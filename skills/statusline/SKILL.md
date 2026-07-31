@@ -1,6 +1,6 @@
 ---
 name: statusline
-description: Install, remove or check tandem's status line - session model, effort, context %, cost and branch on line 1; the live Codex gate (role, model, turn, sandbox, timer, verdict) on line 2. Works in every project once installed; the Codex line only appears where .tandem/ exists.
+description: Install, remove or check tandem's status line - session model, effort, context %, cost and branch on line 1; on line 2, the live Codex gate (role, model, turn, sandbox, timer, verdict, tokens) or the Opus implement attempt (presence and outcome from the durable state). Works in every project once installed; line 2 only appears where .tandem/ exists.
 argument-hint: "[install|uninstall|status]"
 ---
 

@@ -92,5 +92,80 @@ printf '%s' "$PAYLOAD" | bash "$SCRIPTS/statusline.sh" >"$OUT" 2>"$ERR"
 assert_rc 0 "heartbeat is a directory"
 rmdir "$HB_DIR/current.json"
 
+# --- a broken Opus attempt state cannot break the line either ----------------
+# The contract is "line 2 is ABSENT", not merely "no crash": a placeholder
+# rendered from a half-parsed file would sail through an rc/stderr-only
+# assertion. There is no heartbeat left on disk here, so line 2 has exactly one
+# possible source.
+IMPL_DIR="$CLAUDE_PROJECT_DIR/.tandem/state/implement-claude"
+mkdir -p "$IMPL_DIR"
+
+impl_feed() {
+  printf '%s' "$1" >"$IMPL_DIR/demo.json"
+  printf '%s' "$PAYLOAD" | bash "$SCRIPTS/statusline.sh" >"$OUT" 2>"$ERR"
+  RC=$?
+  assert_rc 0 "attempt state: [${1:0:40}]"
+  assert_file_contains "$OUT" "◈ Claude Fable 5"
+  assert_eq "0" "$(wc -c <"$ERR" | tr -d ' ')" "stderr for attempt state [${1:0:40}]"
+  assert_eq "1" "$(wc -l <"$OUT" | tr -d ' ')" "line count for attempt state [${1:0:40}]"
+  assert_not_contains "$OUT" "opus implement"
+}
+
+impl_feed ''
+impl_feed 'not json'
+impl_feed '{'
+impl_feed 'null'
+impl_feed '[]'
+impl_feed '"a string"'
+impl_feed '42'
+impl_feed '{}'
+impl_feed '["running"]'
+impl_feed '{"last_sentinel":"IMPLEMENTATION_COMPLETE"}'
+# A status that is not a string is corruption, whatever it would coerce to.
+impl_feed '{"status":42,"last_sentinel":null}'
+impl_feed '{"status":true,"last_sentinel":null}'
+impl_feed '{"status":["running"],"last_sentinel":null}'
+impl_feed '{"status":{"is":"running"},"last_sentinel":null}'
+impl_feed '{"status":null,"last_sentinel":null}'
+# …and so is a sentinel that is neither a string nor null.
+impl_feed '{"status":"terminal","last_sentinel":7}'
+impl_feed '{"status":"terminal","last_sentinel":["IMPLEMENTATION_COMPLETE"]}'
+impl_feed '{"status":"terminal","last_sentinel":{"v":"IMPLEMENTATION_COMPLETE"}}'
+impl_feed '{"status":"terminal","last_sentinel":false}'
+# An unknown status renders nothing rather than a guess.
+impl_feed '{"status":"weird-new-status","last_sentinel":null}'
+
+# The same payload with an honest status DOES render, so the cases above are
+# proving a sanitizer and not an unreachable branch.
+printf '{"status":"running","last_sentinel":null}' >"$IMPL_DIR/demo.json"
+printf '%s' "$PAYLOAD" | bash "$SCRIPTS/statusline.sh" >"$OUT" 2>"$ERR"
+assert_rc 0 "honest attempt state"
+assert_file_contains "$OUT" "⚒ opus implement"
+
+# An unreadable file is not a crash (skipped when the suite runs as root, where
+# the mode is unenforceable and the case would be a no-op).
+chmod 000 "$IMPL_DIR/demo.json"
+if [ -r "$IMPL_DIR/demo.json" ]; then
+  note "running as root: the unreadable-file case cannot be exercised"
+else
+  printf '%s' "$PAYLOAD" | bash "$SCRIPTS/statusline.sh" >"$OUT" 2>"$ERR"
+  RC=$?
+  assert_rc 0 "unreadable attempt state"
+  assert_eq "0" "$(wc -c <"$ERR" | tr -d ' ')" "stderr for an unreadable attempt state"
+  assert_eq "1" "$(wc -l <"$OUT" | tr -d ' ')" "line count for an unreadable attempt state"
+  assert_not_contains "$OUT" "opus implement"
+fi
+chmod 644 "$IMPL_DIR/demo.json"
+
+# An attempt state that is a directory (the same botched install) is inert too.
+rm -f "$IMPL_DIR/demo.json"
+mkdir -p "$IMPL_DIR/demo.json"
+printf '%s' "$PAYLOAD" | bash "$SCRIPTS/statusline.sh" >"$OUT" 2>"$ERR"
+RC=$?
+assert_rc 0 "attempt state is a directory"
+assert_eq "1" "$(wc -l <"$OUT" | tr -d ' ')" "line count with a directory in its place"
+assert_not_contains "$OUT" "opus implement"
+rmdir "$IMPL_DIR/demo.json"
+
 # Nothing is ever written to stderr: it would surface in the UI as noise.
 assert_eq "0" "$(wc -c <"$ERR" | tr -d ' ')" "bytes on stderr"

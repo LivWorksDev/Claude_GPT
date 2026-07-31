@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.15.0 — 2026-07-31
+
+- **La línea 2 de la status line ya no queda muda durante las implementaciones Opus** (M12
+  del backlog, tarea 3/6 de la cola autónoma). El attempt state durable
+  (`.tandem/state/implement-claude/<slug>.json`) lleva presencia y desenlace — el 80% del
+  valor — y ahora se renderiza: `⚒ opus implement · running · <slug>` en ámbar durante el
+  intento, el sentinel coloreado 900 s al cerrar (`IMPLEMENTATION_COMPLETE` verde,
+  `IMPLEMENTATION_PARTIAL` ámbar) y `⚠ sin señal` gris cuando un `running` lleva > 2 h sin
+  cierre (indistinguible de una sesión muerta; mismo criterio honesto que `orphaned`).
+  Actividad en vivo: no — el fichero cambia exactamente dos veces por intento y narrar más
+  sería inventarlo (v2 explícito).
+- **La línea 2 se reestructura como selección de ganador, no como fallback tras los exits**
+  (hallazgo P1 del red-team: los heartbeats terminal-recientes y orphaned no salen — se
+  renderizan — así que un fallback "donde el camino Codex se rinde" habría sido invisible
+  exactamente en el ciclo de vida real, donde la plan-review Codex termina y Opus arranca en
+  el mismo minuto, y un orphaned lo taparía para siempre). Regla: un turno Codex VIVO (pid
+  comprobado; pid 0/corrupto = desconocido, conserva prioridad — contrato existente) gana
+  siempre; entre estados no vivos gana el timestamp más reciente (mtime del JSON vs
+  `updated_at`), con empates deterministas (Opus running gana al Codex no vivo; Opus
+  terminal pierde) y degradación explícita sin `stat` (BSD `-f %m` → GNU `-c %Y` → sin
+  ventana; con heartbeat elegible presente, gana Codex). Un candidato corrupto solo se
+  elimina a sí mismo de la selección — jamás suprime al otro. El bloque de render Codex
+  queda intacto línea a línea.
+- Suite: 56 casos (de 55): `statusline-opus-fallback` nuevo (transición real del pipeline,
+  orphaned viejo, empate exacto de timestamps con `touch -t`, stub de `stat` que falla,
+  corrupción cruzada, pid 0, raíz doble desde worktree, orden multi-JSON en ambas
+  direcciones); `statusline-never-fail` ampliado con 20 payloads rotos del attempt state +
+  fichero ilegible + directorio, asertando exactamente una línea de salida y cero rastro de
+  `opus implement` (el contrato es "línea 2 ausente", no "sin crash"), con control positivo
+  anti-vacuidad. Los 5 tests de statusline existentes quedan verdes SIN modificar.
+
 ## 0.14.0 — 2026-07-31
 
 - **Contabilidad de tokens por turno, ronda y run** (M9 del backlog, tarea 2/6 de la cola
