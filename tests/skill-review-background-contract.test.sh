@@ -21,15 +21,21 @@
 # per codex launch and writes:
 #   <prefix>.<n>         the section, whitespace-flattened (Markdown wraps; a
 #                        re-wrapped sentence is the same contract)
-#   <prefix>.launches    one "<kind> <section-path>" record per launch, in order
+#   <prefix>.launches    one "<kind> <mode> <section-path>" record per launch,
+#                        in order
 # Every line of the file belongs to exactly ONE section: the launch block it is
 # closest to (ties go to the earlier block). Commands are accumulated across
 # backslash continuations, like the worktree and turn-effort contracts, so a
 # launch split over several lines is judged as the single command it is.
+#
+# The MODE comes from the launch's own target, because review/SKILL.md carries
+# two of them: the pipeline (`cr-<slug>`) and the out-of-pipeline range review
+# (`range-review-<label>`). Each group is then counted and judged on its own —
+# a file-wide total would let a lost pipeline launch be masked by a range one.
 split_launches() {
   local f="$1" pfx="$2"
   local line stripped cmd="" cont=0 fence=0 n=0 i=0 k=0 nl=0
-  local blk_start=0 blk_real=0 blk_nudge=0
+  local blk_start=0 blk_real=0 blk_nudge=0 blk_cmd=""
   local best=0 bestd=0 d=0
 
   [ -f "$f" ] || fail "skill not found: $f"
@@ -38,6 +44,7 @@ split_launches() {
   BSTART=()
   BEND=()
   BKIND=()
+  BMODE=()
 
   # classify_cmd <command-text> — counts the launches of the block being read.
   classify_cmd() {
@@ -45,6 +52,7 @@ split_launches() {
       *codex-start.sh* | *codex-resume.sh*) : ;;
       *) return 0 ;;
     esac
+    blk_cmd="$1"
     case "$1" in
       *prompts/nudge.tpl*) blk_nudge=$((blk_nudge + 1)) ;;
       *) blk_real=$((blk_real + 1)) ;;
@@ -77,9 +85,13 @@ split_launches() {
             BSTART[n]=$blk_start
             BEND[n]=$nl
             if [ "$blk_nudge" -gt 0 ]; then BKIND[n]="nudge"; else BKIND[n]="real"; fi
+            case "$blk_cmd" in
+              *range-review-*) BMODE[n]="range" ;;
+              *) BMODE[n]="pipeline" ;;
+            esac
           fi
         else
-          fence=1 blk_start=$nl blk_real=0 blk_nudge=0 cmd="" cont=0
+          fence=1 blk_start=$nl blk_real=0 blk_nudge=0 blk_cmd="" cmd="" cont=0
         fi
         continue
         ;;
@@ -137,25 +149,35 @@ split_launches() {
   k=1
   while [ "$k" -le "$n" ]; do
     LC_ALL=C tr '\n' ' ' <"$pfx.$k.raw" | LC_ALL=C tr -s ' ' >"$pfx.$k"
-    printf '%s %s\n' "${BKIND[k]}" "$pfx.$k" >>"$pfx.launches"
+    printf '%s %s %s\n' "${BKIND[k]}" "${BMODE[k]}" "$pfx.$k" >>"$pfx.launches"
     k=$((k + 1))
   done
 }
 
 # check_skill <skill-file> <prefix> <small-input-noun>
+#             <pipeline-real> <pipeline-nudges> <range-real> <range-nudges>
+# The four counts are EXACT and per group: the launches this contract knows how
+# to reason about, in the mode they belong to. A lost pipeline launch, a nudge
+# that became a fourth launch, or a range branch that quietly disappeared are
+# all different bugs — and none of them may be absorbed by another group's count.
 check_skill() {
   local f="$1" pfx="$2" noun="$3"
-  local kind sec real=0 nudges=0
+  local want_pr="$4" want_pn="$5" want_rr="$6" want_rn="$7"
+  local kind mode sec real=0 nudges=0 rreal=0 rnudges=0
   # Single quotes: the phrase carries backticks and must never be re-evaluated.
   local exception='foreground with `timeout: 600000` only for small '"$noun"
 
   split_launches "$f" "$pfx"
 
-  while read -r kind sec; do
+  while read -r kind mode sec; do
     [ -n "$kind" ] || continue
+    case "$mode" in
+      pipeline | range) : ;;
+      *) fail "$f: unknown launch mode [$mode]" ;;
+    esac
     case "$kind" in
       real)
-        real=$((real + 1))
+        if [ "$mode" = "range" ]; then rreal=$((rreal + 1)); else real=$((real + 1)); fi
         # Background is the DEFAULT, with the size criterion as the exception…
         assert_file_contains "$sec" '`run_in_background: true` by default'
         assert_file_contains "$sec" "$exception"
@@ -172,7 +194,7 @@ check_skill() {
         assert_not_contains "$sec" 'Bash timeout: 600000'
         ;;
       nudge)
-        nudges=$((nudges + 1))
+        if [ "$mode" = "range" ]; then rnudges=$((rnudges + 1)); else nudges=$((nudges + 1)); fi
         # A one-line turn at `low` effort: foreground, explicitly, and never
         # promoted to background by a careless sweep of the file.
         assert_file_contains "$sec" 'in the foreground'
@@ -182,18 +204,21 @@ check_skill() {
     esac
   done <"$pfx.launches"
 
-  # Exactly the launches this contract knows how to reason about: a lost real
-  # launch, or a nudge that became a fourth launch, is a different bug.
-  assert_eq 2 "$real" "$f: real review launches"
-  assert_eq 1 "$nudges" "$f: nudge launches"
+  assert_eq "$want_pr" "$real" "$f: pipeline real review launches"
+  assert_eq "$want_pn" "$nudges" "$f: pipeline nudge launches"
+  assert_eq "$want_rr" "$rreal" "$f: range real review launches"
+  assert_eq "$want_rn" "$rnudges" "$f: range nudge launches"
 
   # The legacy foreground default is GONE from the file, not merely supplemented.
   assert_not_contains "$f" 'Bash timeout: 600000'
-  note "$(basename "$(dirname "$f")")/SKILL.md — $real real launch(es) in background, $nudges nudge(s) in foreground"
+  note "$(basename "$(dirname "$f")")/SKILL.md — pipeline: $real real + $nudges nudge · range: $rreal real + $rnudges nudge"
 }
 
-check_skill "$REPO_ROOT/skills/plan/SKILL.md" "$SANDBOX/plan" "plans"
-check_skill "$REPO_ROOT/skills/review/SKILL.md" "$SANDBOX/review" "diffs"
+check_skill "$REPO_ROOT/skills/plan/SKILL.md" "$SANDBOX/plan" "plans" 2 1 0 0
+# review carries both modes: the pipeline review (start + resume + nudge) and
+# the out-of-pipeline range review (start-range + resume-range + nudge), each
+# with the same background/barrier guarantees.
+check_skill "$REPO_ROOT/skills/review/SKILL.md" "$SANDBOX/review" "diffs" 2 1 2 1
 
 # --- the barrier language itself, once per skill -----------------------------
 # Markdown wraps, so the prose anchors are judged on a flattened copy.

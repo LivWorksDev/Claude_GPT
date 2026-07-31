@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.22.0 — 2026-07-31
+
+- **Modo rango: review de commits YA en la historia, fuera del pipeline** (M15 del
+  backlog, tarea 4/4 de la Cola 2 — cierre). `/tandem:review <label> --range A..B` revisa
+  un rango committeado (rama, PR, tramo de historia) y entrega veredicto + hallazgos,
+  jamás un commit: sin Step 4, sin fix loop, sin testing gate, sin promoción
+  (`TANDEM_PROMOTE_REVIEWS` no aplica). El diseño solo-documentación del borrador se
+  retiró en el red-team (6 rondas, incluida una reanudación humana tras deadlock del cap):
+  la mecánica de git vive en un helper testeable.
+- **`scripts/review-range.sh <label> <rango>` (nuevo):** valida label (charset de
+  plan-approve) y rango (exactamente un `..`/`...`; endpoints vacíos/con control/forma de
+  opción → 64), resuelve ambos endpoints con `rev-parse --verify` y reconstruye el spec
+  desde los SHAs completos — el texto del usuario jamás llega a git como revisión;
+  bootstrap de `.tandem/` (primer uso sin tandem funciona, `.gitignore` existente
+  preservado); contexto atómico (tmp + `mv`, todo fallo git/fs → 65 explícito) con
+  endpoints resueltos, commits, stat, lecturas OBLIGATORIAS ancladas a B
+  (`git show <shaB>:` — el checkout puede estar en otra versión) y el diff completo inline
+  bajo `DIFF:`; salida parseable `TARGET:/ENDPOINTS:/CONTEXT_FILE:/LOG_FILE:/WORK_ROOT:`.
+  Exit: 0 · 2 rango vacío · 3 sin git · 64 uso · 65 git/estado.
+- **Namespace disjunto por construcción:** hilo `range-review-<label>` (nunca colisiona
+  con `cr-<slug>`) y log en `.tandem/log/ranges/<label>.md` — subdirectorio fuera del scan
+  de `/tandem:status`, que sigue viendo solo runs de pipeline. Re-review por MISMO label =
+  mismo linaje (el hilo recuerda sus hallazgos); rango no relacionado exige label nuevo o
+  reset explícito.
+- **Templates propios** `start-range.tpl`/`resume-range.tpl` (los del pipeline instruyen
+  "UNCOMMITTED"/`git diff HEAD` — contradicen el modo de frente); mismos contratos de
+  veredicto, barrera dura de background y contabilidad `USAGE:` que el pipeline.
+- Suite: 72 casos (de 70): `review-range` comportamental (grafo divergente con tres-puntos
+  byte-exacto y distinto del dos-puntos, 64/65/2, árbol sucio no bloquea, no-colisión por
+  `target_key`, status ciego a ranges, fallo de escritura no publica contexto) y
+  `skill-range-contract` estático (tabla de decisión, anclas negativas — sin `git commit`,
+  sin `final — commit:`, la prohibición obsoleta del frontmatter eliminada, templates sin
+  regresión al framing de pipeline); `skill-review-background-contract` y
+  `skill-turn-effort-contract` ahora mode-aware (grupos pipeline/rango contados por
+  separado).
+
 ## 0.21.0 — 2026-07-31
 
 - **`TANDEM_CRITICAL=1` tiene por fin efecto real bajo Opus** (M6 del backlog, tarea 3/4

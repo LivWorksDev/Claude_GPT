@@ -40,7 +40,7 @@ Verifica el toolchain con `/tandem:doctor`. Ese diagnóstico es gratis (no gasta
 | `/tandem:run` | Pipeline completo: plan → red-team → implementación → verificación → review → commit |
 | `/tandem:plan` | Entrevista + plan + revisión adversarial de Sol hasta APPROVED (cap de rondas) |
 | `/tandem:implement` | Opus 5 implementa por defecto (`TANDEM_IMPLEMENTER=sol` usa Codex CLI); Fable verifica el diff y ejecuta el testing gate |
-| `/tandem:review` | Code review final por un hilo Sol nuevo e independiente |
+| `/tandem:review` | Code review final por un hilo Sol nuevo e independiente; con `<label> --range A..B`, review de un rango ya committeado fuera del pipeline (veredicto y hallazgos, nunca un commit) |
 | `/tandem:ask` | Segunda opinión de Sol sobre cualquier tema, con follow-ups en el mismo hilo |
 | `/tandem:image` | Genera assets de imagen con la herramienta nativa de Codex (gpt-image-2), con transparencia por chroma-key para sprites |
 | `/tandem:ultra` | Enjambres multi-agente estilo ultracode dirigidos por Fable, con todos los asientos en Codex (read-only) |

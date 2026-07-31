@@ -8,14 +8,23 @@
 # shellcheck source=lib.sh
 . "$TESTS_DIR/lib.sh"
 
-# check_skill <skill-file> <needs-worktree-pin: 0|1> <role+target pattern>
+# check_skill <skill-file> <needs-worktree-pin: 0|1> <role+target pattern>…
 # Only FENCED blocks are scanned — that is where the commands the skill really
 # runs live, and prose naming a script is not a launch. The unit judged is one
 # logical command (backslash continuations accumulated), never a whole block: a
 # block with a nudge and a real resume in it must be judged twice.
+#
+# A skill with several MODES gets one pattern per mode (review: the pipeline's
+# `cr-<slug>` and the range review's `range-review-<label>`). Every nudge must
+# name exactly one of them — a nudge that resumed another mode's thread would be
+# a brand-new turn, not a reminder — and every pattern must be named by at least
+# one nudge, so a mode whose nudge branch disappeared is not a pass.
 check_skill() {
-  local f="$1" want_cwd="$2" role_pat="$3"
+  local f="$1" want_cwd="$2"
+  shift 2
   local nudges=0 real=0 line stripped cmd="" cont=0 fence=0
+  local role_pats seen="" p hit
+  role_pats="$(printf '%s\n' "$@")"
   [ -f "$f" ] || fail "skill not found: $f"
 
   check_cmd() {
@@ -34,11 +43,24 @@ check_skill() {
           *TANDEM_TURN_EFFORT=low*) : ;;
           *) fail "$f: this nudge does not carry TANDEM_TURN_EFFORT=low: $1" ;;
         esac
-        # Concrete and per role: a nudge that resumed another role's thread
-        # would be a brand-new turn, not a reminder.
-        case "$1" in
-          *"$role_pat"*) : ;;
-          *) fail "$f: this nudge does not name [$role_pat]: $1" ;;
+        # Concrete and per role AND per mode: a nudge that resumed another
+        # thread would be a brand-new turn, not a reminder.
+        hit=""
+        while IFS= read -r p; do
+          [ -n "$p" ] || continue
+          case "$1" in
+            *"$p"*)
+              hit="$p"
+              break
+              ;;
+          esac
+        done <<EOF
+$role_pats
+EOF
+        [ -n "$hit" ] || fail "$f: this nudge names none of the expected targets: $1"
+        case "$seen" in
+          *"[$hit]"*) : ;;
+          *) seen="${seen}[$hit]" ;;
         esac
         if [ "$want_cwd" = "1" ]; then
           case "$1" in
@@ -93,11 +115,21 @@ check_skill() {
   # real launches, is a different bug — not a pass.
   [ "$nudges" -ge 1 ] || fail "$f: expected at least one nudge launch, found $nudges"
   [ "$real" -ge 1 ] || fail "$f: expected at least one real codex launch, found $real"
+  # …and every mode declared above really has one.
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    case "$seen" in
+      *"[$p]"*) : ;;
+      *) fail "$f: no nudge launch names [$p]" ;;
+    esac
+  done <<EOF
+$role_pats
+EOF
   note "$(basename "$(dirname "$f")")/SKILL.md — $nudges nudge(s), $real real launch(es)"
 }
 
 check_skill "$REPO_ROOT/skills/plan/SKILL.md" 0 "review docs/plans/<slug>.plan.md"
-check_skill "$REPO_ROOT/skills/review/SKILL.md" 1 "review cr-<slug>"
+check_skill "$REPO_ROOT/skills/review/SKILL.md" 1 "review cr-<slug>" "review range-review-<label>"
 check_skill "$REPO_ROOT/skills/implement/SKILL.md" 1 "implement docs/plans/<slug>.plan.md"
 check_skill "$REPO_ROOT/skills/image/SKILL.md" 0 "image <asset-label>"
 
