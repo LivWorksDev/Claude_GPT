@@ -58,7 +58,14 @@ Exit 2 → the label already has a thread: refine it (Step 3), or `codex-reset.s
 The reply's last line is the sentinel:
 
 - `IMAGE_BLOCKED: <reason>` → relay the reason verbatim; fix the blocker (missing brief data, no chroma backend — `/tandem:doctor`) and refine or reset.
-- Neither sentinel → resume once asking only for the missing status line; if it happens twice, treat as BLOCKED and log the anomaly.
+- Neither sentinel → resume once asking only for the missing status line, with the dedicated nudge template and a cheap effort for that single invocation; if it happens twice, treat as BLOCKED and log the anomaly.
+
+```bash
+TANDEM_TURN_EFFORT=low bash "$SCRIPTS/codex-resume.sh" image <asset-label> \
+  "${CLAUDE_SKILL_DIR}/prompts/nudge.tpl"
+```
+
+The template forbids rendering or editing anything — a reminder must never burn another image generation — and `TANDEM_TURN_EFFORT` is ephemeral, applying to that one invocation only (only the resume wrapper reads it, nothing is exported, the sandbox is untouched, and the generate/refine turns keep the role's `high`).
 - `IMAGE_READY: <paths>` → verify, in this order:
 
 1. **Look at every produced file** with the Read tool and judge it against the brief: subject, style, composition, size. You are the visual gate — Codex's own description of the image never counts as proof.

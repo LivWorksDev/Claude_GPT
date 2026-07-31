@@ -45,7 +45,14 @@ Exit 2 means a thread already exists for this plan: resume it if you are continu
 
 **Each round**, read the reply's final `VERDICT:` line:
 
-- No `VERDICT:` line at all → resume the SAME thread asking only for the missing verdict line; this counts as a round. If it happens twice, treat the reply as REVISE and note the anomaly in the log.
+- No `VERDICT:` line at all → resume the SAME thread asking only for the missing verdict line, with the dedicated nudge template and a cheap effort for that single invocation; this counts as a round. If it happens twice, treat the reply as REVISE and note the anomaly in the log.
+
+```bash
+TANDEM_TURN_EFFORT=low bash "$SCRIPTS/codex-resume.sh" review docs/plans/<slug>.plan.md \
+  "${CLAUDE_SKILL_DIR}/prompts/nudge.tpl"
+```
+
+`TANDEM_TURN_EFFORT` is ephemeral and applies to that one invocation only (only the resume wrapper reads it, nothing is exported, the sandbox is untouched, and the real review turns above keep the role's `xhigh`). Re-emitting a line that was already reasoned out must not be billed as a fresh review.
 - `VERDICT: APPROVED` → break, go to Resolution.
 - `VERDICT: NEEDS_REWORK` → stop the loop and escalate to the user with Sol's reasoning; do not silently rewrite everything. In autonomous mode there is no one to escalate to: this is a terminal DEADLOCK — report and stop.
 - `VERDICT: REVISE` → you arbitrate every finding:

@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.16.0 — 2026-07-31
+
+- **Effort puntual para turnos-recordatorio** (M5 del backlog, tarea 4/6 de la cola
+  autónoma). Cuando una respuesta llega sin su línea `VERDICT:`/sentinel, el nudge que pide
+  solo lo que faltó pagaba el effort del rol (xhigh en review). Nueva env
+  `TANDEM_TURN_EFFORT`, leída SOLO por `codex-resume.sh` (start y swarm la ignoran a
+  propósito — fijado por test): lista cerrada
+  `minimal|low|medium|high|xhigh|max|ultra`, validada ANTES de las dependencias (un valor
+  inválido responde 64 incluso sin codex en el PATH — usage nunca degrada a 3), aplicada
+  tras `resolve_role` sobre `CODEX_EFFORT` (argv, narración, heartbeat y meta llevan el
+  effort real sin segunda fuente de verdad). El sandbox sigue fijado por rol.
+- **Cuatro comandos de nudge dedicados con template propio** — las ramas de sentinel
+  ausente eran prosa y su único comando concreto era el de trabajo real (prefijarlo habría
+  degradado trabajo real a low): `nudge.tpl` nuevos en plan, review, implement e image
+  (esta cuarta rama, rol a high, estaba omitida en el borrador), con contrato de salida POR
+  ROL — plan/review/image re-emiten solo su línea; implement re-emite el informe final +
+  sentinel prohibiendo trabajo adicional. Los nudges de review/implement llevan también el
+  pin `TANDEM_CODEX_CWD` (el contrato de worktree no exime a los recordatorios). Los
+  resumes reales quedan intactos y sin la variable.
+- **Registro durable por turno — `t<N>.meta.json`** (`{role, model, effort, sandbox}`): el
+  heartbeat es global y reemplazable, así que era imposible probar a posteriori con qué
+  effort corrió un nudge. Escrito por start y resume ANTES del turno (sobrevive a fallos),
+  construido con `jq -n --arg` (un modelo de un override de entorno puede llevar comillas o
+  backslashes — printf produciría JSON inválido) y persistido con el tmp+mv best-effort del
+  ledger de M9.
+- Suite: 58 casos (de 56): `resume-turn-effort` (argv+heartbeat+meta con low, max/ultra
+  aceptados, 64 con valor inválido/vacío incluso sin codex, start/swarm inmunes, modelo
+  JSON-hostil) y `skill-turn-effort-contract` (las cuatro ramas con prefijo y template,
+  pin de worktree en review/implement, anclas por rol, resumes reales sin la variable)
+  nuevos.
+
 ## 0.15.0 — 2026-07-31
 
 - **La línea 2 de la status line ya no queda muda durante las implementaciones Opus** (M12

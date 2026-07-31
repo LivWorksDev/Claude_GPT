@@ -174,7 +174,14 @@ Under `opus` there are no Codex turns to account for, so the log line reads `tok
 ## Step 2 — Parse the report
 
 The reply ends with `IMPLEMENTATION_COMPLETE` or `IMPLEMENTATION_PARTIAL`.
-- Neither sentinel present → continue the SAME implementer asking only for the missing status line plus the final report; if it happens twice, treat it as PARTIAL and log the anomaly.
+- Neither sentinel present → continue the SAME implementer asking only for the missing status line plus the final report; if it happens twice, treat it as PARTIAL and log the anomaly. Under `sol` that reminder is a dedicated turn with its own template and a cheap effort for that single invocation:
+
+```bash
+TANDEM_TURN_EFFORT=low TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-resume.sh" implement docs/plans/<slug>.plan.md \
+  "${CLAUDE_SKILL_DIR}/prompts/nudge.tpl"
+```
+
+The template asks for the final report plus the sentinel — the transport contract needs the report to know leftovers and risks — and explicitly forbids any further implementation work, so the turn only re-states what already happened. The worktree pin stays: a nudge is still a turn on this thread. `TANDEM_TURN_EFFORT` is ephemeral and applies to that one invocation only (only the resume wrapper reads it, nothing is exported, the sandbox is untouched, and the real launch and continuations keep the role's effort). Under `opus` there is no such knob: `SendMessage` the recorded agent asking for the report plus the sentinel.
 - PARTIAL → read the report; either continue the SAME implementer describing what remains (max `$TANDEM_IMPL_ROUNDS` or 2 continuations), or take over and finish it yourself. Log the takeover.
 - **`TANDEM_AUTONOMOUS=1`**: still PARTIAL after the continuation cap → take over yourself ONLY if what remains is small and squarely inside the plan; otherwise this is a terminal PARTIAL — report what was done vs. what remains and stop. Never proceed to review with a knowingly incomplete implementation, and never widen scope to force completeness.
 

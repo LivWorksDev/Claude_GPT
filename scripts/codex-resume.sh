@@ -8,7 +8,14 @@
 # the user's ~/.codex/config.toml.
 #
 # usage: codex-resume.sh <role> <target> <prompt-template.tpl> [extra-file] [notes-file]
-# env:   TANDEM_CODEX_CWD  optional working root for the turn (`--cd`)
+# env:   TANDEM_CODEX_CWD   optional working root for the turn (`--cd`)
+#        TANDEM_TURN_EFFORT optional per-invocation effort override, read ONLY
+#                           here (codex-start.sh and codex-swarm.sh ignore it on
+#                           purpose — a first turn or a swarm seat is never a
+#                           reminder). It exists for the "nudge" turns the skills
+#                           run when a reply arrived without its VERDICT:/sentinel
+#                           line: re-emitting what is missing must not pay the
+#                           role's expensive reasoning. The sandbox is untouched.
 # exit codes: 0 ok · 1 codex failure · 2 no thread yet (start instead)
 #             3 missing dependency · 64 usage error
 
@@ -21,9 +28,34 @@ SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROLE_ARG="$1" TARGET="$2" TPL="$3" EXTRA_FILE="${4:-}" NOTES_FILE="${5:-}"
 
 codex_cwd_validate
+# TANDEM_TURN_EFFORT — validated HERE, next to the other usage checks and BEFORE
+# need_codex/need_jq on purpose: a bad value is a usage error and must answer 64
+# even when the toolchain is missing, never degrade into "missing dependency" (3).
+# The list is closed and fail-closed because the CLI accepts an unknown effort
+# value in SILENCE: without this check `TANDEM_TURN_EFFORT=hgih` would launch a
+# full-price role turn while the caller believed it was cheap. A defined-but-empty
+# value is invalid like any other, never "unset".
+case "${TANDEM_TURN_EFFORT+set}" in
+  set)
+    case "$TANDEM_TURN_EFFORT" in
+      minimal | low | medium | high | xhigh | max | ultra) : ;;
+      *)
+        die "TANDEM_TURN_EFFORT is not a valid effort: '$TANDEM_TURN_EFFORT' (expected: minimal, low, medium, high, xhigh, max or ultra)" 64
+        ;;
+    esac
+    ;;
+esac
 need_codex
 need_jq
 resolve_role "$ROLE_ARG"
+# …and APPLIED here, right after the role pinned its defaults: the override
+# rides on the existing CODEX_EFFORT, so argv (`-c model_reasoning_effort=`),
+# the narrated line, the heartbeat and the per-turn meta.json all carry the real
+# effort with no second source of truth. Only effort: the sandbox stays pinned
+# by role, exactly as resolve_role decided.
+case "${TANDEM_TURN_EFFORT+set}" in
+  set) CODEX_EFFORT="$TANDEM_TURN_EFFORT" ;;
+esac
 codex_pins
 state_init
 
@@ -56,6 +88,24 @@ EVENTS_FILE="$STATE_DIR/$KEY.t$TURN.events.ndjson"
 
 load_prompt "$TPL" >"$PROMPT_FILE"
 rm -f "$MSG_FILE"
+
+# Durable per-turn metadata, written BEFORE the turn so it survives a failure
+# too. The heartbeat carries the same four fields but is GLOBAL and replaceable:
+# the next turn overwrites it, and with it the only evidence of what this turn
+# really ran with (an effort override above all). Built with `jq -n --arg`, never
+# printf: the model comes from an env override and may carry quotes or
+# backslashes, which a format string would turn into invalid JSON. Persisted
+# with the usage ledger's atomic tmp+mv, best-effort: a record that cannot land
+# is swallowed — a display/audit artefact must never abort a paid turn.
+META_JSON="$(jq -n \
+  --arg role "$ROLE" \
+  --arg model "$CODEX_MODEL" \
+  --arg effort "$CODEX_EFFORT" \
+  --arg sandbox "$CODEX_SANDBOX" \
+  '{role: $role, model: $model, effort: $effort, sandbox: $sandbox}' 2>/dev/null || true)"
+if [ -n "$META_JSON" ]; then
+  usage_persist "$STATE_DIR/$KEY.t$TURN.meta.json" "$META_JSON" || true
+fi
 
 printf 'tandem: resuming codex thread %s — role=%s model=%s effort=%s sandbox=%s turn=%s\n' \
   "$THREAD_ID" "$ROLE" "$CODEX_MODEL" "$CODEX_EFFORT" "$CODEX_SANDBOX" "$TURN" >&2

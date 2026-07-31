@@ -60,7 +60,14 @@ TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-start.sh" review cr-<slug> \
 
 Read the final `VERDICT:` line:
 
-- No `VERDICT:` line at all → resume the SAME thread asking only for the missing verdict line; this counts as a round. If it happens twice, treat the reply as REQUEST_CHANGES and note the anomaly in the log.
+- No `VERDICT:` line at all → resume the SAME thread asking only for the missing verdict line, with the dedicated nudge template and a cheap effort for that single invocation; this counts as a round. If it happens twice, treat the reply as REQUEST_CHANGES and note the anomaly in the log.
+
+```bash
+TANDEM_TURN_EFFORT=low TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-resume.sh" review cr-<slug> \
+  "${CLAUDE_SKILL_DIR}/prompts/nudge.tpl"
+```
+
+The worktree pin is not optional here — a nudge is still a turn on this thread and must run in `$WORK_ROOT` like every other launch of this skill. `TANDEM_TURN_EFFORT` is ephemeral and applies to that one invocation only (only the resume wrapper reads it, nothing is exported, the sandbox is untouched, and the real review turns keep the role's `xhigh`).
 - `VERDICT: APPROVED` → go to Step 4.
 - `VERDICT: REQUEST_CHANGES` → arbitrate each finding by severity (Critical/Major must be fixed or explicitly rebutted with evidence; Minor/Suggestion at your judgment):
   1. Apply fixes yourself — every file by absolute `$WORK_ROOT/...` path — or resume the *implement* thread for large ones (that resume also carries `TANDEM_CODEX_CWD="$WORK_ROOT"`). Re-run the testing gate after any fix, `cd "$WORK_ROOT" && …`.

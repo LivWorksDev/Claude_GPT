@@ -61,6 +61,24 @@ EVENTS_FILE="$STATE_DIR/$KEY.t$TURN.events.ndjson"
 load_prompt "$TPL" >"$PROMPT_FILE"
 rm -f "$MSG_FILE"
 
+# Durable per-turn metadata, symmetrical with codex-resume.sh and written BEFORE
+# the turn so it survives a failure too. The heartbeat carries the same four
+# fields but is GLOBAL and replaceable — the next turn overwrites it — so this is
+# the only durable record of what a given turn ran with. Built with `jq -n --arg`,
+# never printf: the model comes from an env override and may carry quotes or
+# backslashes, which a format string would turn into invalid JSON. Persisted with
+# the usage ledger's atomic tmp+mv, best-effort: a record that cannot land is
+# swallowed — a display/audit artefact must never abort a paid turn.
+META_JSON="$(jq -n \
+  --arg role "$ROLE" \
+  --arg model "$CODEX_MODEL" \
+  --arg effort "$CODEX_EFFORT" \
+  --arg sandbox "$CODEX_SANDBOX" \
+  '{role: $role, model: $model, effort: $effort, sandbox: $sandbox}' 2>/dev/null || true)"
+if [ -n "$META_JSON" ]; then
+  usage_persist "$STATE_DIR/$KEY.t$TURN.meta.json" "$META_JSON" || true
+fi
+
 printf 'tandem: starting codex thread — role=%s model=%s effort=%s sandbox=%s target=%s\n' \
   "$ROLE" "$CODEX_MODEL" "$CODEX_EFFORT" "$CODEX_SANDBOX" "$TARGET" >&2
 
