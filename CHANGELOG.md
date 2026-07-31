@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.18.0 — 2026-07-31
+
+- **Reviews largas en background por defecto** (M10 del backlog, tarea 6/6 — cierra la cola
+  autónoma). Las skills de plan y review fijaban `timeout: 600000` en foreground para sus
+  turnos de review — el MÁXIMO del tool Bash: una review xhigh de un diff/plan grande podía
+  morir a los 10 minutos con la cuota ya gastada. Los cuatro lanzamientos reales (start y
+  resume de plan-review y code-review) documentan ahora `run_in_background: true` como
+  default para cualquier plan/diff real, con foreground `timeout: 600000` SOLO como
+  excepción para lo pequeño y el wording legacy RETIRADO (no meramente complementado).
+- **La notificación de finalización es una barrera dura de sincronización**: nada de leer
+  el `VERDICT:`, copiar la línea `USAGE:` al log (jamás un `tokens: n/a` prematuro) ni
+  lanzar resume/nudge alguno antes de que llegue — el hilo ni siquiera está persistido
+  antes, y un resume concurrente sobre un turno vivo es la corrupción exacta que la barrera
+  prohíbe. Los nudges (`TANDEM_TURN_EFFORT=low`) quedan explícitamente en foreground:
+  turnos de una línea que vuelven en segundos.
+- Dogfood registrado en el log del run: una sonda background de coste cero durmió 601 s y
+  su notificación llegó tras cruzar el techo de 600 s (la supervivencia larga, por
+  mecanismo); la propia code review de este run corrió en background con la secuencia
+  barrera → notificación → USAGE → verdict.
+- Suite: 60 casos (de 59): `skill-review-background-contract` nuevo — parser de comandos
+  lógicos clasificando por template (nudge.tpl = foreground asertado; el resto = background
+  con barrera), exactamente 2 lanzamientos reales + 1 nudge por skill, negativas
+  seccionadas sobre el wording legacy (`timeout: 600000` solo dentro de la frase de
+  excepción) y anti-regresión de implement.
+
 ## 0.17.0 — 2026-07-31
 
 - **El doctor avisa del conflicto de `CLAUDE_CODE_SUBAGENT_MODEL`** (M7 del backlog, tarea

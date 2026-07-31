@@ -32,12 +32,14 @@ Artifacts: plan in `docs/plans/<slug>.plan.md` (versioned), append-only log in `
 
 `MAX_ROUNDS` = `$TANDEM_PLAN_ROUNDS` or 5. The same thread reviews every round so Sol remembers its findings.
 
-**Round 1** (Bash timeout: 600000 — reviews with xhigh effort are slow; the default 2-minute timeout will kill them):
+**Round 1** — run it with Bash `run_in_background: true` by default for any real plan: a review at `xhigh` effort regularly exceeds the 10-minute foreground cap, which is a hard ceiling of the Bash tool and not a parameter you can raise, so a foreground turn dies mid-flight with the quota already spent and nothing to show for it. Use foreground with `timeout: 600000` only for small plans. When a background run finishes, announce it clearly before doing anything else.
 
 ```bash
 bash "$SCRIPTS/codex-start.sh" review docs/plans/<slug>.plan.md \
   "${CLAUDE_SKILL_DIR}/prompts/start.tpl"
 ```
+
+**The task-completion notification of that Bash run is a hard synchronization barrier.** Nothing happens before it arrives: you do not read the `VERDICT:` line, you do not copy the `USAGE:` line into the log — never a premature `tokens: n/a` out of impatience, the line is simply not there yet — and you launch no resume and no nudge. The thread is not even persisted before that point, and a concurrent resume over a live turn is exactly the class of corruption this barrier exists to forbid.
 
 Exit 2 means a thread already exists for this plan: resume it if you are continuing the same work, or `codex-reset.sh review docs/plans/<slug>.plan.md` if this is a fresh plan under a reused name.
 
@@ -52,14 +54,14 @@ TANDEM_TURN_EFFORT=low bash "$SCRIPTS/codex-resume.sh" review docs/plans/<slug>.
   "${CLAUDE_SKILL_DIR}/prompts/nudge.tpl"
 ```
 
-`TANDEM_TURN_EFFORT` is ephemeral and applies to that one invocation only (only the resume wrapper reads it, nothing is exported, the sandbox is untouched, and the real review turns above keep the role's `xhigh`). Re-emitting a line that was already reasoned out must not be billed as a fresh review.
+Run this one in the foreground — a one-line turn at `low` effort returns in seconds, so the background criterion above does not apply to it. `TANDEM_TURN_EFFORT` is ephemeral and applies to that one invocation only (only the resume wrapper reads it, nothing is exported, the sandbox is untouched, and the real review turns above keep the role's `xhigh`). Re-emitting a line that was already reasoned out must not be billed as a fresh review.
 - `VERDICT: APPROVED` → break, go to Resolution.
 - `VERDICT: NEEDS_REWORK` → stop the loop and escalate to the user with Sol's reasoning; do not silently rewrite everything. In autonomous mode there is no one to escalate to: this is a terminal DEADLOCK — report and stop.
 - `VERDICT: REVISE` → you arbitrate every finding:
   1. For each finding decide ACCEPTED (revise the plan) or REJECTED (with a reason). Never accept everything blindly; never ignore the critic.
   2. Append to `.tandem/log/<slug>.md`, BENEATH the round heading the accounting step already wrote — never a second `## Round <n>` heading (one token-bearing entry per round is the accounting contract): the full critique and `### Dispositions` (finding → decision → reason/change).
   3. Write the dispositions block to `.tandem/tmp/<slug>-dispositions.md`.
-  4. Resume the SAME thread (timeout: 600000). The 4th arg (extra-file) is unused here — pass `""`; the 5th arg fills `{{NOTES}}`:
+  4. Resume the SAME thread — Bash `run_in_background: true` by default for any real plan, foreground with `timeout: 600000` only for small plans, exactly as in Round 1. The same hard barrier applies: no `VERDICT:`, no `USAGE:` line in the log and no further turn before the task-completion notification arrives; when the background run finishes, announce it clearly before doing anything else. The 4th arg (extra-file) is unused here — pass `""`; the 5th arg fills `{{NOTES}}`:
 
 ```bash
 bash "$SCRIPTS/codex-resume.sh" review docs/plans/<slug>.plan.md \

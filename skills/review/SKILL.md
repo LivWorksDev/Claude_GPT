@@ -52,7 +52,11 @@ TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-start.sh" review cr-<slug> \
   .tandem/tmp/<slug>-cr-context.md
 ```
 
-(Bash timeout: 600000.) `TANDEM_CODEX_CWD` starts the reviewer inside `$WORK_ROOT`, so the diff it reads is the one you are reviewing. If Codex's sandbox cannot run `git diff`, re-run passing the diff inline: append `git -C "$WORK_ROOT" diff` to the context file under a `DIFF:` heading.
+Run it with Bash `run_in_background: true` by default for any real diff: a review at `xhigh` effort regularly exceeds the 10-minute foreground cap, which is a hard ceiling of the Bash tool and not a parameter you can raise, so a foreground turn dies mid-flight with the quota already spent and nothing to show for it. Use foreground with `timeout: 600000` only for small diffs. When a background run finishes, announce it clearly before doing anything else.
+
+**The task-completion notification of that Bash run is a hard synchronization barrier.** Nothing happens before it arrives: you do not read the `VERDICT:` line, you do not copy the `USAGE:` line into the log — never a premature `tokens: n/a` out of impatience, the line is simply not there yet — and you launch no resume and no nudge. The thread is not even persisted before that point, and a concurrent resume over a live turn is exactly the class of corruption this barrier exists to forbid.
+
+`TANDEM_CODEX_CWD` starts the reviewer inside `$WORK_ROOT`, so the diff it reads is the one you are reviewing. If Codex's sandbox cannot run `git diff`, re-run passing the diff inline: append `git -C "$WORK_ROOT" diff` to the context file under a `DIFF:` heading.
 
 ## Step 3 — Loop (max $TANDEM_CR_ROUNDS or 3)
 
@@ -67,12 +71,12 @@ TANDEM_TURN_EFFORT=low TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-resume
   "${CLAUDE_SKILL_DIR}/prompts/nudge.tpl"
 ```
 
-The worktree pin is not optional here — a nudge is still a turn on this thread and must run in `$WORK_ROOT` like every other launch of this skill. `TANDEM_TURN_EFFORT` is ephemeral and applies to that one invocation only (only the resume wrapper reads it, nothing is exported, the sandbox is untouched, and the real review turns keep the role's `xhigh`).
+Run this one in the foreground — a one-line turn at `low` effort returns in seconds, so the background criterion above does not apply to it. The worktree pin is not optional here — a nudge is still a turn on this thread and must run in `$WORK_ROOT` like every other launch of this skill. `TANDEM_TURN_EFFORT` is ephemeral and applies to that one invocation only (only the resume wrapper reads it, nothing is exported, the sandbox is untouched, and the real review turns keep the role's `xhigh`).
 - `VERDICT: APPROVED` → go to Step 4.
 - `VERDICT: REQUEST_CHANGES` → arbitrate each finding by severity (Critical/Major must be fixed or explicitly rebutted with evidence; Minor/Suggestion at your judgment):
   1. Apply fixes yourself — every file by absolute `$WORK_ROOT/...` path — or resume the *implement* thread for large ones (that resume also carries `TANDEM_CODEX_CWD="$WORK_ROOT"`). Re-run the testing gate after any fix, `cd "$WORK_ROOT" && …`.
   2. Log the round's findings + dispositions in `.tandem/log/<slug>.md`, BENEATH the round heading the accounting step already wrote — never a second `## Round <n>` heading (one token-bearing entry per round); write dispositions to `.tandem/tmp/<slug>-cr-dispositions.md`. If Step 2 needed the inline-DIFF fallback, append the UPDATED diff (`git -C "$WORK_ROOT" diff`) under a `DIFF:` heading at the end of that same dispositions file — otherwise the reviewer cannot see your fixes.
-  3. Resume the SAME reviewer thread (Bash timeout: 600000):
+  3. Resume the SAME reviewer thread — Bash `run_in_background: true` by default for any real diff, foreground with `timeout: 600000` only for small diffs, exactly as in Step 2. The same hard barrier applies: no `VERDICT:`, no `USAGE:` line in the log and no further turn before the task-completion notification arrives; when the background run finishes, announce it clearly before doing anything else.
 
 ```bash
 TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-resume.sh" review cr-<slug> \
