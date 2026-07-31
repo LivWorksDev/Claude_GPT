@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.19.0 — 2026-07-31
+
+- **Nueva skill `/tandem:status`** (M11 del backlog, tarea 1/4 de la Cola 2). Todo el
+  estado de un run existía en disco pero había que saberse los ficheros de memoria; ahora
+  `scripts/tandem-status.sh` (solo lectura ESTRICTA: ni un byte escrito, jamás un turno
+  codex — probado con snapshots byte a byte alrededor de cada invocación) pinta por slug:
+  plan y aprobación, rama y worktree, rondas y veredictos por fase, intento Opus/Sol, gate
+  de testing (bloques multilínea reales), tokens agregados por fase desde los ledgers de
+  M9, la FASE que la evidencia prueba y un `next:` determinista que cubre también las dos
+  pausas de gate humano. Sin slug: listado de runs conocidos (unión deduplicada de todas
+  las raíces de estado). jq y git son dependencias blandas (degradan a `desconocido`);
+  raíz de estado doble resuelta por evidencia DEL SLUG (una sesión en worktree ve el estado
+  del principal). Exit 0/2/64, nunca 1/3.
+- **Registro terminal del run — `final — commit: <sha>`**: el Step 4 de `tandem:review`
+  escribe ahora esta línea machine-parseable en el log tras el commit aprobado. Es la única
+  prueba durable y parseable de que un run cerró: la rama no es evidencia para siempre (el
+  merge legítimo la borra — los 7 runs históricos de este repo lo demuestran), y sin ella
+  un lector posterior no distingue un run aprobado de un commit no autorizado del
+  implementador. El status la valida con dureza: el sha debe descender de `plan_commit`
+  (uno válido pero ajeno NO verifica), con la rama viva el tip debe SER el sha (un
+  descendiente = commits post-gate = `contradictorio`), y "run completo" queda reservado al
+  registro verificado.
+- Suite: 64 casos (de 60): `status-phases` (ciclo de vida completo con el plan-approve.sh
+  real, ambas pausas de gate, casos de registro terminal 6/6b/9/10/10b/10c, merge ff +
+  borrado de rama, gate envuelto, tokens, cero codex, snapshots de solo-lectura),
+  `status-degradation` (corrupto/ausente/sin jq/sin git), `status-list` (unión, dedupe,
+  exclusiones, exit 2 con lista) y `skill-status-contract` (anclas; negativas solo sobre
+  bloques ejecutables) nuevos.
+
 ## 0.18.0 — 2026-07-31
 
 - **Reviews largas en background por defecto** (M10 del backlog, tarea 6/6 — cierra la cola

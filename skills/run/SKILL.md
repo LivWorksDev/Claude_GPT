@@ -48,4 +48,4 @@ End-to-end without mid-run interaction. HITL moves to the edges: a complete brie
 - `PARTIAL` — implementation incomplete after the continuation cap; nothing committed.
 - `FAILED` — toolchain or selected-transport error; state preserved.
 
-Any non-COMPLETED outcome is resumable with the normal interactive skills — the state in `.tandem/` is the same.
+Any non-COMPLETED outcome is resumable with the normal interactive skills — the state in `.tandem/` is the same, and `/tandem:status <slug>` shows where the run stands and how to resume it.

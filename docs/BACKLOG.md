@@ -27,7 +27,7 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
 | M8 | Concatenación del preámbulo ultra en el script, no en haiku | Mensajería | P2 | S | hecha (v0.13.0) |
 | M9 | Contabilidad de tokens por turno/ronda/run | Observabilidad | P2 | M | hecha (v0.14.0) |
 | M10 | Reviews largas en background por defecto | Workflow | P2 | S | hecha (v0.18.0) |
-| M11 | Nueva skill `/tandem:status` | UX | P2 | M | pendiente |
+| M11 | Nueva skill `/tandem:status` | UX | P2 | M | hecha (v0.19.0) |
 | M12 | Statusline visible durante implementaciones Opus | Observabilidad | P2 | S | hecha (v0.15.0) |
 | M13 | Semáforo de concurrencia dentro de `codex-swarm.sh` | Ultra | P2 | M | pendiente |
 | M14 | Suite de tests con stub de codex + shellcheck + CI | Infraestructura | P1 | L | hecha (v0.10.0) |

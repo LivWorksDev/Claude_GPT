@@ -44,6 +44,7 @@ Verifica el toolchain con `/tandem:doctor`. Ese diagnóstico es gratis (no gasta
 | `/tandem:ask` | Segunda opinión de Sol sobre cualquier tema, con follow-ups en el mismo hilo |
 | `/tandem:image` | Genera assets de imagen con la herramienta nativa de Codex (gpt-image-2), con transparencia por chroma-key para sprites |
 | `/tandem:ultra` | Enjambres multi-agente estilo ultracode dirigidos por Fable, con todos los asientos en Codex (read-only) |
+| `/tandem:status` | Dónde está un run y cómo se retoma, leyendo `.tandem/` — nunca gasta un turno |
 | `/tandem:doctor` | Diagnóstico del toolchain (codex, login, jq, política de modelos, status line); `--smoke` añade un turno real por modelo único para verificar que los nombres siguen vivos, solo bajo demanda |
 | `/tandem:statusline` | Instala/desinstala la status line (modelo, contexto, coste + puerta Codex en vivo) |
 
