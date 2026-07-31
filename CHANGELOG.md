@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.21.0 — 2026-07-31
+
+- **`TANDEM_CRITICAL=1` tiene por fin efecto real bajo Opus** (M6 del backlog, tarea 3/4
+  de la Cola 2). El tool Agent no expone effort por llamada, pero el frontmatter del agent
+  type sí: nuevo `agents/implementer-critical.md` — copia byte a byte del implementer
+  (misma allowlist, mismas prohibiciones; la paridad la fija un test de cuerpo completo
+  con allowlist de diferencias {name, description, effort}) con `effort: xhigh`. Bajo
+  CRITICAL + opus, `tandem:implement` usa ese agent type; el protocolo existente
+  (SendMessage, attempt state, recovery) queda intacto. La vía Workflow del borrador
+  original se retiró en el red-team: incompatible con el protocolo de identidad.
+- **Tipo efectivo persistido y recovery mismo-modo:** el attempt state gana `agent_type`
+  (enum cerrado {implementer, implementer-critical}; estado legacy sin el campo se
+  normaliza a implementer y se persiste; valor desconocido jamás se despacha). La recovery
+  usa SIEMPRE el tipo registrado; un mismatch entorno-vs-registro en cualquiera de las dos
+  direcciones exige consentimiento (interactivo) o termina FAILED (autonomous) — nunca una
+  degradación silenciosa de un intento crítico.
+- **Gates de honestidad:** preflight de `CLAUDE_CODE_EFFORT_LEVEL` (definida ≠ xhigh bajo
+  CRITICAL+opus → STOP: su precedencia pisaría el frontmatter) y gate de versión Claude
+  Code ≥ 2.1.111 (el frontmatter effort llegó en 2.1.78 pero el VALOR xhigh solo en
+  2.1.111 — evidencia de changelog del red-team), espejado en doctor Y en el preflight de
+  implement (la skill es invocable sin doctor). El doctor muestra siempre efforts
+  EFECTIVOS: `TANDEM_IMPLEMENT_EFFORT` pisa el xhigh de CRITICAL bajo sol y la línea lo
+  dice en vez de prometer.
+- Suite: 70 casos (de 68): `agent-critical-parity` (paridad frontmatter+cuerpo, nombres
+  exactos) y `skill-critical-contract` nuevos; `doctor-env-matrix` ampliado con efforts
+  efectivos, EFFORT_LEVEL y los límites exactos del gate de versión (2.1.110 FAIL /
+  2.1.111 ok / ausente FAIL, todo silencioso sin CRITICAL) vía stub de `claude`.
+
 ## 0.20.0 — 2026-07-31
 
 - **Semáforo de concurrencia dentro de `codex-swarm.sh`** (M13 del backlog, tarea 2/4 de la

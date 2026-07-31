@@ -70,7 +70,8 @@ Además, los turnos lanzados en background narran su progreso en el panel **Shel
 | Rol | Modelo (default) | Effort | Frontera de ejecución |
 | --- | --- | --- | --- |
 | Revisor / consultor | `gpt-5.6-sol` | `xhigh` | `read-only` (fijado, no sobreescribible) |
-| Implementador (default) | Claude Opus 5 | No expuesto por Agent | Allowlist harness `Read, Edit, Write, Glob, Grep, Bash`; sin MCP/web/Agent anidado |
+| Implementador (default) | Claude Opus 5 | Rol (frontmatter) | Allowlist harness `Read, Edit, Write, Glob, Grep, Bash`; sin MCP/web/Agent anidado |
+| Implementador Opus crítico (`TANDEM_CRITICAL=1`) | Claude Opus 5 (`tandem:implementer-critical`) | `xhigh` (frontmatter; requiere Claude Code ≥ 2.1.111 — el doctor lo verifica) | Idéntica allowlist, cuerpo byte a byte (paridad fijada por test) |
 | Implementador (`TANDEM_IMPLEMENTER=sol`) | `gpt-5.6-sol` | `high` | Sandbox OS `workspace-write` (fijado, no sobreescribible) |
 | Implementador Sol crítico (`TANDEM_CRITICAL=1`) | `gpt-5.6-sol` | `xhigh` | Sandbox OS `workspace-write` |
 | Generador de imágenes | `gpt-5.6-sol` | `high` | `workspace-write` (fijado, no sobreescribible) |

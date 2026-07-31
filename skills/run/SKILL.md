@@ -23,7 +23,7 @@ Risk calibration (recommend to the user, they decide):
 - Trivial change → skip tandem entirely; just do it.
 - Normal feature → this full pipeline with defaults (Opus 5 implements; fresh Sol reviews).
 - Need the previous Codex CLI implementation transport → `TANDEM_IMPLEMENTER=sol` (Sol implements at effort high).
-- Auth / migrations / payments / multi-tenancy / concurrency → `TANDEM_CRITICAL=1` and never skip the review phase. With the default Opus transport, Agent exposes no effort control, so the flag does not alter implementation effort; with `TANDEM_IMPLEMENTER=sol`, it raises Sol to xhigh.
+- Auth / migrations / payments / multi-tenancy / concurrency → `TANDEM_CRITICAL=1` and never skip the review phase. With the default Opus transport the flag now has a real effect: the implementation runs as the `tandem:implementer-critical` agent type, whose frontmatter raises the subagent's reasoning effort; `TANDEM_IMPLEMENTER=sol` remains the equivalent alternative. Neither is an unconditional promise — environment overrides (`CLAUDE_CODE_EFFORT_LEVEL` under opus, `TANDEM_IMPLEMENT_EFFORT` under sol) and a Claude Code older than 2.1.111 change what really runs, so trust the effective effort `tandem:doctor` reports, not this line.
 
 Rules that hold across all phases: deadlock is presented, never papered over; the implementer never commits; nothing is committed without the user's explicit approval (in autonomous mode that approval is delegated to the policies below, and commits still land only on the tandem branch); every phase appends to `.tandem/log/<slug>.md`, token accounting included — each phase writes a `tokens:` figure on every round line, and the run's closing summary aggregates them per phase and for the whole run.
 

@@ -67,6 +67,59 @@ ok()   { printf '  ok    %s\n' "$1"; }
 bad()  { printf '  FAIL  %s\n' "$1"; fail=1; }
 info() { printf '        %s\n' "$1"; }
 
+# --- Claude Code version, for the critical agent type's `effort: xhigh` -------
+# The frontmatter `effort` field exists since Claude Code 2.1.78, but the VALUE
+# `xhigh` only since 2.1.111: an older install accepts agents/implementer-critical.md
+# and quietly runs it at the default effort, which would turn this plugin's
+# central guarantee into a lie. Parsing and comparison are pure bash — no awk,
+# no sed — so the check keeps working on a minimal PATH.
+CRITICAL_MIN_CLAUDE="2.1.111"
+
+# claude_dotted <text> — the first dotted-numeric token of <text>
+# ("2.1.111 (Claude Code)" -> "2.1.111", "2.1.111-beta" -> "2.1.111"). Prints
+# nothing and returns 1 when there is none: undeterminable, never "assume new".
+claude_dotted() {
+  local rest="$1" tok
+  while [ -n "$rest" ]; do
+    tok="${rest%%[[:space:]]*}"
+    case "$tok" in
+      [0-9]*)
+        tok="${tok%%[!0-9.]*}"
+        case "$tok" in
+          *[0-9]*) printf '%s' "$tok"; return 0 ;;
+        esac
+        ;;
+    esac
+    case "$rest" in
+      *[[:space:]]*) rest="${rest#*[[:space:]]}" ;;
+      *) rest="" ;;
+    esac
+  done
+  return 1
+}
+
+# version_ge <have> <want> — dotted versions compared FIELD BY FIELD as decimal
+# integers (a missing field is 0), because "2.1.111" is newer than "2.1.99" and
+# a string comparison says the opposite. Any non-numeric field returns false:
+# fail closed.
+version_ge() {
+  local hrest="$1" wrest="$2" h w i=1
+  while [ "$i" -le 3 ]; do
+    h="${hrest%%.*}"
+    w="${wrest%%.*}"
+    case "$hrest" in *.*) hrest="${hrest#*.}" ;; *) hrest="" ;; esac
+    case "$wrest" in *.*) wrest="${wrest#*.}" ;; *) wrest="" ;; esac
+    [ -n "$h" ] || h=0
+    [ -n "$w" ] || w=0
+    case "$h" in *[!0-9]*) return 1 ;; esac
+    case "$w" in *[!0-9]*) return 1 ;; esac
+    if [ "$((10#$h))" -gt "$((10#$w))" ]; then return 0; fi
+    if [ "$((10#$h))" -lt "$((10#$w))" ]; then return 1; fi
+    i=$((i + 1))
+  done
+  return 0
+}
+
 printf 'tandem doctor\n\n'
 
 # codex binary
@@ -137,7 +190,43 @@ case "$implementer" in
     ;;
   opus)
     info "implementer: opus — Claude Opus 5 subagent (default; harness tool allowlist, Bash has no OS sandbox)"
-    info "TANDEM_CRITICAL=${TANDEM_CRITICAL:-0} (under opus, effort is not exposed; review remains mandatory)"
+    if [ "${TANDEM_CRITICAL:-0}" = "1" ]; then
+      info "TANDEM_CRITICAL=1 (agent type tandem:implementer-critical, frontmatter effort=xhigh; review remains mandatory)"
+      # Mirror of tandem:implement's gate 3. CLAUDE_CODE_EFFORT_LEVEL takes
+      # precedence over the agent type's frontmatter effort, so a defined value
+      # other than xhigh means the attempt runs as "critical" at a degraded
+      # effort — announced here instead of discovered never.
+      case "${CLAUDE_CODE_EFFORT_LEVEL+set}" in
+        set)
+          if [ "$CLAUDE_CODE_EFFORT_LEVEL" = "xhigh" ]; then
+            ok "CLAUDE_CODE_EFFORT_LEVEL=xhigh (agrees with the critical agent type's effort)"
+          else
+            bad "CLAUDE_CODE_EFFORT_LEVEL='$CLAUDE_CODE_EFFORT_LEVEL' overrides the critical agent type's frontmatter effort: xhigh — the attempt would run as critical at a degraded effort; tandem:implement's preflight will STOP the run"
+            info "fix, any of: unset CLAUDE_CODE_EFFORT_LEVEL · set it to exactly xhigh · run with TANDEM_IMPLEMENTER=sol"
+          fi
+          ;;
+      esac
+      # Version gate: without it the whole guarantee would be false on installs
+      # between 2.1.78 (frontmatter effort) and 2.1.111 (the value xhigh).
+      # Only under CRITICAL + opus: nobody else pays for this check.
+      claude_raw=""
+      claude_ver=""
+      if command -v claude >/dev/null 2>&1; then
+        claude_raw="$(claude --version 2>/dev/null)" || claude_raw=""
+        claude_ver="$(claude_dotted "$claude_raw")" || claude_ver=""
+      fi
+      if [ -z "$claude_ver" ]; then
+        bad "Claude Code version is undeterminable (no 'claude' in PATH, or 'claude --version' printed nothing usable) — the critical agent type's effort xhigh needs Claude Code >= $CRITICAL_MIN_CLAUDE and cannot be confirmed here"
+        info "fix, any of: install/repair the claude CLI so 'claude --version' answers · update Claude Code · run with TANDEM_IMPLEMENTER=sol · drop TANDEM_CRITICAL"
+      elif version_ge "$claude_ver" "$CRITICAL_MIN_CLAUDE"; then
+        ok "Claude Code $claude_ver >= $CRITICAL_MIN_CLAUDE (the critical agent type's effort xhigh is supported)"
+      else
+        bad "Claude Code $claude_ver < $CRITICAL_MIN_CLAUDE — the frontmatter effort field is accepted but the VALUE xhigh is not, so the critical agent type would run at the default effort"
+        info "fix, any of: update Claude Code · run with TANDEM_IMPLEMENTER=sol · drop TANDEM_CRITICAL"
+      fi
+    else
+      info "TANDEM_CRITICAL=0 (1 selects the tandem:implementer-critical agent type, frontmatter effort=xhigh; review remains mandatory)"
+    fi
     # CLAUDE_CODE_SUBAGENT_MODEL takes precedence over the agent type's
     # `model: opus`, so any other value silently swaps the implementer's model.
     # tandem:implement's preflight is fail-closed about it and STOPS the run —
@@ -162,7 +251,16 @@ case "$implementer" in
     fi
     info "implementer: sol — Codex CLI transport"
     info "implement:   model=${TANDEM_IMPLEMENT_MODEL:-gpt-5.6-sol} effort=$impl_effort sandbox=workspace-write (pinned)"
-    info "TANDEM_CRITICAL=${TANDEM_CRITICAL:-0} (1 raises Sol implementation effort to xhigh)"
+    # EFFECTIVE effort, never a promise: TANDEM_IMPLEMENT_EFFORT wins over
+    # CRITICAL, so announcing "raises to xhigh" while the run will spend `low`
+    # is propaganda, not diagnosis.
+    if [ -n "${TANDEM_IMPLEMENT_EFFORT:-}" ]; then
+      info "TANDEM_CRITICAL=${TANDEM_CRITICAL:-0}, but TANDEM_IMPLEMENT_EFFORT takes precedence — this run implements at effort $impl_effort"
+    elif [ "${TANDEM_CRITICAL:-0}" = "1" ]; then
+      info "TANDEM_CRITICAL=1 — Sol implements at effort xhigh (effective)"
+    else
+      info "TANDEM_CRITICAL=0 (1 raises Sol implementation effort to xhigh)"
+    fi
     ;;
   *)
     bad "TANDEM_IMPLEMENTER=$implementer is invalid — expected opus or sol"

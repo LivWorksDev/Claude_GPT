@@ -42,16 +42,16 @@ git show-ref --verify --quiet refs/heads/tandem/<slug>   # exit 0 → it already
   (`grep -qx '.worktrees/' .git/info/exclude 2>/dev/null || echo '.worktrees/' >> .git/info/exclude`),
   then `git worktree add .worktrees/<slug> tandem/<slug>`; if the path `.worktrees/<slug>`
   already exists while unregistered, STOP — it is not yours to overwrite. Then resolve
-  **now, before the gates**, and use `$WORK_ROOT` for gate 3's plan check, gate 4's
-  dirty-path check, gate 5's clean-tree check and everything after:
+  **now, before the gates**, and use `$WORK_ROOT` for gate 4's plan check, gate 5's
+  dirty-path check, gate 6's clean-tree check and everything after:
 
   ```bash
   WORK_ROOT="$(bash "$SCRIPTS/worktree-root.sh" <slug>)"
   ```
 
 - **Legacy: no branch** (a plan approved before 0.12, committed on the user's branch with no
-  `tandem/<slug>`) — the gates below run against the **main checkout**, gate 6 creates the
-  branch and, under `TANDEM_WORKTREE=1`, the worktree; resolve **immediately after gate 6**,
+  `tandem/<slug>`) — the gates below run against the **main checkout**, gate 7 creates the
+  branch and, under `TANDEM_WORKTREE=1`, the worktree; resolve **immediately after gate 7**,
   before Step 1 delegates anything.
 
 Never call the resolver before the worktree exists and never continue past a non-zero exit:
@@ -81,10 +81,13 @@ never anchored to a worktree: expect no isolation there.
 
 1. **Selector, before touching anything**: read `TANDEM_IMPLEMENTER`, defaulting to the exact value `opus` **only when the variable is unset**. The only valid values are `opus` and `sol`; a set-but-empty value is invalid like any other unknown value. Any invalid value is a hard error: report `TANDEM_IMPLEMENTER=<value> is invalid; expected opus or sol` and STOP. Never silently fall back.
 2. **Opus model preflight, also before touching anything**: when the selector is `opus`, if `CLAUDE_CODE_SUBAGENT_MODEL` is defined and its exact value is not `opus`, STOP. That environment variable takes precedence over the agent type's `model: opus`, so continuing would violate the selected transport. There is no reliable in-agent runtime model verification; the report's model field is an informative self-attestation only.
-3. **Plan gate**: the approved plan lives on the tandem branch, so verify it THERE, never in the main checkout by assumption — `git cat-file -e tandem/<slug>:docs/plans/<slug>.plan.md` (or, equivalently, `$WORK_ROOT/docs/plans/<slug>.plan.md` once §0.0 resolved it). In the legacy route the branch does not exist yet and the plan is the committed file in the main checkout. Missing/unapproved → stop, send them to `/tandem:plan`.
-4. **Attempt-state gate, BEFORE the clean-tree gate**: check for durable state (`.tandem/state/implement-claude/<slug>.json` for `opus`; the thread state key for `sol`). A matching in-progress attempt (identity rules in Step 1) is a **resume**: its uncommitted implementation work is expected, so the clean-tree requirement below does not apply — verify instead that the dirty paths plausibly belong to the attempt — `git -C "$WORK_ROOT" status --porcelain`, using the `WORK_ROOT` you resolved in §0.0 on the resume branch — consistent with its last report and the plan's files-to-touch, and continue to Step 2's continuation/recovery flow. Only a fresh attempt (no state, or state discarded via the reset protocol) falls through to the next gate.
-5. **Clean-tree gate (fresh attempts only)**: `git status --porcelain` must be empty in the **main checkout** AND in the `$WORK_ROOT` resolved in §0.0 — run it once when they are the same directory, twice when they are not (`git -C "$WORK_ROOT" status --porcelain`); in the legacy route there is no worktree yet, so the main checkout is the whole gate. Since 0.12 a fresh attempt normally does have a worktree already, created at the approval gate; a pre-existing worktree that is dirty with no attempt state to explain it is a STOP exactly like a dirty main checkout. Dirty → STOP and tell the user; never mix pre-existing or unknown changes into a delegated diff.
-6. **Branch — verify and reuse; create only in the legacy route**: in-place and worktree remain mutually exclusive, and the real mode is derived from `git worktree list`, never from the environment alone (same rule `plan-approve.sh` applies):
+3. **Critical-mode preflights, under `opus` only — and they cannot run before the effective agent type is KNOWN**: they judge Step 1's `effective_agent_type` (the type RECORDED in the attempt state for every recovery/continuation; the one `TANDEM_CRITICAL` selects only for a FRESH attempt) — never the raw environment flag. Ordering is the contract: if durable attempt state EXISTS for this slug (a one-file peek at `.tandem/state/implement-claude/<slug>.json`, not gate 5's full processing), DEFER both checks — resolve the recorded `agent_type` first (validation, legacy normalization, and the env-vs-recorded mismatch consent/FAILED path of Step 1) and apply them ONLY to that resolved type, before launching anything. Only a genuinely fresh attempt (no state) applies them here, to the flag-selected type. Judging the raw flag would stop a normal-attempt recovery as if it were critical — bypassing the mismatch consent path, which is exactly backwards. When the effective agent type is `tandem:implementer-critical`:
+   - **`CLAUDE_CODE_EFFORT_LEVEL`**: if it is defined and its exact value is not `xhigh`, STOP. Its documented precedence overrides the critical agent type's frontmatter `effort: xhigh`, so the attempt would run as "critical" at a degraded effort with nobody knowing. Name the ways out: unset it, set it to exactly `xhigh`, or re-run with `TANDEM_IMPLEMENTER=sol`.
+   - **Claude Code `>= 2.1.111`**: the frontmatter `effort` field exists since 2.1.78, but the VALUE `xhigh` only since 2.1.111 — on an older install the critical agent accepts the definition and runs at the default effort anyway. Read `claude --version` and compare the dotted version field by field; a lower version, an output you cannot parse, or no `claude` on PATH are all a STOP with the same actionable ways out (update Claude Code, run with `TANDEM_IMPLEMENTER=sol`, or drop `TANDEM_CRITICAL`). `tandem:doctor` runs this same gate, and that is deliberate duplication, not redundancy: `/tandem:implement` is invocable directly, without the pipeline's doctor, so a doctor-only gate would be bypassable.
+4. **Plan gate**: the approved plan lives on the tandem branch, so verify it THERE, never in the main checkout by assumption — `git cat-file -e tandem/<slug>:docs/plans/<slug>.plan.md` (or, equivalently, `$WORK_ROOT/docs/plans/<slug>.plan.md` once §0.0 resolved it). In the legacy route the branch does not exist yet and the plan is the committed file in the main checkout. Missing/unapproved → stop, send them to `/tandem:plan`.
+5. **Attempt-state gate, BEFORE the clean-tree gate**: check for durable state (`.tandem/state/implement-claude/<slug>.json` for `opus`; the thread state key for `sol`). A matching in-progress attempt (identity rules in Step 1) is a **resume**: its uncommitted implementation work is expected, so the clean-tree requirement below does not apply — verify instead that the dirty paths plausibly belong to the attempt — `git -C "$WORK_ROOT" status --porcelain`, using the `WORK_ROOT` you resolved in §0.0 on the resume branch — consistent with its last report and the plan's files-to-touch, and continue to Step 2's continuation/recovery flow. Only a fresh attempt (no state, or state discarded via the reset protocol) falls through to the next gate.
+6. **Clean-tree gate (fresh attempts only)**: `git status --porcelain` must be empty in the **main checkout** AND in the `$WORK_ROOT` resolved in §0.0 — run it once when they are the same directory, twice when they are not (`git -C "$WORK_ROOT" status --porcelain`); in the legacy route there is no worktree yet, so the main checkout is the whole gate. Since 0.12 a fresh attempt normally does have a worktree already, created at the approval gate; a pre-existing worktree that is dirty with no attempt state to explain it is a STOP exactly like a dirty main checkout. Dirty → STOP and tell the user; never mix pre-existing or unknown changes into a delegated diff.
+7. **Branch — verify and reuse; create only in the legacy route**: in-place and worktree remain mutually exclusive, and the real mode is derived from `git worktree list`, never from the environment alone (same rule `plan-approve.sh` applies):
    - **Branch exists** (normal since 0.12): verify, do not create. `TANDEM_WORKTREE` unset → `tandem/<slug>` must be the checked-out branch of the main checkout (`git checkout tandem/<slug>` if the session drifted off it); `TANDEM_WORKTREE=1` → it must be checked out in a **linked** worktree, which §0.0 already resolved as `$WORK_ROOT` — a missing registration was already re-attached there, BEFORE the resolver ran, so reaching this gate with zero registrations is a hard error, not a case to repair here. A branch checked out in a linked worktree while `TANDEM_WORKTREE` is unset — or checked out in the main checkout while it is `1` — is a mode mismatch: STOP and say so explicitly; never guess.
    - **Legacy route only** (no `tandem/<slug>`, plan approved before 0.12): create it now. `TANDEM_WORKTREE` unset: `git checkout -b tandem/<slug>`. `TANDEM_WORKTREE=1`: do **NOT** check the branch out in the main checkout — `git worktree add` refuses a branch that is already checked out. First ensure `.worktrees/` is ignored in the *user's* project (`grep -qx '.worktrees/' .git/info/exclude 2>/dev/null || echo '.worktrees/' >> .git/info/exclude`); then `git worktree add .worktrees/<slug> -b tandem/<slug>`.
 
@@ -96,16 +99,16 @@ The legacy route resolves the working root **here**, now that the branch and (un
 
 ### Transport `opus` (default)
 
-Use agent type `tandem:implementer` from `agents/implementer.md`. Its harness-enforced tool allowlist is `Read, Edit, Write, Glob, Grep, Bash`: no MCP, WebFetch/WebSearch, or nested Agent. Bash is still a residual risk rather than an OS sandbox, so the prompt and agent definition both prohibit commits, pushes, branch/remote changes, and work outside the named directory.
+Two agent types share one definition. `tandem:implementer` (`agents/implementer.md`) is the default; `tandem:implementer-critical` (`agents/implementer-critical.md`) is its byte-identical twin whose frontmatter adds `effort: xhigh`. Under `TANDEM_CRITICAL=1` a FRESH attempt uses `tandem:implementer-critical`; without the flag it uses `tandem:implementer`, exactly as before. A recovery or continuation instead uses the `effective_agent_type` rule below. Both definitions carry the same harness-enforced tool allowlist `Read, Edit, Write, Glob, Grep, Bash`: no MCP, WebFetch/WebSearch, or nested Agent. Bash is still a residual risk rather than an OS sandbox, so the prompt and both agent definitions prohibit commits, pushes, branch/remote changes, and work outside the named directory.
 
 Read `prompts/implement-claude.tpl` directly and replace its placeholders yourself; do **not** pass it through the Bash `load_prompt` infrastructure:
 
 - `{{TARGET}}` → the absolute working directory (the checkout, or the absolute `.worktrees/<slug>` path).
 - `{{EXTRA}}` → a `PLAN PATH: docs/plans/<slug>.plan.md` line followed by the complete approved plan text. On recovery, append the recovery context described below after the complete plan.
 
-Launch `tandem:implementer` with the rendered prompt using the Agent tool and `run_in_background: true` for any real feature. Keep the returned agent name/id. The prompt contains the complete plan, exact work directory, required acceptance tests, report contract, model self-attestation, and final `IMPLEMENTATION_COMPLETE` / `IMPLEMENTATION_PARTIAL` sentinel.
+Launch the effective agent type with the rendered prompt using the Agent tool and `run_in_background: true` for any real feature. Keep the returned agent name/id. The prompt contains the complete plan, exact work directory, required acceptance tests, report contract, model self-attestation, and final `IMPLEMENTATION_COMPLETE` / `IMPLEMENTATION_PARTIAL` sentinel.
 
-`TANDEM_CRITICAL=1` cannot raise effort for an Agent-tool Opus subagent because Agent exposes no effort control. Under `opus` it therefore does not change implementation effort; it still means that the mandatory review phase may never be omitted. Under `sol` it retains its full behavior below.
+Under `opus`, `TANDEM_CRITICAL=1` therefore has a real effect: the critical agent type asks the harness for reasoning effort `xhigh` through its frontmatter (`max` exists as a manual escalation for whoever edits the definition; it is not the default). It still means that the mandatory review phase may never be omitted. What it is not is an unconditional promise: `CLAUDE_CODE_EFFORT_LEVEL` takes precedence over the frontmatter and a Claude Code older than 2.1.111 ignores the value `xhigh` — gate 3 STOPS on both, and `tandem:doctor` reports the effective effort. Under `sol` the flag retains its full behavior below.
 
 #### Durable Opus attempt state
 
@@ -116,6 +119,7 @@ The JSON records at least:
 ```json
 {
   "agent": {"name": "returned name", "id": "returned id"},
+  "agent_type": "tandem:implementer",
   "task_id": "<background task id of the CURRENT launch/continuation>",
   "status": "running",
   "continuation_rounds": 0,
@@ -129,6 +133,18 @@ The JSON records at least:
   "remote_snapshot": "<git -C \"$WORK_ROOT\" remote -v at attempt start>"
 }
 ```
+
+`agent_type` is the agent type REALLY used at launch, and it is a **closed enum**: exactly `tandem:implementer` or `tandem:implementer-critical`. Validate it before ANY recovery or continuation:
+
+- **Field absent** (legacy state written before 0.21) → it means `tandem:implementer`. Normalize it to that value and PERSIST the rewritten JSON **before** the recovery, so a later session can never re-derive it differently.
+- **Unknown value, or anything that is not a string** → never dispatched. The JSON is not a launch instruction, and an arbitrary string here would be an arbitrary agent launch. STOP in interactive mode, terminal `FAILED` in autonomous mode, state preserved.
+
+**`effective_agent_type` — one rule for both directions.** Once the attempt's identity is validated, derive exactly ONE effective agent type and use it everywhere:
+
+- **Recovery or continuation of an existing attempt** → the RECORDED `agent_type`, always. Selection by flag applies **only to a FRESH attempt** (`TANDEM_CRITICAL=1` → `tandem:implementer-critical`, otherwise `tandem:implementer`), which is written into the JSON at launch.
+- ALL the critical gates — gate 3's `CLAUDE_CODE_EFFORT_LEVEL` preflight and its Claude Code `>= 2.1.111` version gate — are evaluated against the EFFECTIVE type, never against the environment flag alone.
+- **Mismatch in EITHER direction** — `TANDEM_CRITICAL=1` over an attempt recorded (or normalized) as `tandem:implementer`, or no flag over an attempt recorded as `tandem:implementer-critical` — requires **explicit user consent** in interactive mode and is a terminal `FAILED` in autonomous mode. Neither direction is ever resolved silently.
+- If the recorded type is unavailable (its definition is gone, or the version gate rejects it), degrading to another type demands that same consent / `FAILED`: a critical attempt is never silently downgraded.
 
 `base_head` and `remote_snapshot` are written ONCE when the attempt starts and are immutable for its lifetime: they are the durable safety baseline, so a recovery in a fresh session can still detect an implementer commit or remote mutation without relying on conversation memory.
 
@@ -152,7 +168,7 @@ Before **any** reset, run the observational liveness guard, keyed on the **recor
 
 ### Transport `sol`
 
-This is the existing Codex CLI flow, unchanged. For critical work (auth, migrations, concurrency, payments, tenant isolation) prefix the command with `TANDEM_CRITICAL=1` to raise Sol's reasoning effort from high to xhigh.
+This is the existing Codex CLI flow, unchanged. For critical work (auth, migrations, concurrency, payments, tenant isolation) prefix the command with `TANDEM_CRITICAL=1` to raise Sol's reasoning effort from high to xhigh — unless `TANDEM_IMPLEMENT_EFFORT` is set, which takes precedence over CRITICAL's xhigh (the doctor shows the EFFECTIVE effort; trust that line, not this sentence).
 
 ```bash
 TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-start.sh" implement docs/plans/<slug>.plan.md \
@@ -187,7 +203,7 @@ The template asks for the final report plus the sentinel — the transport contr
 
 For `opus`, use `SendMessage` on the recorded agent id/name for every continuation; never launch a fresh agent while it still exists. Read `continuation_rounds` from the durable JSON, increment it after each PARTIAL continuation, save the new `.t<N>.report.md`, and update the JSON even when the sentinel is missing or the turn fails — including the continuation's new `task_id` with `status: "running"` at send time and `status: "terminal"` when its result arrives. The cap never resets on compaction or a new orchestrator session.
 
-If the recorded Opus agent no longer exists, launch a fresh `tandem:implementer` only as recovery of the same matching attempt. Render the Claude template with the complete plan and a recovery appendix containing: `git -C "$WORK_ROOT" status -s`, the full tracked `git -C "$WORK_ROOT" diff HEAD`, an explicit order to open and read every `??` file in full **by absolute `$WORK_ROOT/...` path** because it is absent from `git diff`, and the pending items from the last persisted report. Unqualified git here would read the main checkout and hand the recovered agent someone else's context. Store the new agent identity without resetting `continuation_rounds`.
+If the recorded Opus agent no longer exists, launch a fresh agent of the recorded `effective_agent_type` — never the type the current environment would select — only as recovery of the same matching attempt. Render the Claude template with the complete plan and a recovery appendix containing: `git -C "$WORK_ROOT" status -s`, the full tracked `git -C "$WORK_ROOT" diff HEAD`, an explicit order to open and read every `??` file in full **by absolute `$WORK_ROOT/...` path** because it is absent from `git diff`, and the pending items from the last persisted report. Unqualified git here would read the main checkout and hand the recovered agent someone else's context. Store the new agent identity — with the `agent_type` unchanged — without resetting `continuation_rounds`.
 
 For `sol`, continue with the existing command and template, unchanged:
 

@@ -48,10 +48,146 @@ doctor TANDEM_IMPLEMENTER=sol TANDEM_IMPLEMENT_MODEL=custom TANDEM_IMPLEMENT_EFF
 assert_rc 0 "implementer sol, overridden"
 assert_file_contains "$OUT" "model=custom effort=low"
 
-# TANDEM_CRITICAL under opus does not change the effort (Agent does not expose it).
+# --- sol + CRITICAL: the EFFECTIVE effort, never a promise -------------------
+# TANDEM_IMPLEMENT_EFFORT has real precedence over the xhigh CRITICAL asks for,
+# so a doctor that still announced "raises Sol implementation effort to xhigh"
+# would be describing a run that spends `low`.
+doctor TANDEM_IMPLEMENTER=sol TANDEM_CRITICAL=1 TANDEM_IMPLEMENT_EFFORT=low
+assert_rc 0 "sol, critical, effort overridden"
+assert_file_contains "$OUT" "effort=low sandbox=workspace-write"
+assert_file_contains "$OUT" "TANDEM_IMPLEMENT_EFFORT takes precedence — this run implements at effort low"
+assert_not_contains "$OUT" "raises Sol implementation effort to xhigh"
+assert_not_contains "$OUT" "at effort xhigh"
+
+# Without the override the effective effort IS xhigh, and it is stated as such.
+doctor TANDEM_IMPLEMENTER=sol TANDEM_CRITICAL=1
+assert_rc 0 "sol, critical, no override"
+assert_file_contains "$OUT" "TANDEM_CRITICAL=1 — Sol implements at effort xhigh (effective)"
+
+# --- opus + CRITICAL: a real effect, and the two gates that keep it real -----
+# Since 0.21 the flag selects the tandem:implementer-critical agent type, whose
+# frontmatter carries effort: xhigh. The old "effort is not exposed" line is
+# gone — a stale limitation is as misleading as a false promise.
+doctor -u TANDEM_IMPLEMENTER
+assert_rc 0 "opus, no critical"
+assert_file_contains "$OUT" "TANDEM_CRITICAL=0 (1 selects the tandem:implementer-critical agent type"
+assert_not_contains "$OUT" "under opus, effort is not exposed"
+
+# claude_stub <text> — a `claude` on the sandbox PATH whose --version prints
+# exactly <text> (the doctor calls no other subcommand). Same pattern as the
+# codex stub the runner drops into $SANDBOX/bin.
+claude_stub() {
+  cat >"$SANDBOX/bin/claude" <<EOF
+#!/bin/sh
+printf '%s\n' "$1"
+EOF
+  chmod +x "$SANDBOX/bin/claude"
+}
+# A CLI that is present but cannot answer: undeterminable, never "assume new".
+claude_stub_broken() {
+  cat >"$SANDBOX/bin/claude" <<'EOF'
+#!/bin/sh
+printf 'claude: fatal\n' >&2
+exit 1
+EOF
+  chmod +x "$SANDBOX/bin/claude"
+}
+claude_unstub() { rm -f "$SANDBOX/bin/claude"; }
+
+# No `claude` in PATH at all → undeterminable → FAIL, but only under CRITICAL.
+claude_unstub
 doctor -u TANDEM_IMPLEMENTER TANDEM_CRITICAL=1
-assert_rc 0 "critical under opus"
-assert_file_contains "$OUT" "TANDEM_CRITICAL=1 (under opus, effort is not exposed; review remains mandatory)"
+assert_rc 1 "critical under opus with no claude in PATH"
+assert_file_contains "$OUT" "TANDEM_CRITICAL=1 (agent type tandem:implementer-critical, frontmatter effort=xhigh; review remains mandatory)"
+assert_file_contains "$OUT" "FAIL  Claude Code version is undeterminable"
+assert_file_contains "$OUT" "run with TANDEM_IMPLEMENTER=sol"
+
+doctor -u TANDEM_IMPLEMENTER
+assert_rc 0 "no claude in PATH is silent without CRITICAL"
+assert_not_contains "$OUT" "Claude Code"
+
+# The exact boundaries of the gate.
+claude_stub "2.1.110 (Claude Code)"
+doctor -u TANDEM_IMPLEMENTER TANDEM_CRITICAL=1
+assert_rc 1 "claude 2.1.110 under CRITICAL+opus"
+assert_file_contains "$OUT" "FAIL  Claude Code 2.1.110 < 2.1.111"
+assert_file_contains "$OUT" "the VALUE xhigh is not"
+
+doctor -u TANDEM_IMPLEMENTER
+assert_rc 0 "claude 2.1.110 is silent without CRITICAL"
+assert_not_contains "$OUT" "Claude Code 2.1.110"
+
+claude_stub "2.1.111 (Claude Code)"
+doctor -u TANDEM_IMPLEMENTER TANDEM_CRITICAL=1
+assert_rc 0 "claude 2.1.111 under CRITICAL+opus"
+assert_file_contains "$OUT" "ok    Claude Code 2.1.111 >= 2.1.111"
+assert_not_contains "$OUT" "FAIL"
+
+claude_stub "3.0.0 (Claude Code)"
+doctor -u TANDEM_IMPLEMENTER TANDEM_CRITICAL=1
+assert_rc 0 "a newer major under CRITICAL+opus"
+assert_file_contains "$OUT" "ok    Claude Code 3.0.0 >= 2.1.111"
+
+# Field-wise, not lexicographic: "2.1.99" sorts after "2.1.111" as a string and
+# is older as a version.
+claude_stub "2.1.99 (Claude Code)"
+doctor -u TANDEM_IMPLEMENTER TANDEM_CRITICAL=1
+assert_rc 1 "claude 2.1.99 is OLDER than 2.1.111"
+assert_file_contains "$OUT" "FAIL  Claude Code 2.1.99 < 2.1.111"
+
+# A version that cannot be parsed is undeterminable — never optimistic.
+claude_stub "Claude Code (unknown build)"
+doctor -u TANDEM_IMPLEMENTER TANDEM_CRITICAL=1
+assert_rc 1 "unparseable claude --version"
+assert_file_contains "$OUT" "FAIL  Claude Code version is undeterminable"
+
+claude_stub_broken
+doctor -u TANDEM_IMPLEMENTER TANDEM_CRITICAL=1
+assert_rc 1 "claude --version fails"
+assert_file_contains "$OUT" "FAIL  Claude Code version is undeterminable"
+
+doctor -u TANDEM_IMPLEMENTER
+assert_rc 0 "a broken claude is silent without CRITICAL"
+assert_not_contains "$OUT" "Claude Code version"
+
+# Under sol there is no subagent, so neither critical gate applies.
+claude_stub_broken
+doctor TANDEM_IMPLEMENTER=sol TANDEM_CRITICAL=1
+assert_rc 0 "the version gate does not apply under sol"
+assert_not_contains "$OUT" "Claude Code"
+
+# --- CLAUDE_CODE_EFFORT_LEVEL: the mirror of implement's gate 3 --------------
+# It takes precedence over the critical agent type's frontmatter effort, so a
+# defined value other than xhigh means "critical" at a degraded effort.
+claude_stub "2.1.111 (Claude Code)"
+doctor -u TANDEM_IMPLEMENTER TANDEM_CRITICAL=1 CLAUDE_CODE_EFFORT_LEVEL=medium
+assert_rc 1 "critical under opus with a degraded effort level"
+assert_file_contains "$OUT" "FAIL  CLAUDE_CODE_EFFORT_LEVEL='medium' overrides the critical agent type's frontmatter effort: xhigh"
+assert_file_contains "$OUT" "preflight will STOP the run"
+assert_file_contains "$OUT" "unset CLAUDE_CODE_EFFORT_LEVEL"
+assert_file_contains "$OUT" "set it to exactly xhigh"
+assert_file_contains "$OUT" "TANDEM_IMPLEMENTER=sol"
+
+# Set-but-empty is not "unset": it overrides the frontmatter just the same.
+doctor -u TANDEM_IMPLEMENTER TANDEM_CRITICAL=1 CLAUDE_CODE_EFFORT_LEVEL=
+assert_rc 1 "effort level set but empty"
+assert_file_contains "$OUT" "FAIL  CLAUDE_CODE_EFFORT_LEVEL='' overrides the critical agent type's frontmatter effort"
+
+doctor -u TANDEM_IMPLEMENTER TANDEM_CRITICAL=1 CLAUDE_CODE_EFFORT_LEVEL=xhigh
+assert_rc 0 "effort level agrees with the critical agent type"
+assert_file_contains "$OUT" "ok    CLAUDE_CODE_EFFORT_LEVEL=xhigh"
+assert_not_contains "$OUT" "FAIL"
+
+# Without CRITICAL the normal agent type declares no effort at all: silence.
+doctor -u TANDEM_IMPLEMENTER CLAUDE_CODE_EFFORT_LEVEL=medium
+assert_rc 0 "effort level without CRITICAL"
+assert_not_contains "$OUT" "CLAUDE_CODE_EFFORT_LEVEL"
+
+doctor TANDEM_IMPLEMENTER=sol TANDEM_CRITICAL=1 CLAUDE_CODE_EFFORT_LEVEL=medium
+assert_rc 0 "effort level is irrelevant under sol"
+assert_not_contains "$OUT" "CLAUDE_CODE_EFFORT_LEVEL"
+
+claude_unstub
 
 # --- an invalid selector is a failure, not a fallback ------------------------
 doctor TANDEM_IMPLEMENTER=luna
