@@ -32,6 +32,9 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
 | M13 | Semáforo de concurrencia dentro de `codex-swarm.sh` | Ultra | P2 | M | hecha (v0.20.0) |
 | M14 | Suite de tests con stub de codex + shellcheck + CI | Infraestructura | P1 | L | hecha (v0.10.0) |
 | M15 | Review de rangos ya commiteados | Workflow | P3 | M | hecha (v0.22.0) |
+| M16 | Status: `PA_VALID` verifica los invariantes reales de la aprobación | UX | P2 | S | pendiente |
+| M17 | Status: resolución multi-raíz con reconciliación o contradicción explícita | UX | P2 | M | pendiente |
+| M18 | Doctor: parser de versión estricto en el gate crítico | Diagnóstico | P2 | S | pendiente |
 
 ## Orden de ataque recomendado
 
@@ -40,6 +43,9 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
 3. **M3** — incoherencia de política barata de cerrar (M4 puede ir en el mismo cambio que M2).
 4. **M8, M9, M11** — mejor relación coste/valor en robustez y UX (M9 alimenta a M11).
 5. **M5, M6, M7, M10, M12, M13, M15** — pulido incremental, sin dependencias entre sí.
+6. **M16, M17, M18** — hardening de status/doctor, sin dependencias entre sí; los tres
+   nacieron de la primera range review real (`range-review-cola2`, sobre la Cola 2
+   completa): hallazgos de interacción que las reviews individuales no podían ver.
 
 ---
 
@@ -277,3 +283,67 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
   hallazgos, no un commit.
 - **Aceptación:** una rama commiteada obtiene review completa de Sol con veredicto, sin
   requerir árbol sucio ni tocar el flujo del pipeline normal.
+
+## M16 — Status: `PA_VALID` verifica los invariantes reales de la aprobación
+
+- **Severidad/Esfuerzo:** P2 / S · **Slug sugerido:** `status-approval-proof`
+- **Problema:** `tandem-status.sh` marca `PA_VALID=1` con campos estructurales y, con git
+  disponible, solo comprueba que el commit registrado existe y tiene el padre esperado.
+  Omite los invariantes que `plan-approve.sh` sí impone al aprobar: que el commit toca
+  SOLO el plan esperado y contiene ese path. Peor: sin git disponible, esos checks se
+  saltan pero `PA_VALID` queda true — la fase pasa a "plan aprobado" y el `next:`
+  recomienda `/tandem:implement` para un registro corrupto plausible. Status es advisory
+  (los gates ejecutables siguen fail-closed por su cuenta), pero certifica en falso ante
+  el humano que consulta.
+- **Evidencia:** hallazgo Major 1 de la primera range review real (`range-review-cola2`,
+  2026-08-01, log en `.tandem/log/ranges/cola2.md`); `scripts/tandem-status.sh:416-432`
+  (validación), `:636-637` y `:679-680` (recomendación); invariantes de la aprobación en
+  `scripts/plan-approve.sh:343-347`.
+- **Propuesta:** con git, verificar el diff plan-only del commit (toca exactamente el plan
+  registrado) y el blob del plan antes de poner `PA_VALID`; sin git, degradar a un estado
+  explícito "aprobación NO verificada — verificación manual necesaria" que jamás
+  recomienda avanzar de fase.
+- **Aceptación:** un commit válido del mismo padre que toca un fichero no-plan →
+  `PA_INVALID`; un registro estructuralmente válido evaluado sin git → estado "no
+  verificado", nunca "plan aprobado" ni `next: /tandem:implement`.
+
+## M17 — Status: resolución multi-raíz con reconciliación o contradicción explícita
+
+- **Severidad/Esfuerzo:** P2 / M · **Slug sugerido:** `status-multi-root`
+- **Problema:** `resolve_state_root` recorre `CLAUDE_PROJECT_DIR` → `PWD` → checkout
+  principal y se detiene en la PRIMERA raíz que contenga cualquier evidencia del slug;
+  log, aprobación, implementación y review se leen después solo de esa raíz. Como los
+  wrappers anclan deliberadamente el estado de hilos a `CLAUDE_PROJECT_DIR`, un log rancio
+  o estado parcial del mismo slug en un worktree enlazado enmascara el run completo y
+  autoritativo del checkout principal → fase y `next:` incorrectos.
+- **Evidencia:** hallazgo Major 2 de `range-review-cola2`;
+  `scripts/tandem-status.sh:132-143` (orden de candidatas), `:169-184` (primera con
+  evidencia gana), `:362-373` (lectura exclusiva); anclaje de estado en
+  `scripts/_common.sh:99-109`.
+- **Propuesta:** inspeccionar TODAS las raíces candidatas para el slug pedido; si la
+  evidencia es consistente, reconciliar (la más avanzada); si se contradicen, reportar la
+  contradicción explícitamente — ambas raíces, ambas fases — sin recomendar acción.
+- **Aceptación:** test dual-root con el mismo slug en dos raíces y el principal más
+  avanzado → status refleja el run del principal o declara contradicción; jamás presenta
+  la fase del estado rancio como la verdad a secas.
+
+## M18 — Doctor: parser de versión estricto en el gate crítico
+
+- **Severidad/Esfuerzo:** P2 / S · **Slug sugerido:** `doctor-version-strict`
+- **Problema:** `claude_dotted` acepta el primer token que empiece por dígito y recorta lo
+  no numérico ("Claude Code build 123 version 2.1.110" → "123") y `version_ge` rellena
+  componentes ausentes con cero → `123 >= 2.1.111` pasa. El gate de M6 (Claude Code ≥
+  2.1.111 para effort crítico), que existe para ser fail-closed, certificaría en falso
+  ante un cambio de formato de `claude -v`. Con el formato actual no se dispara; un gate
+  fail-closed no puede depender de que el formato nunca cambie. Verificado en código por
+  el orquestador.
+- **Evidencia:** hallazgo Major 3 de `range-review-cola2`; `scripts/codex-doctor.sh:78-90`
+  (`claude_dotted`), `:105-120` (`version_ge`), gate en `:214-224`; el mismo parser está
+  espejado en el preflight de `skills/implement/SKILL.md` (gate 3).
+- **Propuesta:** exigir un token puntuado estricto — exactamente tres componentes
+  decimales — y tratar cualquier salida ambigua como indeterminable → FAIL (el "never
+  assume new" que el comentario del propio parser ya promete); aplicar el criterio en el
+  doctor y en el preflight espejado.
+- **Aceptación:** salidas con número de build delante y con fechas → FAIL por
+  indeterminable, nunca pass; `2.1.111` y superiores con formato normal siguen ok;
+  `2.1.110` sigue FAIL.
