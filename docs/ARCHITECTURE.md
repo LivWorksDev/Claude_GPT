@@ -59,7 +59,7 @@ El implementador default usa un subagente Claude `model: opus` con allowlist de 
 
 ### Pins de argv: qué NO puede heredar un turno de tandem
 
-Los tres wrappers (`codex-start.sh`, `codex-resume.sh`, `codex-swarm.sh`) llevan el mismo bloque de política en posición fija, generado por un único helper (`codex_pins()` en `scripts/_common.sh`) y congelado byte a byte por la suite:
+Los tres wrappers (`codex-start.sh`, `codex-resume.sh`, `codex-swarm.sh`) llevan el mismo bloque de política en posición fija, generado por un único helper (`codex_pins()` en `scripts/_pins.sh`, sourceado por `_common.sh` y también por `codex-doctor.sh --smoke`) y congelado byte a byte por la suite:
 
 | Pin | Por qué |
 | --- | --- |

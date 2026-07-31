@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.17.0 — 2026-07-31
+
+- **El doctor avisa del conflicto de `CLAUDE_CODE_SUBAGENT_MODEL`** (M7 del backlog, tarea
+  5/6 de la cola autónoma): con implementer opus y la variable definida con otro valor, el
+  preflight de implement paraba a mitad de pipeline sin que el diagnóstico previo dijera
+  nada. Ahora es una línea FAIL accionable (des-definirla, fijarla a `opus`, o
+  `TANDEM_IMPLEMENTER=sol`); definida como `opus` → ok informativo; bajo sol no aplica.
+- **`codex-doctor.sh --smoke`** — un turno REAL mínimo por modelo ÚNICO configurado (2 con
+  la política default, deduplicado; implement solo bajo sol) que responde "¿este nombre de
+  modelo sigue existiendo?" antes de que una deprecación muerda a mitad de un run largo.
+  Jamás corre sin el flag (cero `codex exec` por defecto, fijado por test) y avisa del
+  coste antes de lanzar nada. Aislamiento total del diagnóstico: `--ephemeral` (con sonda
+  de capacidad contra `exec --help` — sin el flag en el CLI instalado, FAIL y cero turnos),
+  `--cd` único a un temporal privado (vía `TANDEM_CODEX_CWD` fijada antes de los pins — dos
+  `--cd` son exit 2 del CLI), `-c web_search=disabled`, SIN override de effort (`minimal`
+  no existe para sol/luna en la CLI pineada — el parsing global valida el string, no el
+  soporte por modelo; forzarlo reportaría "retirado" en falso) y watchdog por modelo
+  (120 s, override validado `TANDEM_DOCTOR_SMOKE_TIMEOUT_SECONDS`) con continuación
+  garantizada: un cuelgue o fallo de un modelo nunca deja sin diagnóstico a los demás.
+  Clasificación por SEMÁNTICA de modelo-no-disponible en el stderr, nunca por la mera
+  presencia del nombre (los errores de auth/cuota también lo citan).
+- **`codex_pins()` extraída a `scripts/_pins.sh`** (sourceable sin efectos de shell): el
+  doctor no puede sourcear `_common.sh` (su `set -euo pipefail` rompería el "reporta
+  todo"), y una lista duplicada inline habría driftado en silencio. Los wrappers quedan
+  byte a byte idénticos (los tests de argv existentes pasan sin modificar).
+- Suite: 59 casos (de 58): `doctor-smoke.test.sh` nuevo (cero exec por defecto, dedupe,
+  paridad de pins, --ephemeral y su modo negativo, --cd único también con env heredada,
+  fallo selectivo por modelo con continuación asertada, auth-shaped, cuelgue selectivo con
+  watchdog, 64s de usage, nada bajo .tandem/); `doctor-env-matrix` ampliado con los 5 casos
+  de la variable; el stub gana `exec --help` no contado y selectividad
+  FAIL/HANG por modelo preservando los escenarios globales.
+
 ## 0.16.0 — 2026-07-31
 
 - **Effort puntual para turnos-recordatorio** (M5 del backlog, tarea 4/6 de la cola

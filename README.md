@@ -31,7 +31,7 @@ claude plugin install tandem@claude-gpt
 claude --plugin-dir /ruta/a/este/repo
 ```
 
-Verifica el toolchain con `/tandem:doctor`.
+Verifica el toolchain con `/tandem:doctor`. Ese diagnóstico es gratis (no gasta ni un turno) e incluye el conflicto de `CLAUDE_CODE_SUBAGENT_MODEL` que pararía el preflight de `/tandem:implement`. Si además quieres comprobar que los **nombres de modelo configurados siguen existiendo** — una deprecación descubierta a mitad de un run largo sale cara —, `bash scripts/codex-doctor.sh --smoke` lanza un turno real mínimo por modelo único (2 con la política default) y distingue "modelo retirado" de fallo de auth/red/timeout. Cuesta cuota, así que **nunca corre por defecto**: solo con el flag explícito.
 
 ## Skills
 
@@ -44,7 +44,7 @@ Verifica el toolchain con `/tandem:doctor`.
 | `/tandem:ask` | Segunda opinión de Sol sobre cualquier tema, con follow-ups en el mismo hilo |
 | `/tandem:image` | Genera assets de imagen con la herramienta nativa de Codex (gpt-image-2), con transparencia por chroma-key para sprites |
 | `/tandem:ultra` | Enjambres multi-agente estilo ultracode dirigidos por Fable, con todos los asientos en Codex (read-only) |
-| `/tandem:doctor` | Diagnóstico del toolchain (codex, login, jq, política de modelos, status line) |
+| `/tandem:doctor` | Diagnóstico del toolchain (codex, login, jq, política de modelos, status line); `--smoke` añade un turno real por modelo único para verificar que los nombres siguen vivos, solo bajo demanda |
 | `/tandem:statusline` | Instala/desinstala la status line (modelo, contexto, coste + puerta Codex en vivo) |
 
 ## Status line

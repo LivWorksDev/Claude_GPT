@@ -61,7 +61,7 @@ probe() {
   out="$(codex debug prompt-input -c "$key=$bad_value" "$PROMPT" 2>&1)" || rc=$?
   if [ "$rc" -eq 0 ]; then
     bad "$key — accepted '$key=$bad_value' in silence: the key is gone or renamed"
-    info "the pin in scripts/_common.sh (codex_pins) no longer applies"
+    info "the pin in scripts/_pins.sh (codex_pins) no longer applies"
     return 0
   fi
   case "$out" in
@@ -76,7 +76,7 @@ probe() {
   esac
 }
 
-# Keep this list in lockstep with codex_pins() in scripts/_common.sh.
+# Keep this list in lockstep with codex_pins() in scripts/_pins.sh.
 # `sandbox_mode` is not probed here: it is the one key whose effect is already
 # asserted by the `--sandbox` flag it doubles, and it predates this watch.
 probe sandbox_workspace_write.network_access nonsense

@@ -1,9 +1,66 @@
 #!/usr/bin/env bash
 # tandem — diagnose the toolchain. Reports every problem found (does not stop
 # at the first one) and exits non-zero if anything is broken.
-# usage: codex-doctor.sh
+#
+# usage: codex-doctor.sh [--smoke]
+#   --smoke  ALSO spend one REAL codex turn per UNIQUE configured model (two
+#            with the default policy) to prove the model names still resolve —
+#            a deprecation found here costs a one-line turn instead of half a
+#            long run. It NEVER runs without the flag: a diagnostic must not
+#            spend the user's quota unasked.
+#
+# env: TANDEM_DOCTOR_SMOKE_TIMEOUT_SECONDS  per-model watchdog for --smoke
+#      (default 120; a positive integer of seconds, anything else is a usage
+#      error). Ignored without the flag.
+#
+# exit codes: 0 all good · 1 problems found · 64 usage error
+#
+# This script deliberately does NOT source _common.sh: its `set -euo pipefail`
+# would abort the diagnosis at the first failure, and reporting everything is
+# the whole point. It sources only _pins.sh, which by contract has no shell
+# side effects and carries the argv policy block the --smoke turns share with
+# the real wrappers.
 
 set -uo pipefail
+
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=_pins.sh
+. "$SCRIPT_DIR/_pins.sh"
+
+# --- arguments ---------------------------------------------------------------
+# With no arguments the output is exactly what it has always been, byte for
+# byte; anything unknown is a usage error before a single line is printed.
+usage() { printf 'usage: codex-doctor.sh [--smoke]\n' >&2; }
+
+SMOKE=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --smoke) SMOKE=1 ;;
+    *)
+      printf 'tandem: unknown argument: %s\n' "$1" >&2
+      usage
+      exit 64
+      ;;
+  esac
+  shift
+done
+
+# The watchdog override is validated only when it can matter: without --smoke
+# nothing is launched, and a stray value in the environment must not turn the
+# default diagnosis into a usage error.
+SMOKE_TIMEOUT="${TANDEM_DOCTOR_SMOKE_TIMEOUT_SECONDS:-120}"
+if [ "$SMOKE" -eq 1 ]; then
+  case "$SMOKE_TIMEOUT" in
+    '' | *[!0-9]*) SMOKE_TIMEOUT_BAD=1 ;;
+    *) SMOKE_TIMEOUT_BAD=0; [ "$((10#$SMOKE_TIMEOUT))" -gt 0 ] || SMOKE_TIMEOUT_BAD=1 ;;
+  esac
+  if [ "$SMOKE_TIMEOUT_BAD" -eq 1 ]; then
+    printf 'tandem: TANDEM_DOCTOR_SMOKE_TIMEOUT_SECONDS must be a positive integer of seconds (got: "%s")\n' \
+      "$SMOKE_TIMEOUT" >&2
+    usage
+    exit 64
+  fi
+fi
 
 fail=0
 ok()   { printf '  ok    %s\n' "$1"; }
@@ -47,7 +104,6 @@ fi
 
 # status line (optional integration — informational, never a FAIL)
 printf '\nstatus line:\n'
-SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 if [ -x "$CLAUDE_DIR/tandem-statusline.sh" ] \
   && jq -e '.statusLine.command // "" | test("tandem-statusline")' \
@@ -82,6 +138,21 @@ case "$implementer" in
   opus)
     info "implementer: opus — Claude Opus 5 subagent (default; harness tool allowlist, Bash has no OS sandbox)"
     info "TANDEM_CRITICAL=${TANDEM_CRITICAL:-0} (under opus, effort is not exposed; review remains mandatory)"
+    # CLAUDE_CODE_SUBAGENT_MODEL takes precedence over the agent type's
+    # `model: opus`, so any other value silently swaps the implementer's model.
+    # tandem:implement's preflight is fail-closed about it and STOPS the run —
+    # discovering that mid-pipeline is exactly what this line prevents. Under
+    # `sol` the check does not apply: that transport uses no subagent.
+    case "${CLAUDE_CODE_SUBAGENT_MODEL+set}" in
+      set)
+        if [ "$CLAUDE_CODE_SUBAGENT_MODEL" = "opus" ]; then
+          ok "CLAUDE_CODE_SUBAGENT_MODEL=opus (agrees with the implementer subagent)"
+        else
+          bad "CLAUDE_CODE_SUBAGENT_MODEL='$CLAUDE_CODE_SUBAGENT_MODEL' overrides the implementer subagent's model: opus — tandem:implement's preflight will STOP the run"
+          info "fix, any of: unset CLAUDE_CODE_SUBAGENT_MODEL · set it to exactly opus · run with TANDEM_IMPLEMENTER=sol"
+        fi
+        ;;
+    esac
     ;;
   sol)
     if [ "${TANDEM_CRITICAL:-0}" = "1" ]; then
@@ -102,6 +173,263 @@ info "ultra seats: judge=${TANDEM_ULTRA_JUDGE_MODEL:-gpt-5.6-sol}/${TANDEM_ULTRA
 info "TANDEM_AUTONOMOUS=${TANDEM_AUTONOMOUS:-0} (1 replaces human gates with APPROVED+green-gate policy; commits stay on the tandem branch, never push/merge)"
 if [ "${TANDEM_AUTONOMOUS:-0}" = "1" ] && [ -z "${TANDEM_PROMOTE_REVIEWS:-}" ]; then
   bad "TANDEM_AUTONOMOUS=1 but TANDEM_PROMOTE_REVIEWS is unset — autonomous runs must not ask mid-run; set it to 0 or 1"
+fi
+
+# --- model smoke (--smoke only) ----------------------------------------------
+# "Is this model name still a model?" — asked with the cheapest possible real
+# turn, one per UNIQUE configured model. It is NOT a pipeline test: no
+# codex-start.sh, no threads, nothing under .tandem/ (a phantom thread here
+# would show up in codex-show/codex-reset forever). The isolation is total
+# because a turn that only has to answer "OK" needs no context at all:
+# --ephemeral (no orphan session files), a private temp working root, the
+# wrappers' full pin block from _pins.sh and no web search.
+
+SMOKE_MODELS=()
+
+# smoke_add <model> — appends unless already present (bash 3.2: no associative
+# arrays). Deduplication is the point: with the default policy five roles name
+# two distinct models, and the user pays per model, not per role.
+smoke_add() {
+  local m="$1" x
+  [ -n "$m" ] || return 0
+  for x in ${SMOKE_MODELS[@]+"${SMOKE_MODELS[@]}"}; do
+    [ "$x" = "$m" ] && return 0
+  done
+  SMOKE_MODELS+=("$m")
+  return 0
+}
+
+# smoke_watchdog <pid> <seconds> <marker> <group> — kills a turn that never
+# answers, taking the whole process group down when the turn leads one (same
+# pattern as tests/run.sh). Touches <marker> so the caller can tell a timeout
+# apart from an exit code.
+smoke_watchdog() {
+  local pid="$1" secs="$2" marker="$3" group="$4" i=0
+  while [ "$i" -lt "$secs" ]; do
+    kill -0 "$pid" 2>/dev/null || return 0
+    sleep 1
+    i=$((i + 1))
+  done
+  kill -0 "$pid" 2>/dev/null || return 0
+  : >"$marker"
+  if [ "$group" = "1" ]; then
+    kill -TERM -- -"$pid" 2>/dev/null
+    sleep 2
+    kill -KILL -- -"$pid" 2>/dev/null
+  else
+    kill -TERM "$pid" 2>/dev/null
+    sleep 2
+    kill -KILL "$pid" 2>/dev/null
+  fi
+  return 0
+}
+
+# smoke_run_one <model> — ONE real turn. Sets SMOKE_RC and SMOKE_TIMEDOUT and
+# leaves the reply in $SMOKE_REPLY, the stderr in $SMOKE_ERR. No effort override
+# on purpose: `minimal` is not supported by the default models, and forcing an
+# effort could report a healthy model as retired — the exact false negative the
+# smoke exists to prevent. Every model runs at its own deterministic default
+# (the user's config is ignored anyway).
+# The group of the turn currently in flight, for the signal cleanup: an
+# interrupted doctor must never orphan the isolated codex group it started.
+SMOKE_ACTIVE_PID=0
+SMOKE_ACTIVE_GROUP=0
+
+smoke_cleanup() {
+  local pid="${SMOKE_ACTIVE_PID:-0}" group="${SMOKE_ACTIVE_GROUP:-0}"
+  if [ "$pid" -gt 0 ]; then
+    # The GROUP is what must die, checked independently of the leader: during
+    # the watchdog's TERM->KILL grace the leader is often already gone while a
+    # TERM-resistant descendant keeps the group alive — gating the group kill
+    # on leader liveness would orphan exactly that descendant.
+    if [ "$group" = "1" ] && kill -0 -- -"$pid" 2>/dev/null; then
+      kill -TERM -- -"$pid" 2>/dev/null
+      sleep 1
+      kill -KILL -- -"$pid" 2>/dev/null
+    elif kill -0 "$pid" 2>/dev/null; then
+      kill -TERM "$pid" 2>/dev/null
+      sleep 1
+      kill -KILL "$pid" 2>/dev/null
+    fi
+  fi
+  SMOKE_ACTIVE_PID=0
+  [ -n "${SMOKE_TMP:-}" ] && rm -rf "$SMOKE_TMP" 2>/dev/null
+  return 0
+}
+
+smoke_run_one() {
+  local model="$1" pid wd group=0
+  # Pre-delete like the wrappers do: a stale reply from the previous model must
+  # never be read as this one's answer.
+  rm -f "$SMOKE_REPLY" "$SMOKE_MARK"
+  : >"$SMOKE_ERR"
+  # Job control only around the fork, so the turn leads its OWN process group
+  # and the watchdog cannot take this script down with it.
+  set -m
+  codex exec \
+    --skip-git-repo-check --color never \
+    --model "$model" \
+    --sandbox "$CODEX_SANDBOX" \
+    "${CODEX_PINS[@]}" \
+    -c web_search=disabled \
+    --ephemeral \
+    --output-last-message "$SMOKE_REPLY" \
+    - <"$SMOKE_PROMPT" >/dev/null 2>"$SMOKE_ERR" &
+  pid=$!
+  set +m
+  if kill -0 -- -"$pid" 2>/dev/null; then group=1; fi
+  SMOKE_ACTIVE_PID="$pid"
+  SMOKE_ACTIVE_GROUP="$group"
+  smoke_watchdog "$pid" "$SMOKE_TIMEOUT" "$SMOKE_MARK" "$group" &
+  wd=$!
+  SMOKE_RC=0
+  # 2>/dev/null on `wait` itself: when the watchdog kills the group, bash would
+  # otherwise print its own "Terminated: 15 <the whole command line>" job notice
+  # into the middle of the diagnosis. The exit code still arrives, and the FAIL
+  # line below says what happened in one readable sentence.
+  wait "$pid" 2>/dev/null || SMOKE_RC=$?
+  if [ -f "$SMOKE_MARK" ]; then
+    # The watchdog fired: let it FINISH its TERM→KILL sequence. Killing it the
+    # moment the group leader dies on TERM would skip the KILL that reaps
+    # TERM-resistant descendants, and those would outlive the diagnosis.
+    wait "$wd" 2>/dev/null
+  else
+    kill "$wd" 2>/dev/null
+    wait "$wd" 2>/dev/null
+  fi
+  SMOKE_ACTIVE_PID=0
+  SMOKE_TIMEDOUT=0
+  [ -f "$SMOKE_MARK" ] && SMOKE_TIMEDOUT=1
+  return 0
+}
+
+# smoke_model_error <stderr-file> — true only for model-not-available SEMANTICS.
+# Never the mere presence of the model name: auth, quota and network errors
+# quote it too, and calling those "the model is gone" would send the user
+# chasing a deprecation that never happened.
+smoke_model_error() {
+  LC_ALL=C grep -E -i -q \
+    -e 'model[^[:cntrl:]]{0,60}(not found|not_found|unknown|unsupported|not supported|does not exist|no longer|deprecated|retired|unavailable|not available|no access)' \
+    -e '(unknown|unsupported|unrecognized|invalid|deprecated|retired) model' \
+    -e 'model_not_found' \
+    "$1" 2>/dev/null
+}
+
+smoke_show_stderr() {
+  local l
+  tail -n 5 "$1" 2>/dev/null | while IFS= read -r l; do
+    [ -n "$l" ] || continue
+    info "stderr: $l"
+  done
+  return 0
+}
+
+# smoke_report <model> — reads the outcome of the last smoke_run_one.
+smoke_report() {
+  local model="$1"
+  if [ "$SMOKE_TIMEDOUT" = "1" ]; then
+    bad "model $model: no reply within ${SMOKE_TIMEOUT}s — turn killed (NOT a model-availability failure)"
+    info "action: check connectivity and 'codex login'; raise TANDEM_DOCTOR_SMOKE_TIMEOUT_SECONDS if the model is simply slow"
+  elif [ "$SMOKE_RC" -eq 0 ] && [ -s "$SMOKE_REPLY" ]; then
+    ok "model $model answers"
+  elif smoke_model_error "$SMOKE_ERR"; then
+    bad "model $model is not available — the CLI/API rejected the model NAME itself (renamed, retired or not enabled for this account)"
+    info "action: point the matching TANDEM_*_MODEL override at a supported model, or update the Codex CLI"
+    smoke_show_stderr "$SMOKE_ERR"
+  else
+    bad "model $model: the turn failed (exit $SMOKE_RC) — NOT a model-availability failure (auth, network or quota)"
+    info "action: re-run 'codex login', check connectivity, then repeat --smoke"
+    smoke_show_stderr "$SMOKE_ERR"
+  fi
+  return 0
+}
+
+if [ "$SMOKE" -eq 1 ]; then
+  printf '\nmodel smoke (--smoke):\n'
+
+  smoke_add "${TANDEM_REVIEW_MODEL:-gpt-5.6-sol}"
+  # implement only under sol: the opus transport spends no codex turn at all,
+  # and its model name already rides in through review/ask.
+  if [ "$implementer" = "sol" ]; then
+    smoke_add "${TANDEM_IMPLEMENT_MODEL:-gpt-5.6-sol}"
+  fi
+  smoke_add "${TANDEM_IMAGE_MODEL:-gpt-5.6-sol}"
+  smoke_add "${TANDEM_ULTRA_JUDGE_MODEL:-gpt-5.6-sol}"
+  smoke_add "${TANDEM_ULTRA_WORKER_MODEL:-gpt-5.6-sol}"
+  smoke_add "${TANDEM_ULTRA_SCOUT_MODEL:-gpt-5.6-luna}"
+
+  # The cost warning comes BEFORE anything is launched — the user must be able
+  # to read what this is about to spend even if the first turn hangs.
+  info "about to spend ${#SMOKE_MODELS[@]} REAL codex turns — one per unique configured model: ${SMOKE_MODELS[*]}"
+  info "each turn: --ephemeral, private temp working root, no web search, no effort override, ${SMOKE_TIMEOUT}s watchdog"
+
+  smoke_ready=1
+  if ! command -v codex >/dev/null 2>&1; then
+    bad "smoke not run: codex CLI not found in PATH"
+    smoke_ready=0
+  else
+    # Capability probe, never a pipeline: `--help | grep -q` would make grep
+    # close the pipe early, and pipefail would then read SIGPIPE as "the flag is
+    # missing" and skip the smoke on a perfectly capable CLI. The exit status
+    # counts too: help text scraped out of a FAILED probe proves nothing, and
+    # launching real turns on unproven capability is exactly what the probe
+    # exists to prevent.
+    smoke_help_rc=0
+    smoke_help="$(codex exec --help 2>/dev/null)" || smoke_help_rc=$?
+    if [ "$smoke_help_rc" -ne 0 ]; then
+      bad "smoke not run: 'codex exec --help' failed (rc $smoke_help_rc) — cannot verify --ephemeral support"
+      info "nothing was launched; repair the CLI first: npm install -g @openai/codex@latest"
+      smoke_ready=0
+    else
+      case "$smoke_help" in
+        *--ephemeral*) : ;;
+        *)
+          bad "smoke not run: this codex CLI has no 'exec --ephemeral' flag"
+          info "a diagnostic turn must not leave orphan session files behind, so nothing was launched"
+          info "upgrade: npm install -g @openai/codex@latest"
+          smoke_ready=0
+          ;;
+      esac
+    fi
+  fi
+
+  if [ "$smoke_ready" -eq 1 ]; then
+    SMOKE_TMP="$(mktemp -d "${TMPDIR:-/tmp}/tandem-smoke.XXXXXX" 2>/dev/null)"
+    if [ -z "${SMOKE_TMP:-}" ] || [ ! -d "$SMOKE_TMP" ]; then
+      bad "smoke not run: could not create a private temp directory under ${TMPDIR:-/tmp}"
+      smoke_ready=0
+    else
+      # EXIT covers the normal path; INT/TERM cover an interrupted doctor —
+      # both must reap the isolated codex group of the turn in flight, not just
+      # the temp directory.
+      trap 'smoke_cleanup' EXIT
+      trap 'smoke_cleanup; exit 130' INT
+      trap 'smoke_cleanup; exit 143' TERM
+    fi
+  fi
+
+  if [ "$smoke_ready" -eq 1 ]; then
+    SMOKE_CWD="$SMOKE_TMP/cwd"
+    SMOKE_REPLY="$SMOKE_TMP/reply.txt"
+    SMOKE_ERR="$SMOKE_TMP/stderr.txt"
+    SMOKE_PROMPT="$SMOKE_TMP/prompt.txt"
+    SMOKE_MARK="$SMOKE_TMP/timedout"
+    mkdir -p "$SMOKE_CWD"
+    printf 'Reply with exactly: OK\n' >"$SMOKE_PROMPT"
+
+    # The ONE `--cd` comes from codex_pins (the CLI rejects two of them), so the
+    # working root is fixed HERE, before the helper runs, and any inherited
+    # TANDEM_CODEX_CWD — empty or not — is overwritten: the smoke never runs
+    # over the user's repo.
+    TANDEM_CODEX_CWD="$SMOKE_CWD"
+    CODEX_SANDBOX="read-only"
+    codex_pins
+
+    for smoke_model in "${SMOKE_MODELS[@]}"; do
+      smoke_run_one "$smoke_model"
+      smoke_report "$smoke_model"
+    done
+  fi
 fi
 
 if [ "$fail" -ne 0 ]; then

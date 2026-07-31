@@ -33,6 +33,23 @@
 #                           (default 0 — the probe's preflight)
 #   CODEX_STUB_HB_FILE      heartbeat snapshotted during the RUNNING phase
 #                           (default $CLAUDE_PROJECT_DIR/.tandem/state/current.json)
+#   CODEX_STUB_HELP_NO_EPHEMERAL  1 → `codex exec --help` omits `--ephemeral`,
+#                           i.e. a CLI too old for the doctor's smoke
+#   CODEX_STUB_HELP_RC      exit code of `codex exec --help` (default 0)
+#
+# Per-MODEL selectivity (the scenarios above are global to the process; the
+# doctor's --smoke runs several models in ONE process, and "this model is gone
+# but the next one answers" is a contract that only a per-model knob can state):
+#   CODEX_STUB_FAIL_MODEL   the `--model` value that fails; every other model
+#                           behaves normally
+#   CODEX_STUB_FAIL_KIND    model (default) → stderr with model-not-found
+#                           SEMANTICS · other → an auth-shaped stderr that
+#                           merely mentions the model name
+#   CODEX_STUB_HANG_MODEL   the `--model` value that hangs (the global `hang`
+#                           scenario would hang every later model too)
+#   CODEX_STUB_HANG_RESISTANT  1 -> the hanging model also forks a child that
+#                           ignores TERM (only KILL reaps it); its pid lands in
+#                           CODEX_STUB_HANG_PIDFILE for the caller to assert on
 #
 # Per-invocation records (N counts EXEC invocations only — `--version` and
 # `login` probes do not advance the counter, so argv.1 is always the first real
@@ -74,6 +91,30 @@ fi
 
 if [ "${1:-}" = "login" ]; then
   exit "${CODEX_STUB_LOGIN_RC:-0}"
+fi
+
+# `codex exec --help` is a capability PROBE, not a turn: like the debug branch
+# it shares nothing with the exec branch below and does NOT advance the
+# invocation counter, so a test that counts REAL turns (the doctor's --smoke)
+# can assert 2 and mean 2.
+if [ "${1:-}" = "exec" ] && [ "${2:-}" = "--help" ]; then
+  printf 'Run Codex non-interactively\n\n'
+  printf 'Usage: codex exec [OPTIONS] [PROMPT]\n\n'
+  printf 'Options:\n'
+  printf '  -c, --config <key=value>\n'
+  printf '  -m, --model <MODEL>\n'
+  printf '  -s, --sandbox <SANDBOX_MODE>\n'
+  printf '  -C, --cd <DIR>\n'
+  printf '      --skip-git-repo-check\n'
+  if [ "${CODEX_STUB_HELP_NO_EPHEMERAL:-0}" != "1" ]; then
+    printf '      --ephemeral\n'
+  fi
+  printf '      --ignore-user-config\n'
+  printf '      --ignore-rules\n'
+  printf '      --color <COLOR>\n'
+  printf '      --json\n'
+  printf '  -o, --output-last-message <FILE>\n'
+  exit "${CODEX_STUB_HELP_RC:-0}"
 fi
 
 # `codex debug prompt-input …` validates the config and exits WITHOUT calling
@@ -132,12 +173,50 @@ fi
 
 WANT_JSON=0
 OUT_LAST=""
+STUB_MODEL=""
 prev=""
 for a in "$@"; do
   [ "$a" = "--json" ] && WANT_JSON=1
   [ "$prev" = "--output-last-message" ] && OUT_LAST="$a"
+  [ "$prev" = "--model" ] && STUB_MODEL="$a"
   prev="$a"
 done
+
+# --- per-model selectivity ---------------------------------------------------
+# Checked before the global knobs so a multi-model caller can single one out.
+if [ -n "${CODEX_STUB_HANG_MODEL:-}" ] && [ "$STUB_MODEL" = "$CODEX_STUB_HANG_MODEL" ]; then
+  # CODEX_STUB_HANG_RESISTANT=1 forks a child that IGNORES TERM and records its
+  # pid in CODEX_STUB_HANG_PIDFILE: the caller's watchdog must complete its
+  # TERM->KILL sequence for that child to die, which is exactly the contract the
+  # doctor's smoke cleanup test asserts.
+  if [ "${CODEX_STUB_HANG_RESISTANT:-0}" = "1" ]; then
+    (
+      trap '' TERM
+      sleep "${CODEX_STUB_HANG_SECONDS:-600}"
+    ) &
+    if [ -n "${CODEX_STUB_HANG_PIDFILE:-}" ]; then
+      printf '%s\n' "$!" >"$CODEX_STUB_HANG_PIDFILE"
+    fi
+  fi
+  sleep "${CODEX_STUB_HANG_SECONDS:-600}"
+  exit 0
+fi
+if [ -n "${CODEX_STUB_FAIL_MODEL:-}" ] && [ "$STUB_MODEL" = "$CODEX_STUB_FAIL_MODEL" ]; then
+  case "${CODEX_STUB_FAIL_KIND:-model}" in
+    model)
+      # The SEMANTICS of an unavailable model, the way the API words it.
+      printf 'Error: The model `%s` does not exist or you do not have access to it.\n' \
+        "$STUB_MODEL" >&2
+      ;;
+    *)
+      # An auth failure that MENTIONS the model: a classifier keying on the
+      # mere presence of the name would call this a deprecation.
+      printf 'Error: 401 Unauthorized while starting a turn (model: %s). Run `codex login`.\n' \
+        "$STUB_MODEL" >&2
+      ;;
+  esac
+  exit "${CODEX_STUB_EXIT:-7}"
+fi
 
 if [ -n "${CODEX_STUB_SLEEP:-}" ]; then
   sleep "$CODEX_STUB_SLEEP"

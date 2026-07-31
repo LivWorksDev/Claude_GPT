@@ -62,6 +62,38 @@ doctor TANDEM_IMPLEMENTER=OPUS
 assert_rc 1 "implementer is case sensitive"
 assert_file_contains "$OUT" "is invalid"
 
+# --- CLAUDE_CODE_SUBAGENT_MODEL: the preflight tandem:implement enforces ------
+# The variable takes precedence over the agent type's `model: opus`, so under
+# the opus transport anything but the exact string `opus` means the run will
+# stop mid-pipeline. The doctor says so first. Under `sol` there is no subagent
+# and the check must stay silent — a FAIL there would be noise.
+doctor -u TANDEM_IMPLEMENTER -u CLAUDE_CODE_SUBAGENT_MODEL
+assert_rc 0 "subagent model unset"
+assert_not_contains "$OUT" "CLAUDE_CODE_SUBAGENT_MODEL"
+
+doctor -u TANDEM_IMPLEMENTER CLAUDE_CODE_SUBAGENT_MODEL=opus
+assert_rc 0 "subagent model set to opus"
+assert_file_contains "$OUT" "ok    CLAUDE_CODE_SUBAGENT_MODEL=opus"
+assert_not_contains "$OUT" "FAIL"
+
+doctor -u TANDEM_IMPLEMENTER CLAUDE_CODE_SUBAGENT_MODEL=sonnet
+assert_rc 1 "subagent model overridden under opus"
+assert_file_contains "$OUT" "FAIL  CLAUDE_CODE_SUBAGENT_MODEL='sonnet' overrides the implementer subagent's model"
+assert_file_contains "$OUT" "preflight will STOP the run"
+# All three ways out are named, not just the variable.
+assert_file_contains "$OUT" "unset CLAUDE_CODE_SUBAGENT_MODEL"
+assert_file_contains "$OUT" "set it to exactly opus"
+assert_file_contains "$OUT" "TANDEM_IMPLEMENTER=sol"
+
+# Set-but-empty is NOT "unset": it overrides the agent type just the same.
+doctor -u TANDEM_IMPLEMENTER CLAUDE_CODE_SUBAGENT_MODEL=
+assert_rc 1 "subagent model set but empty"
+assert_file_contains "$OUT" "FAIL  CLAUDE_CODE_SUBAGENT_MODEL='' overrides the implementer subagent's model"
+
+doctor TANDEM_IMPLEMENTER=sol CLAUDE_CODE_SUBAGENT_MODEL=sonnet
+assert_rc 0 "subagent model is irrelevant under sol"
+assert_not_contains "$OUT" "CLAUDE_CODE_SUBAGENT_MODEL"
+
 # --- autonomous requires an explicit promote-reviews decision ----------------
 doctor -u TANDEM_IMPLEMENTER TANDEM_AUTONOMOUS=1
 assert_rc 1 "autonomous without TANDEM_PROMOTE_REVIEWS"
