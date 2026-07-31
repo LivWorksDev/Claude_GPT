@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.20.0 — 2026-07-31
+
+- **Semáforo de concurrencia dentro de `codex-swarm.sh`** (M13 del backlog, tarea 2/4 de la
+  Cola 2). El tope `TANDEM_ULTRA_CONCURRENCY` dependía de que el autor del workflow
+  chunkease los `parallel()` — barreras que el propio diseño desaconseja, y sin límite si
+  se olvidaba. Ahora el script lo aplica él mismo: locks por `mkdir` (portable BSD, sin
+  flock) en `.tandem/state/ultra/<run>/.slots/`, slot liberado por trap EXIT (un seat que
+  muere libera), espera acotada con `TANDEM_ULTRA_SLOT_TIMEOUT` (default 1800 s) → exit 75
+  (EX_TEMPFAIL: "congestión, reintenta gratis" — distinguible del 1 de fallo codex), y sin
+  auto-reclamación de slots huérfanos por SIGKILL (las carreras rm/mkdir entre esperadores
+  son la clase de bug que este cambio elimina; remedio manual documentado). `pipeline()`
+  fluye sin barreras; el chunking manual desaparece de la skill.
+- **Seguridad de señales alrededor de la contabilidad**: los handlers INT/TERM/HUP
+  REGISTRAN la señal y retornan — jamás salen durante el pipeline de codex; PIPESTATUS, el
+  ledger de usage y los footers `USAGE:`/`USAGE_FILE:` se persisten ANTES de honrar la
+  señal (129/130/143). La adquisición es signal-safe (sección crítica mkdir→holder con
+  señal diferida; el EXIT solo libera con SLOT_HELD=1 — nunca el slot de otro), precede a
+  cualquier mutación de artefactos del seat (un timeout no destruye la reply previa —
+  byte a byte testeado), y un TERM en cola sale 143 en cada frontera segura, nunca 75 ni
+  adquiere. Ambos diales validados (10#, vacío-definido rechazado) también por el doctor.
+- Suite: 68 casos (de 64): stub con censo de concurrencia (`CODEX_STUB_CONC_DIR`),
+  `swarm-semaphore-cap` (4 seats con C=2 → máx observado exactamente 2), `-release`
+  (liberación por die, TERM en vuelo con barrera → 143 con ledger y footers, timeout 75
+  con artefactos intactos, remedio manual, TERM en cola con barrera anti-vacuidad),
+  `-env` (validación pre-toolchain, 08/09 decimales) y el contrato estático
+  `skill-ultra-concurrency-contract`; `doctor-env-matrix` ampliado. Mutation testing: el
+  bug exacto del P1-1 (trap con exit directo) cazado por el test del ledger.
+
 ## 0.19.0 — 2026-07-31
 
 - **Nueva skill `/tandem:status`** (M11 del backlog, tarea 1/4 de la Cola 2). Todo el

@@ -40,7 +40,11 @@ You are a mechanical seat runner. Do exactly this and nothing else:
 1. Write .tandem/tmp/ultra-<run-id>-<seat>.md containing ONLY the BRIEF below,
    verbatim. Do not copy, summarize or restate the preamble: the script
    prepends it.
-2. Run (Bash timeout: 600000):
+2. Run this with Bash `run_in_background: true` — waiting for a free slot plus
+   the turn itself regularly exceeds the 10-minute foreground cap, which is a
+   hard ceiling of the Bash tool and not a parameter you can raise — and treat
+   that run's task-completion notification as a hard barrier: nothing in steps
+   3 and 4 happens before it arrives.
    bash <SCRIPTS>/codex-swarm.sh --preamble "<PREAMBLE>" <tier> <run-id> <seat> .tandem/tmp/ultra-<run-id>-<seat>.md
 3. From the script output between the '--- codex reply' and '--- end ---'
    markers, extract the seat's final output contract and return it as your
@@ -61,7 +65,7 @@ Every seat's `schema` carries, besides that seat's own output contract, `usage` 
 
 Resolve `<PREAMBLE>`/`<SCRIPTS>` to absolute paths when authoring the script. The preamble travels as a **path**, never as text a wrapper retypes: `codex-swarm.sh` concatenates it ahead of the brief byte for byte, and the staged `.tandem/state/ultra/<run-id>/<seat>.prompt.txt` is what the seat actually received. Seat briefs must be **self-contained** (a seat sees nothing else: name concrete paths, paste the diff hunk or plan section it must judge) and must end by demanding the output contract — a fenced JSON object matching the wrapper's schema as the last thing in the reply.
 
-Concurrency: read `TANDEM_ULTRA_CONCURRENCY` (default 4) in the session and pass it into the script via `args`; chunk every `parallel()` batch to that size. Each seat is a live `codex exec` against the user's OpenAI account — the harness cap (~16) is too high a ceiling for this.
+Concurrency: `codex-swarm.sh` enforces `TANDEM_ULTRA_CONCURRENCY` (default 4) **itself**, with a per-run semaphore of `mkdir` locks under `.tandem/state/ultra/<run-id>/.slots/`. Launch every `parallel()` and every `pipeline()` seat at full width — **no chunking**: the surplus seats queue inside the script and start the instant a slot frees, so no batch ever waits for its slowest member. Each seat is a live `codex exec` against the user's OpenAI account (the harness cap of ~16 is far too high a ceiling for that), and the limit lives in the script precisely so it holds even when the orchestration forgets it. A seat that gets no slot within `TANDEM_ULTRA_SLOT_TIMEOUT` seconds (default 1800) exits **75** with `no free ultra slot` on stderr **without having started its turn**: that is congestion, never a Codex failure, and relaunching that seat costs zero quota — whether to retry is your call, the script never does it for you. The semaphore is per run: two runs at once get one set of slots each. Only `kill -9` can leave a slot behind (every other death releases it via the script's EXIT trap); the fix is manual and the error message names it — delete the stale `.tandem/state/ultra/<run-id>/.slots/slot.<n>` once you have checked that no Codex turn is running.
 
 ## Shapes
 

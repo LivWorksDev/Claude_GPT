@@ -140,6 +140,27 @@ assert_file_contains "$OUT" "review/ask:  model=gpt-5.6-sol effort=xhigh sandbox
 assert_file_contains "$OUT" "image:       model=gpt-5.6-sol effort=high sandbox=workspace-write (pinned)"
 assert_file_contains "$OUT" "judge=gpt-5.6-sol/xhigh worker=gpt-5.6-sol/high scout=gpt-5.6-luna/high"
 assert_file_contains "$OUT" "concurrency=4"
+assert_file_contains "$OUT" "slot_timeout=1800s"
+
+# --- the swarm semaphore's dials are VALIDATED, not just echoed --------------
+# codex-swarm.sh exits 64 on a bad value, so a doctor that merely displayed it
+# would hand the user a green preflight and a run where every seat dies.
+doctor -u TANDEM_IMPLEMENTER TANDEM_ULTRA_CONCURRENCY=banana
+assert_rc 1 "invalid ultra concurrency"
+assert_file_contains "$OUT" "FAIL  TANDEM_ULTRA_CONCURRENCY='banana' is not a positive integer"
+
+doctor -u TANDEM_IMPLEMENTER TANDEM_ULTRA_CONCURRENCY=
+assert_rc 1 "ultra concurrency set but empty"
+assert_file_contains "$OUT" "FAIL  TANDEM_ULTRA_CONCURRENCY='' is not a positive integer"
+
+doctor -u TANDEM_IMPLEMENTER TANDEM_ULTRA_SLOT_TIMEOUT=0
+assert_rc 1 "ultra slot timeout of zero"
+assert_file_contains "$OUT" "FAIL  TANDEM_ULTRA_SLOT_TIMEOUT='0' is not a positive integer"
+
+# `08` is eight here too: the value is normalized with 10# before any arithmetic.
+doctor -u TANDEM_IMPLEMENTER TANDEM_ULTRA_CONCURRENCY=08 TANDEM_ULTRA_SLOT_TIMEOUT=09
+assert_rc 0 "leading zeros are decimal"
+assert_file_contains "$OUT" "concurrency=8 slot_timeout=9s"
 
 # The status line integration is informational — absent must never be a FAIL.
 assert_file_contains "$OUT" "not installed — /tandem:statusline"

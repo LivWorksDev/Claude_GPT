@@ -21,6 +21,14 @@
 #                           `exit 1` is distinguishable from one that forwards rc)
 #   CODEX_STUB_FIXTURE      NDJSON file emitted verbatim instead of the inline events
 #   CODEX_STUB_SLEEP        seconds to sleep before emitting anything
+#   CODEX_STUB_CONC_DIR     when set, the exec branch registers itself as a LIVE
+#                           turn in that directory (marker `running.$$`, removed
+#                           by its own EXIT trap) and snapshots how many stubs
+#                           were alive at that instant into
+#                           $CODEX_STUB_LOG.conc.N. That count is the observable
+#                           behind "at most C simultaneous codex turns": it
+#                           measures turns, not seconds, so the semaphore's cap
+#                           is asserted without a single wall-clock assumption.
 #   CODEX_STUB_VERSION_RC   exit code of `codex --version` (default 0)
 #   CODEX_STUB_LOGIN_RC     exit code of `codex login …`   (default 0)
 #   CODEX_STUB_CONFIG_REJECT  space-separated list of `-c` keys that `codex
@@ -169,6 +177,19 @@ cat >"$CODEX_STUB_LOG.stdin.$N"
 HB_FILE="${CODEX_STUB_HB_FILE:-${CLAUDE_PROJECT_DIR:-}/.tandem/state/current.json}"
 if [ -n "$HB_FILE" ] && [ -f "$HB_FILE" ]; then
   cp "$HB_FILE" "$CODEX_STUB_LOG.hb.$N" 2>/dev/null || true
+fi
+
+# Concurrency census. The marker goes up FIRST so this turn counts itself, and
+# the count is taken before any sleep: it is the number of codex turns that were
+# genuinely running at the moment this one started. `find`, never `ls` — the
+# stub is shellchecked like everything else in tests/.
+if [ -n "${CODEX_STUB_CONC_DIR:-}" ]; then
+  mkdir -p "$CODEX_STUB_CONC_DIR" 2>/dev/null || true
+  STUB_CONC_MARK="$CODEX_STUB_CONC_DIR/running.$$"
+  : >"$STUB_CONC_MARK"
+  trap 'rm -f "$STUB_CONC_MARK"' EXIT
+  find "$CODEX_STUB_CONC_DIR" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ' \
+    >"$CODEX_STUB_LOG.conc.$N"
 fi
 
 WANT_JSON=0

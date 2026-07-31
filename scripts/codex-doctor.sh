@@ -169,7 +169,32 @@ case "$implementer" in
     ;;
 esac
 info "image:       model=${TANDEM_IMAGE_MODEL:-gpt-5.6-sol} effort=${TANDEM_IMAGE_EFFORT:-high} sandbox=workspace-write (pinned)"
-info "ultra seats: judge=${TANDEM_ULTRA_JUDGE_MODEL:-gpt-5.6-sol}/${TANDEM_ULTRA_JUDGE_EFFORT:-xhigh} worker=${TANDEM_ULTRA_WORKER_MODEL:-gpt-5.6-sol}/${TANDEM_ULTRA_WORKER_EFFORT:-high} scout=${TANDEM_ULTRA_SCOUT_MODEL:-gpt-5.6-luna}/${TANDEM_ULTRA_SCOUT_EFFORT:-high} sandbox=read-only (pinned) concurrency=${TANDEM_ULTRA_CONCURRENCY:-4}"
+# The swarm semaphore's dials are VALIDATED here, not merely displayed: a bad
+# value makes EVERY seat of a run die with a usage error, and discovering that
+# one seat at a time is exactly what a preflight exists to prevent. Same rules
+# as codex-swarm.sh — expanded without `:` so set-but-empty is a config error,
+# and normalized with 10# because `08`/`09` are not octal to anyone but bash.
+ultra_conc="${TANDEM_ULTRA_CONCURRENCY-4}"
+ultra_slot_timeout="${TANDEM_ULTRA_SLOT_TIMEOUT-1800}"
+ultra_dial_ok() {
+  # ultra_dial_ok <value> — true when it is a positive decimal integer.
+  case "$1" in
+    '' | *[!0-9]*) return 1 ;;
+  esac
+  [ "$((10#$1))" -ge 1 ] || return 1
+  return 0
+}
+if ultra_dial_ok "$ultra_conc"; then
+  ultra_conc="$((10#$ultra_conc))"
+else
+  bad "TANDEM_ULTRA_CONCURRENCY='$ultra_conc' is not a positive integer — every swarm seat would exit 64"
+fi
+if ultra_dial_ok "$ultra_slot_timeout"; then
+  ultra_slot_timeout="$((10#$ultra_slot_timeout))"
+else
+  bad "TANDEM_ULTRA_SLOT_TIMEOUT='$ultra_slot_timeout' is not a positive integer — every swarm seat would exit 64"
+fi
+info "ultra seats: judge=${TANDEM_ULTRA_JUDGE_MODEL:-gpt-5.6-sol}/${TANDEM_ULTRA_JUDGE_EFFORT:-xhigh} worker=${TANDEM_ULTRA_WORKER_MODEL:-gpt-5.6-sol}/${TANDEM_ULTRA_WORKER_EFFORT:-high} scout=${TANDEM_ULTRA_SCOUT_MODEL:-gpt-5.6-luna}/${TANDEM_ULTRA_SCOUT_EFFORT:-high} sandbox=read-only (pinned) concurrency=$ultra_conc slot_timeout=${ultra_slot_timeout}s"
 info "TANDEM_AUTONOMOUS=${TANDEM_AUTONOMOUS:-0} (1 replaces human gates with APPROVED+green-gate policy; commits stay on the tandem branch, never push/merge)"
 if [ "${TANDEM_AUTONOMOUS:-0}" = "1" ] && [ -z "${TANDEM_PROMOTE_REVIEWS:-}" ]; then
   bad "TANDEM_AUTONOMOUS=1 but TANDEM_PROMOTE_REVIEWS is unset — autonomous runs must not ask mid-run; set it to 0 or 1"
