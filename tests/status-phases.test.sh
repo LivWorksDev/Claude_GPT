@@ -332,6 +332,11 @@ STATUS_PATH=""
 assert_rc 0 "terminal record without git"
 assert_matches "$OUT" '^fase: +commit final \(no verificado\)$'
 assert_not_contains "$OUT" "run completo"
+# The approval degrades with it: without git the four facts plan-approve
+# re-checks cannot be produced, so the record is reported UNVERIFIED and
+# "aprobado: commit" — the proven state — never appears.
+assert_not_contains "$OUT" "aprobado: commit"
+assert_file_contains "$OUT" "SIN VERIFICAR (sin git)"
 
 # Back to the verified record for the remaining cases.
 cp "$SANDBOX/demo.log.base" "$LOG"

@@ -179,7 +179,10 @@ assert_not_approved() {
   # implement past a gate that was never proven.
   assert_matches "$OUT" '^fase: +plan \(borrador\)$'
   assert_file_contains "$OUT" "ATENCIÓN"
-  assert_not_contains "$OUT" "next:          /tandem:implement"
+  # Plain, and never padding-dependent: `row()` pads the label to 14 columns, so
+  # a needle with the padding baked in ("next:" + 10 spaces) could never match
+  # and the guarantee it looked like it was making was vacuous.
+  assert_not_contains "$OUT" "/tandem:implement"
   assert_quiet "$1 stderr"
 }
 
@@ -212,6 +215,20 @@ assert_matches "$OUT" '^fase: +plan aprobado$'
 assert_not_contains "$OUT" "corrupto"
 assert_file_contains "$OUT" "/tandem:implement demo"
 assert_quiet "real approval stderr"
+
+# …and that very record, read on a machine without git, is NOT an approval: the
+# four facts plan-approve re-checks (the commit exists, sits on the recorded
+# source_head, touches only the plan and carries it) cannot be produced at all
+# from a structural read, and a corrupt record is indistinguishable from this
+# one here. It degrades to an explicit unverified state instead of certifying.
+run_in "$PA_REPO" env PATH="$NOGIT" CLAUDE_PROJECT_DIR="$PA_REPO" bash "$ST" demo
+assert_rc 0 "the real approval record, without git"
+assert_matches "$OUT" '^fase: +aprobación no verificada$'
+assert_file_contains "$OUT" "SIN VERIFICAR (sin git)"
+assert_not_contains "$OUT" "plan aprobado"
+assert_not_contains "$OUT" "aprobado: commit"
+assert_not_contains "$OUT" "/tandem:implement"
+assert_quiet "no-git approval record stderr"
 
 # …and now one field at a time, over a record whose COMMITS are perfectly real:
 # each structural rule has to reject on its own, with git agreeing about the
@@ -250,6 +267,122 @@ assert_not_approved "approval record with an abbreviated source_head"
 write_pa "tandem/demo" "$PA_COMMIT" "$PA_COMMIT" "in-place"
 pa_status
 assert_not_approved "approval record whose source_head is not the plan commit's parent"
+
+# --- the two invariants plan-approve IMPOSES, mirrored here ------------------
+# The right parent is not enough: plan-approve refuses a commit that touches
+# anything but the plan, and one that does not carry the plan. Checking only
+# parentage would bless a perfectly ordinary sibling commit as "plan aprobado"
+# and send the user to implement on top of it — these commits are REAL, so the
+# cases are not vacuous by construction.
+git -C "$PA_REPO" checkout -q -b evil "$PA_SRC" || fail "cannot branch off source_head"
+printf 'evil\n' >"$PA_REPO/evil.txt"
+git -C "$PA_REPO" add -- evil.txt || fail "cannot stage the sibling commit"
+git -C "$PA_REPO" commit -q -m "not an approval at all" || fail "sibling commit failed"
+PA_EVIL="$(git -C "$PA_REPO" rev-parse HEAD)"
+git -C "$PA_REPO" checkout -q tandem/demo || fail "cannot return to tandem/demo"
+git -C "$PA_REPO" branch -D evil >/dev/null 2>&1 || fail "cannot retire the sibling branch"
+
+write_pa "tandem/demo" "$PA_EVIL" "$PA_SRC" "in-place"
+pa_status
+assert_not_approved "plan commit that touches no plan at all"
+
+# Same parent, and it does touch the plan — plus a second file.
+git -C "$PA_REPO" checkout -q -b evil2 "$PA_SRC" || fail "cannot branch off source_head"
+mkdir -p "$PA_REPO/docs/plans"
+printf '# Plan: demo\n' >"$PA_REPO/docs/plans/demo.plan.md"
+printf 'extra\n' >"$PA_REPO/extra.txt"
+git -C "$PA_REPO" add -- docs/plans/demo.plan.md extra.txt || fail "cannot stage the mixed commit"
+git -C "$PA_REPO" commit -q -m "the plan plus something else" || fail "mixed commit failed"
+PA_EVIL2="$(git -C "$PA_REPO" rev-parse HEAD)"
+git -C "$PA_REPO" checkout -q tandem/demo || fail "cannot return to tandem/demo"
+git -C "$PA_REPO" branch -D evil2 >/dev/null 2>&1 || fail "cannot retire the mixed branch"
+
+write_pa "tandem/demo" "$PA_EVIL2" "$PA_SRC" "in-place"
+pa_status
+assert_not_approved "plan commit that touches more than the plan"
+
+# The blob guard, on its own: a child that ONLY deletes the plan passes the
+# parent check (its parent is the real approval commit) and the plan-only diff
+# (the deletion touches exactly that path) — only `commit:plan` catches it.
+git -C "$PA_REPO" checkout -q -b noplan "$PA_COMMIT" || fail "cannot branch off the plan commit"
+git -C "$PA_REPO" rm -q -- docs/plans/demo.plan.md || fail "cannot delete the plan"
+git -C "$PA_REPO" commit -q -m "delete the plan" || fail "deletion commit failed"
+PA_DEL="$(git -C "$PA_REPO" rev-parse HEAD)"
+git -C "$PA_REPO" checkout -q tandem/demo || fail "cannot return to tandem/demo"
+git -C "$PA_REPO" branch -D noplan >/dev/null 2>&1 || fail "cannot retire the deletion branch"
+
+write_pa "tandem/demo" "$PA_DEL" "$PA_COMMIT" "in-place"
+pa_status
+assert_not_approved "plan commit that does not contain the plan"
+
+# --- a sound record still needs a branch that CARRIES the run ----------------
+# A `tandem/<slug>` reset back to source_head counts 0 commits over the plan
+# exactly like an untouched one: only containment tells them apart, and nothing
+# can be implemented nor reviewed on a branch that lost the approval commit.
+write_pa "tandem/demo" "$PA_COMMIT" "$PA_SRC" "in-place"
+git -C "$PA_REPO" checkout -q --detach "$PA_COMMIT" || fail "cannot detach HEAD"
+git -C "$PA_REPO" branch -f tandem/demo "$PA_SRC" || fail "cannot reset the tandem branch"
+pa_status
+assert_rc 0 "sound record, branch reset to source_head"
+assert_file_contains "$OUT" "ATENCIÓN"
+assert_file_contains "$OUT" "la rama tandem/demo no contiene el commit de aprobación"
+assert_not_contains "$OUT" "/tandem:implement"
+assert_quiet "reset branch stderr"
+
+# …and the block is about the RUN, not about one phase: with gate evidence on
+# top, the phase is higher and the next must still recommend neither.
+mkdir -p "$PA_REPO/.tandem/log"
+printf '# tandem log — demo\n\ngate — lint: OK · tests: 2 passed\n' >"$PA_REPO/.tandem/log/demo.md"
+pa_status
+assert_rc 0 "broken branch under higher pipeline evidence"
+assert_matches "$OUT" '^fase: +gate de testing$'
+assert_file_contains "$OUT" "la rama tandem/demo no contiene el commit de aprobación"
+assert_not_contains "$OUT" "/tandem:implement"
+assert_not_contains "$OUT" "/tandem:review"
+assert_quiet "broken branch with gate evidence stderr"
+
+# A branch deleted MID-RUN (no terminal record anywhere) is the same problem
+# with a different message. The post-merge control — a terminal record with the
+# branch legitimately gone — lives in status-phases and is untouched.
+rm -f "$PA_REPO/.tandem/log/demo.md"
+git -C "$PA_REPO" branch -D tandem/demo >/dev/null 2>&1 || fail "cannot delete the tandem branch"
+pa_status
+assert_rc 0 "sound record, branch deleted mid-run"
+assert_matches "$OUT" '^fase: +plan aprobado$'
+assert_file_contains "$OUT" "la rama tandem/demo no existe"
+assert_not_contains "$OUT" "/tandem:implement"
+assert_quiet "deleted branch stderr"
+
+# --- unverified overrides every next, whatever the phase says ----------------
+# The phase is descriptive (what evidence exists); the next is prescriptive
+# (what to do), and only the second can push anyone across a gate whose proof
+# was never produced.
+mkdir -p "$PA_REPO/.tandem/state/implement-claude"
+jq -n '{status:"terminal", last_sentinel:"IMPLEMENTATION_PARTIAL", continuation_rounds:1}' \
+  >"$PA_REPO/.tandem/state/implement-claude/demo.json"
+run_in "$PA_REPO" env PATH="$NOGIT" CLAUDE_PROJECT_DIR="$PA_REPO" bash "$ST" demo
+assert_rc 0 "unverified approval under a higher rung, without git"
+assert_matches "$OUT" '^fase: +implementación$'
+assert_file_contains "$OUT" "SIN VERIFICAR (sin git)"
+assert_not_contains "$OUT" "/tandem:implement"
+assert_not_contains "$OUT" "/tandem:review"
+assert_quiet "unverified with higher evidence stderr"
+
+# --- git is there, but the state does not live in a repository --------------
+# The reason is REPORTED, never a fixed literal: this one is not "sin git".
+NOREPO="$SANDBOX/norepo"
+mkdir -p "$NOREPO/docs/plans" "$NOREPO/.tandem/state/plan-approve"
+printf '# Plan: demo\n' >"$NOREPO/docs/plans/demo.plan.md"
+cp "$PA_JSON" "$NOREPO/.tandem/state/plan-approve/demo.json"
+run_in "$NOREPO" env CLAUDE_PROJECT_DIR="$NOREPO" bash "$ST" demo
+assert_rc 0 "approval record outside a git repository"
+assert_matches "$OUT" '^fase: +aprobación no verificada$'
+assert_file_contains "$OUT" "SIN VERIFICAR (fuera de un repositorio git)"
+assert_not_contains "$OUT" "SIN VERIFICAR (sin git)"
+assert_not_contains "$OUT" "plan aprobado"
+assert_not_contains "$OUT" "aprobado: commit"
+assert_not_contains "$OUT" "/tandem:implement"
+assert_quiet "outside-a-repository stderr"
 
 # --- `.tandem/` missing altogether, with the plan on disk -------------------
 B="$SANDBOX/plain"

@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.23.0 — 2026-08-01
+
+- **`/tandem:status` deja de poder certificar en falso una aprobación** (M16, tarea 1/3
+  de la Cola 3; hallazgo Major 1 de la primera range review real). `PA_VALID` espeja
+  ahora los CUATRO invariantes de `plan-approve.sh`: el commit existe, su first-parent es
+  el source_head registrado, toca SOLO el plan registrado (`diff-tree`) y contiene ese
+  blob (`rev-parse "sha:path"`). Un commit hermano plausible, uno que toque el plan más
+  otro fichero, o un hijo que solo borre el plan → "registro de aprobación corrupto",
+  jamás "plan aprobado".
+- **Sin git no se certifica: estado nuevo "aprobación no verificada"** (`SIN VERIFICAR
+  (sin git | fuera de un repositorio git)`, con la razón real). La fase es descriptiva,
+  el next es prescriptivo: bajo unverified, TODO `next:` es la verificación manual — la
+  salida no recomienda `/tandem:implement` ni `/tandem:review` por ningún camino.
+- **Readiness de rama separado de la validez del registro:** la rama debe existir Y
+  contener el commit de aprobación (`merge-base --is-ancestor`) — una rama reseteada a
+  source_head cuenta 0 commits sobre el plan como una intacta y solo la contención las
+  distingue; sin readiness, ningún next de pipeline (implement NI review); las fases
+  terminales quedan intactas (rama borrada tras merge sigue legítima).
+- Suite: 72 ficheros de test (sin ficheros nuevos — la cobertura crece dentro de los
+  existentes): 9 casos nuevos en status-degradation (incluido el aislamiento
+  del guard de blob con un commit que solo borra el plan), 2 aserciones en el caso sin-git
+  de status-phases, anchors del estado nuevo en skill-status-contract, y el fix de una
+  aserción negativa VACUA preexistente (needle con padding imposible desde `row()`).
+
 ## 0.22.0 — 2026-07-31
 
 - **Modo rango: review de commits YA en la historia, fuera del pipeline** (M15 del

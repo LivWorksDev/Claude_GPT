@@ -396,7 +396,7 @@ analyze() {
     done
   fi
 
-  # --- the approval record: PRESENT is not VALID -------------------------
+  # --- the approval record: PRESENT is not VALID, VALID is not PROVEN ----
   # plan-approve.sh publishes four fields and re-verifies every one of them
   # against git before it trusts them; a status that accepted the mere presence
   # of the file would report "plan aprobado" — and recommend implementing — off
@@ -404,11 +404,13 @@ analyze() {
   # the human gate this flow refuses to skip.
   PA_PRESENT=0
   PA_VALID=0
+  PA_UNVERIFIED=0
+  PA_WHY=""
   PLAN_COMMIT=""
   PA_MODE=""
   if [ -f "$PA_FILE" ]; then
     PA_PRESENT=1
-    local pa_branch pa_source pa_parent
+    local pa_branch pa_source pa_parent pa_files
     PLAN_COMMIT="$(json_str "$PA_FILE" plan_commit)"
     PA_MODE="$(json_str "$PA_FILE" mode)"
     pa_branch="$(json_str "$PA_FILE" branch)"
@@ -418,19 +420,42 @@ analyze() {
     case "$PA_MODE" in in-place | worktree) : ;; *) PA_VALID=0 ;; esac
     is_sha40 "$PLAN_COMMIT" || PA_VALID=0
     is_sha40 "$pa_source" || PA_VALID=0
-    if [ "$PA_VALID" = "1" ] && [ "$HAVE_GIT" = "1" ] && [ -n "$GIT_ROOT" ]; then
-      # Coherence with the repository, the same two facts plan-approve.sh
-      # re-checks before it resumes: the plan commit exists, and it sits on the
-      # recorded source_head. Without git there is nothing to check against, so
-      # the structural record is taken as it is — degraded, never invented.
-      if ! git -C "$GIT_ROOT" rev-parse --verify -q "$PLAN_COMMIT^{commit}" >/dev/null 2>&1; then
+    if [ "$PA_VALID" = "1" ]; then
+      if [ "$HAVE_GIT" != "1" ]; then
+        # Structure is ALL there is without a repository: the four facts below
+        # cannot be produced, so the record stays unverified, never certified.
+        # A structurally plausible record is exactly what a corrupt one looks
+        # like from here, and "plan aprobado" would send the user across the
+        # human gate on the strength of a file nobody could check.
         PA_VALID=0
+        PA_UNVERIFIED=1
+        PA_WHY="sin git"
+      elif [ -z "$GIT_ROOT" ]; then
+        PA_VALID=0
+        PA_UNVERIFIED=1
+        PA_WHY="fuera de un repositorio git"
       else
-        pa_parent="$(git -C "$GIT_ROOT" rev-parse --verify -q "$PLAN_COMMIT^" 2>/dev/null)"
-        [ "$pa_parent" = "$pa_source" ] || PA_VALID=0
+        # Coherence with the repository, the same four facts plan-approve.sh
+        # re-checks before it resumes: the plan commit exists, it sits on the
+        # recorded source_head, it touches NOTHING but the recorded plan, and it
+        # carries that plan. The last two are what separates an approval commit
+        # from any other commit that happens to share its parent — and a merge
+        # commit, whose diff-tree is empty, is correctly none of them.
+        if ! git -C "$GIT_ROOT" rev-parse --verify -q "$PLAN_COMMIT^{commit}" >/dev/null 2>&1; then
+          PA_VALID=0
+        else
+          pa_parent="$(git -C "$GIT_ROOT" rev-parse --verify -q "$PLAN_COMMIT^" 2>/dev/null)"
+          [ "$pa_parent" = "$pa_source" ] || PA_VALID=0
+          pa_files="$(git -C "$GIT_ROOT" diff-tree --no-commit-id --name-only -r "$PLAN_COMMIT" 2>/dev/null)"
+          [ "$pa_files" = "$PLAN_REL" ] || PA_VALID=0
+          git -C "$GIT_ROOT" rev-parse --verify -q "$PLAN_COMMIT:$PLAN_REL" >/dev/null 2>&1 || PA_VALID=0
+        fi
       fi
     fi
-    [ "$PA_VALID" = "1" ] || PLAN_COMMIT=""
+    # An INVALID record keeps no sha — there is nothing to point at. An
+    # unverified one does: the report has to be able to name the commit whose
+    # proof could not be produced.
+    if [ "$PA_VALID" != "1" ] && [ "$PA_UNVERIFIED" != "1" ]; then PLAN_COMMIT=""; fi
   fi
 
   PLAN_VAL="$PLAN_REL"
@@ -438,6 +463,9 @@ analyze() {
   if [ "$PA_PRESENT" = "1" ]; then
     if [ "$PA_VALID" = "1" ]; then
       PLAN_VAL="$PLAN_VAL · aprobado: commit $(short_sha "$PLAN_COMMIT") · modo $PA_MODE"
+    elif [ "$PA_UNVERIFIED" = "1" ]; then
+      # "aprobado: commit" belongs to the PROVEN state alone.
+      PLAN_VAL="$PLAN_VAL · aprobación registrada (commit $(short_sha "$PLAN_COMMIT")) · SIN VERIFICAR ($PA_WHY)"
     else
       PLAN_VAL="$PLAN_VAL · registro de aprobación corrupto (desconocido)"
     fi
@@ -445,15 +473,25 @@ analyze() {
   [ -f "$PA_PENDING" ] && PLAN_VAL="$PLAN_VAL · aprobación interrumpida (pending)"
 
   # --- branch ---
+  # BR_READY is the branch's own question, deliberately separate from the
+  # record's validity: a sound approval record says nothing about the branch
+  # that has to carry the work. A `tandem/<slug>` reset back to source_head
+  # counts 0 commits over the plan exactly like an untouched one, so only
+  # CONTAINMENT of the plan commit tells them apart — and a branch deleted mid
+  # run cannot be implemented on nor reviewed either.
   BR_EXISTS=0
   BR_TIP=""
   BR_AHEAD=""
+  BR_READY=0
+  BR_WHY=""
   PLAN_COMMIT_OK=0
   WT_PATH=""
   if [ "$HAVE_GIT" != "1" ]; then
     RAMA_VAL="desconocido (sin git)"
+    BR_WHY="sin git no se puede comprobar que la rama $BRANCH lleve el commit de aprobación"
   elif [ -z "$GIT_ROOT" ]; then
     RAMA_VAL="desconocido (fuera de un repositorio git)"
+    BR_WHY="fuera de un repositorio git no se puede comprobar la rama $BRANCH"
   else
     if [ -n "$PLAN_COMMIT" ] \
       && git -C "$GIT_ROOT" rev-parse --verify -q "$PLAN_COMMIT^{commit}" >/dev/null 2>&1; then
@@ -466,6 +504,13 @@ analyze() {
       if [ "$PLAN_COMMIT_OK" = "1" ]; then
         BR_AHEAD="$(git -C "$GIT_ROOT" rev-list --count "$PLAN_COMMIT..refs/heads/$BRANCH" 2>/dev/null)"
         case "$BR_AHEAD" in '' | *[!0-9]*) BR_AHEAD="" ;; esac
+        if git -C "$GIT_ROOT" merge-base --is-ancestor "$PLAN_COMMIT" "refs/heads/$BRANCH" 2>/dev/null; then
+          BR_READY=1
+        else
+          BR_WHY="la rama $BRANCH no contiene el commit de aprobación"
+        fi
+      else
+        BR_WHY="no hay commit de aprobación verificado con el que comprobar la rama $BRANCH"
       fi
       if [ -n "$BR_AHEAD" ]; then
         RAMA_VAL="$RAMA_VAL · $BR_AHEAD commit(s) sobre el plan"
@@ -489,6 +534,7 @@ analyze() {
       [ -n "$WT_PATH" ] && RAMA_VAL="$RAMA_VAL · worktree $WT_PATH"
     else
       RAMA_VAL="sin rama $BRANCH"
+      BR_WHY="la rama $BRANCH no existe"
     fi
   fi
 
@@ -635,6 +681,11 @@ analyze() {
     FASE="implementación"
   elif [ "$PA_VALID" = "1" ]; then
     FASE="plan aprobado"
+  elif [ "$PA_UNVERIFIED" = "1" ]; then
+    # One rung below "plan aprobado" and deliberately WITHOUT that substring: a
+    # record whose git invariants could not be checked is not an approval this
+    # tool is willing to certify. Any higher evidence still wins the ladder.
+    FASE="aprobación no verificada"
   elif [ "$PR_HAS" = "1" ]; then
     FASE="plan en revisión"
   elif [ -n "$PLAN_PATH" ]; then
@@ -644,6 +695,11 @@ analyze() {
   fi
 
   # --- next: derived from the phase, deterministic and testable ---
+  # The manual verification an unverified approval demands, named once: it is
+  # both that phase's own next step and the override applied below. It names the
+  # two invariants that could not be checked, and never a slash command.
+  local pa_manual
+  pa_manual="ATENCIÓN: la aprobación de $SLUG no está verificada ($PA_WHY) — comprobar a mano que el commit ${PLAN_COMMIT:-registrado} toca SOLO $PLAN_REL y contiene ese fichero (git show --stat) antes de seguir"
   case "$FASE" in
     "commit final")
       NEXT="run completo — merge/PR manual"
@@ -679,6 +735,9 @@ analyze() {
     "plan aprobado")
       NEXT="/tandem:implement $SLUG"
       ;;
+    "aprobación no verificada")
+      NEXT="$pa_manual"
+      ;;
     "plan en revisión")
       if [ "$PR_LAST" = "APPROVED" ]; then
         NEXT="/tandem:plan $SLUG (Resolution: aprobar con plan-approve.sh)"
@@ -693,9 +752,29 @@ analyze() {
       NEXT="desconocido"
       ;;
   esac
+  # A branch that cannot carry the run is not a step forward either: while its
+  # readiness is unproven, no path may recommend implementing on it or reviewing
+  # it. The TERMINAL phases are deliberately untouched — a branch a legitimate
+  # merge deleted is proven by the terminal record, which wins the ladder above
+  # and whose next names no phase to continue.
+  if [ "$BR_READY" != "1" ]; then
+    case "$NEXT" in
+      */tandem:implement* | */tandem:review*)
+        NEXT="ATENCIÓN: $BR_WHY — resolver la rama a mano antes de continuar el run"
+        ;;
+    esac
+  fi
+  # An unverified approval overrides EVERY next: the phase is descriptive (what
+  # evidence exists), the next is prescriptive (what to do), and only the second
+  # can push anyone across a gate whose proof was never produced.
+  if [ "$PA_UNVERIFIED" = "1" ]; then
+    NEXT="$pa_manual"
+  fi
   # A corrupt approval record must never read as a step forward: whatever the
-  # ladder says, the record itself has to be resolved by hand first.
-  if [ "$PA_PRESENT" = "1" ] && [ "$PA_VALID" != "1" ]; then
+  # ladder says, the record itself has to be resolved by hand first. A record
+  # nobody could VERIFY is not the same thing as one nobody can READ, so the
+  # unverified state has its own message above and never this one.
+  if [ "$PA_PRESENT" = "1" ] && [ "$PA_VALID" != "1" ] && [ "$PA_UNVERIFIED" != "1" ]; then
     NEXT="ATENCIÓN: el registro de aprobación de $SLUG no es legible — resolverlo a mano ($NEXT)"
   fi
 

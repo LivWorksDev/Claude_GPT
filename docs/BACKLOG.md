@@ -32,7 +32,7 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
 | M13 | Semáforo de concurrencia dentro de `codex-swarm.sh` | Ultra | P2 | M | hecha (v0.20.0) |
 | M14 | Suite de tests con stub de codex + shellcheck + CI | Infraestructura | P1 | L | hecha (v0.10.0) |
 | M15 | Review de rangos ya commiteados | Workflow | P3 | M | hecha (v0.22.0) |
-| M16 | Status: `PA_VALID` verifica los invariantes reales de la aprobación | UX | P2 | S | pendiente |
+| M16 | Status: `PA_VALID` verifica los invariantes reales de la aprobación | UX | P2 | S | hecha (v0.23.0) |
 | M17 | Status: resolución multi-raíz con reconciliación o contradicción explícita | UX | P2 | M | pendiente |
 | M18 | Doctor: parser de versión estricto en el gate crítico | Diagnóstico | P2 | S | pendiente |
 

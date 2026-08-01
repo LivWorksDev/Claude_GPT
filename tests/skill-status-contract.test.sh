@@ -88,6 +88,11 @@ assert_file_contains "$FLAT" "never spends a turn"
 # What the report's degradations mean, and that exit 2 lists the runs.
 assert_file_contains "$FLAT" "desconocido"
 assert_file_contains "$FLAT" "The known runs are listed on stderr"
+# The unverified approval state, worded exactly as the script prints it: renaming
+# it in one place without the other is what this anchor exists to catch.
+assert_file_contains "$FLAT" "aprobación no verificada"
+assert_file_contains "$FLAT" "SIN VERIFICAR"
+assert_file_contains "$SCRIPT" 'FASE="aprobación no verificada"'
 # The next: line is offered, never executed on its own.
 assert_file_contains "$FLAT" "never run it on your own"
 

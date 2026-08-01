@@ -24,7 +24,7 @@ bash "${CLAUDE_SKILL_DIR}/../../scripts/tandem-status.sh"
 
 | Field | What it says |
 | --- | --- |
-| `plan:` | the plan's working copy, the approval commit and the mode recorded by `scripts/plan-approve.sh`; `aprobación interrumpida (pending)` means an approval died between the commit and its record |
+| `plan:` | the plan's working copy, the approval commit and the mode recorded by `scripts/plan-approve.sh`. `aprobado: commit <sha>` is reserved for a record git PROVED; `SIN VERIFICAR (<razón>)` means the record is only structurally sound (see below); `aprobación interrumpida (pending)` means an approval died between the commit and its record |
 | `rama:` | `tandem/<slug>`, its tip, how many commits sit on top of the plan commit, and the linked worktree when one is registered |
 | `plan-review:` / `code-review:` | rounds and the verdict of each round, in order (`—` = that round left no reply) |
 | `implement:` | the durable attempt state — `opus · <status> · <sentinel>` or `sol · t<N> · <verdict>`. While the status is `running` the sentinel describes a PREVIOUS turn, never the current one |
@@ -41,6 +41,7 @@ Nothing here is ever an error: absent or corrupt state degrades the field that n
 - `desconocido (estado corrupto)` — the file is there but does not have the shape it should. Say so plainly; do not guess a value from it.
 - `contradictorio — …` in `fase:` — the evidence disagrees with itself. Two cases matter: commits on the branch with no terminal record of the run (this flow treats a commit by the implementer as a hard safety failure), and a branch that moved on AFTER the run's final record. Both mean **stop and look by hand**; never present them as a finished run.
 - `commit final (no verificado)` — a final record exists but git could not confirm it descends from the plan commit. Verify it by hand (`git log`) before any merge or PR; "run completo" is reserved for a record git verified.
+- `aprobación no verificada` in `fase:`, `SIN VERIFICAR (<razón>)` in `plan:` — the approval record is structurally sound, but without git (`sin git`) or outside a repository (`fuera de un repositorio git`) the four facts `plan-approve.sh` imposes cannot be checked: that the commit exists, sits on the recorded `source_head`, touches **only** the recorded plan and carries that plan. A corrupt record looks exactly like a good one from there, so this is never reported as `plan aprobado`. Higher evidence still wins the phase, but while the approval is unverified **every** `next:` is the manual verification (`git show --stat <sha>`) — no path recommends `/tandem:implement` or `/tandem:review`. The same block applies when the `tandem/<slug>` branch does not contain the approval commit (reset) or no longer exists mid-run.
 
 ## Exit codes
 
