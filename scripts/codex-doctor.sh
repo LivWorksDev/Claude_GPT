@@ -75,19 +75,39 @@ info() { printf '        %s\n' "$1"; }
 # no sed — so the check keeps working on a minimal PATH.
 CRITICAL_MIN_CLAUDE="2.1.111"
 
-# claude_dotted <text> — the first dotted-numeric token of <text>
-# ("2.1.111 (Claude Code)" -> "2.1.111", "2.1.111-beta" -> "2.1.111"). Prints
-# nothing and returns 1 when there is none: undeterminable, never "assume new".
+# claude_dotted <text> — the version <text> announces, under a criterion that is
+# deliberately strict. The sentence below is ONE unwrapped line on purpose: the
+# skill-critical-contract test asserts it verbatim here AND in gate 3 of
+# skills/implement/SKILL.md, so the two prose copies of this rule cannot drift
+# apart. Prints nothing and returns 1 when the criterion is not met.
+#
+# CRITERION: the version is ONLY a strict three-component dotted token N.N.N taken from the first digit-leading token; a trailing non-numeric suffix is trimmed; build numbers, dates, two or four components are undeterminable — never assume new, no later token is rescued.
+#
+# So "2.1.111 (Claude Code)" and "2.1.111-beta" are 2.1.111, while
+# "Claude Code build 123 version 2.1.110" is undeterminable: rescuing the
+# 2.1.110 behind the build number would let any ambiguous format certify itself.
 claude_dotted() {
-  local rest="$1" tok
+  local rest="$1" tok a r b c
   while [ -n "$rest" ]; do
     tok="${rest%%[[:space:]]*}"
     case "$tok" in
       [0-9]*)
+        # This token DECIDES: strict or undeterminable, no further scanning.
         tok="${tok%%[!0-9.]*}"
         case "$tok" in
-          *[0-9]*) printf '%s' "$tok"; return 0 ;;
+          *.*.*) : ;;
+          *) return 1 ;;
         esac
+        a="${tok%%.*}"
+        r="${tok#*.}"
+        b="${r%%.*}"
+        c="${r#*.}"
+        # A fourth component leaves a dot in c, so it fails here too.
+        case "$a" in '' | *[!0-9]*) return 1 ;; esac
+        case "$b" in '' | *[!0-9]*) return 1 ;; esac
+        case "$c" in '' | *[!0-9]*) return 1 ;; esac
+        printf '%s.%s.%s' "$a" "$b" "$c"
+        return 0
         ;;
     esac
     case "$rest" in
@@ -99,20 +119,27 @@ claude_dotted() {
 }
 
 # version_ge <have> <want> — dotted versions compared FIELD BY FIELD as decimal
-# integers (a missing field is 0), because "2.1.111" is newer than "2.1.99" and
-# a string comparison says the opposite. Any non-numeric field returns false:
-# fail closed.
+# integers, because "2.1.111" is newer than "2.1.99" and a string comparison
+# says the opposite. BOTH operands are validated WHOLE before anything is
+# compared: exactly three non-empty decimal fields, nothing else. Validating one
+# field at a time inside the loop would be no validation at all — "3.bad" and
+# "3.0.0.7" win on the first field and return before the garbage behind it is
+# ever looked at. Anything that is not a strict N.N.N returns false: fail closed,
+# and no zero-fill (a missing field is a broken version, not a 0).
 version_ge() {
-  local hrest="$1" wrest="$2" h w i=1
+  local hrest="$1" wrest="$2" h w v i=1
+  for v in "$hrest" "$wrest"; do
+    case "$v" in
+      *[!0-9.]* | *.*.*.* | .* | *. | *..*) return 1 ;;
+      *.*.*) : ;;
+      *) return 1 ;;
+    esac
+  done
   while [ "$i" -le 3 ]; do
     h="${hrest%%.*}"
     w="${wrest%%.*}"
     case "$hrest" in *.*) hrest="${hrest#*.}" ;; *) hrest="" ;; esac
     case "$wrest" in *.*) wrest="${wrest#*.}" ;; *) wrest="" ;; esac
-    [ -n "$h" ] || h=0
-    [ -n "$w" ] || w=0
-    case "$h" in *[!0-9]*) return 1 ;; esac
-    case "$w" in *[!0-9]*) return 1 ;; esac
     if [ "$((10#$h))" -gt "$((10#$w))" ]; then return 0; fi
     if [ "$((10#$h))" -lt "$((10#$w))" ]; then return 1; fi
     i=$((i + 1))
@@ -216,7 +243,7 @@ case "$implementer" in
         claude_ver="$(claude_dotted "$claude_raw")" || claude_ver=""
       fi
       if [ -z "$claude_ver" ]; then
-        bad "Claude Code version is undeterminable (no 'claude' in PATH, or 'claude --version' printed nothing usable) — the critical agent type's effort xhigh needs Claude Code >= $CRITICAL_MIN_CLAUDE and cannot be confirmed here"
+        bad "Claude Code version is undeterminable (no 'claude' in PATH, or 'claude --version' did not print a strict N.N.N dotted version) — the critical agent type's effort xhigh needs Claude Code >= $CRITICAL_MIN_CLAUDE and cannot be confirmed here"
         info "fix, any of: install/repair the claude CLI so 'claude --version' answers · update Claude Code · run with TANDEM_IMPLEMENTER=sol · drop TANDEM_CRITICAL"
       elif version_ge "$claude_ver" "$CRITICAL_MIN_CLAUDE"; then
         ok "Claude Code $claude_ver >= $CRITICAL_MIN_CLAUDE (the critical agent type's effort xhigh is supported)"

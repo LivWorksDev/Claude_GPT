@@ -64,6 +64,18 @@ assert_file_contains "$IMPL_FLAT" 'a doctor-only gate would be bypassable'
 # apart are pinned to each other here.
 assert_file_contains "$SCRIPTS/codex-doctor.sh" 'CRITICAL_MIN_CLAUDE="2.1.111"'
 
+# …and the same is true of the PARSE, which is where the gate was fail-open: a
+# build number in front of the version passed it. The pin is one complete
+# normative sentence, not a slogan — every rule of the parse is inside it — and
+# it must be present verbatim in BOTH prose copies: the skill the model executes
+# and the `claude_dotted` comment the script implements.
+VERSION_CRITERION='the version is ONLY a strict three-component dotted token N.N.N taken from the first digit-leading token; a trailing non-numeric suffix is trimmed; build numbers, dates, two or four components are undeterminable — never assume new, no later token is rescued'
+assert_file_contains "$IMPL_FLAT" "$VERSION_CRITERION"
+assert_file_contains "$SCRIPTS/codex-doctor.sh" "$VERSION_CRITERION"
+# The lax phrase it replaced cannot survive alongside it: while that sentence is
+# in the doctor, the script documents a parser that accepts a build number.
+assert_not_contains "$SCRIPTS/codex-doctor.sh" 'the first dotted-numeric token'
+
 # --- 4. agent_type in the durable schema, with its validation contract -------
 # The schema itself (raw file: this one is JSON, not prose).
 assert_file_contains "$IMPL" '"agent_type": "tandem:implementer",'

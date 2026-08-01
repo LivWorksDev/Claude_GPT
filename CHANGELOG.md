@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.24.0 — 2026-08-01
+
+- **El gate crítico de versión de Claude Code es por fin fail-closed de verdad** (M18,
+  tarea 3/3 de la Cola 3; hallazgo Major 3 de la primera range review real, reproducido
+  empíricamente: `Claude Code build 123 version 2.1.110` pasaba el gate ≥ 2.1.111 como
+  "123"). `claude_dotted` exige un token estricto de TRES componentes decimales `N.N.N`
+  del PRIMER token que empiece por dígito (sufijo no numérico tipo `-beta` recortado);
+  builds, fechas, dos o cuatro componentes → indeterminable → FAIL, sin rescatar jamás
+  una versión posterior (un formato ambiguo no puede autocertificarse).
+- **`version_ge` valida ANTES de comparar:** ambos operandos como `N.N.N` exacto y nada
+  más — el retorno temprano por campo dejaba `3.bad` y `3.0.0.7` ganando en el primer
+  campo sin mirar la basura posterior; fuera el zero-fill (un campo ausente es una
+  versión rota, no un 0).
+- **Pin anti-drift de oración normativa completa:** la regla íntegra del parse vive
+  VERBATIM en el comentario de `claude_dotted` y en el gate 3 de la skill de implement, y
+  el contrato la aserta entera en ambos ficheros (más la negativa: la frase laxa retirada
+  no puede sobrevivir). Variante de checker compartido rechazada razonadamente: el gate 3
+  lo ejecuta el modelo leyendo prosa.
+- Suite: 72 ficheros (cobertura nueva dentro de los existentes): 5 casos stub de límites
+  del parser + 6 casos directos del comparador (función extraída del propio script, sin
+  segunda copia del algoritmo).
+
 ## 0.23.0 — 2026-08-01
 
 - **`/tandem:status` deja de poder certificar en falso una aprobación** (M16, tarea 1/3

@@ -150,6 +150,75 @@ doctor -u TANDEM_IMPLEMENTER
 assert_rc 0 "a broken claude is silent without CRITICAL"
 assert_not_contains "$OUT" "Claude Code version"
 
+# --- the parser is STRICT: only a three-component dotted token is a version --
+# A build number in front of the real version used to WIN the gate: "123" beat
+# "2.1.111" on the first field and printed "ok Claude Code 123 >= 2.1.111" on a
+# 2.1.110 install — a false pass of the whole critical guarantee.
+claude_stub "Claude Code build 123 version 2.1.110"
+doctor -u TANDEM_IMPLEMENTER TANDEM_CRITICAL=1
+assert_rc 1 "a build number in front of the version"
+assert_file_contains "$OUT" "FAIL  Claude Code version is undeterminable"
+assert_file_contains "$OUT" "did not print a strict N.N.N dotted version"
+assert_not_contains "$OUT" "ok    Claude Code"
+
+# A dotted date is not a version either, and the 2.1.111 behind it is NOT
+# rescued: the first digit-leading token decides, or nothing does.
+claude_stub "2026-08-01 2.1.111"
+doctor -u TANDEM_IMPLEMENTER TANDEM_CRITICAL=1
+assert_rc 1 "a date in front of the version"
+assert_file_contains "$OUT" "FAIL  Claude Code version is undeterminable"
+assert_not_contains "$OUT" "ok    Claude Code"
+
+# Four components: the comparator read three fields and ignored the rest, so
+# this used to pass as "2.1.111".
+claude_stub "2.1.111.7 (Claude Code)"
+doctor -u TANDEM_IMPLEMENTER TANDEM_CRITICAL=1
+assert_rc 1 "four components"
+assert_file_contains "$OUT" "FAIL  Claude Code version is undeterminable"
+assert_not_contains "$OUT" "ok    Claude Code"
+
+# Two components: no zero-fill — undeterminable, not "2.1.0".
+claude_stub "2.1 (Claude Code)"
+doctor -u TANDEM_IMPLEMENTER TANDEM_CRITICAL=1
+assert_rc 1 "two components"
+assert_file_contains "$OUT" "FAIL  Claude Code version is undeterminable"
+assert_not_contains "$OUT" "ok    Claude Code"
+
+# The one suffix that IS trimmed: a pre-release of a supported version passes.
+claude_stub "2.1.111-beta (Claude Code)"
+doctor -u TANDEM_IMPLEMENTER TANDEM_CRITICAL=1
+assert_rc 0 "a pre-release suffix is trimmed"
+assert_file_contains "$OUT" "ok    Claude Code 2.1.111 >= 2.1.111"
+assert_not_contains "$OUT" "FAIL"
+
+# --- the comparator itself: validation BEFORE comparison ---------------------
+# version_ge is exercised directly, sourced in a subshell from the doctor's own
+# text (the pins_of pattern of doctor-smoke: never a second copy of the code).
+# A field-at-a-time validation would be no validation at all — "3.bad" and
+# "3.0.0.7" win on the first field and return before the garbage behind them is
+# ever read, which is the trap left open for any future caller of this helper.
+VER_GE_FN="$SANDBOX/version_ge.fn"
+LC_ALL=C sed -n '/^version_ge() {$/,/^}$/p' "$SCRIPTS/codex-doctor.sh" >"$VER_GE_FN"
+assert_file_contains "$VER_GE_FN" "version_ge() {"
+ver_ge() (
+  # shellcheck source=/dev/null
+  . "$VER_GE_FN"
+  version_ge "$1" "$2"
+)
+
+run ver_ge "3.bad" "2.1.111"
+assert_rc 1 "a non-numeric field never wins on the first field"
+run ver_ge "3.0.0.7" "2.1.111"
+assert_rc 1 "a fourth component never wins on the first field"
+run ver_ge "2.1" "2.1.111"
+assert_rc 1 "a missing field is never zero-filled"
+run ver_ge "2.1.111" "2.1.111"
+assert_rc 0 "equal versions"
+run ver_ge "3.0.0" "2.1.111"
+assert_rc 0 "a newer major"
+run ver_ge "2.1.99" "2.1.111"
+assert_rc 1 "2.1.99 is older than 2.1.111"
+
 # Under sol there is no subagent, so neither critical gate applies.
 claude_stub_broken
 doctor TANDEM_IMPLEMENTER=sol TANDEM_CRITICAL=1
