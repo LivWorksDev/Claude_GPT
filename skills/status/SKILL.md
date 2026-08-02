@@ -24,6 +24,7 @@ bash "${CLAUDE_SKILL_DIR}/../../scripts/tandem-status.sh"
 
 | Field | What it says |
 | --- | --- |
+| `raíz:` | the state root the whole report was read from, always as a PHYSICAL path (symlinks resolved, so one directory is never counted as two). Printed always, single root included. `(sin estado .tandem)` means the run was found by its plan or its branch alone; `· rama en <ruta>` means the branch lives in another candidate's repository; `· evidencia también en <ruta> (fase: <fase>)` names another root that also holds evidence of this run — usually a stale copy, shown so it is visible and never mistaken for the report's own `fase:` |
 | `plan:` | the plan's working copy, the approval commit and the mode recorded by `scripts/plan-approve.sh`. `aprobado: commit <sha>` is reserved for a record git PROVED; `SIN VERIFICAR (<razón>)` means the record is only structurally sound (see below); `aprobación interrumpida (pending)` means an approval died between the commit and its record |
 | `rama:` | `tandem/<slug>`, its tip, how many commits sit on top of the plan commit, and the linked worktree when one is registered |
 | `plan-review:` / `code-review:` | rounds and the verdict of each round, in order (`—` = that round left no reply) |
@@ -40,20 +41,21 @@ Nothing here is ever an error: absent or corrupt state degrades the field that n
 - `desconocido (sin jq)` / `desconocido (sin git)` — the tool is missing from PATH. Everything that does not depend on it is still reported; install it (`brew install jq`) to get the rest.
 - `desconocido (estado corrupto)` — the file is there but does not have the shape it should. Say so plainly; do not guess a value from it.
 - `contradictorio — …` in `fase:` — the evidence disagrees with itself. Two cases matter: commits on the branch with no terminal record of the run (this flow treats a commit by the implementer as a hard safety failure), and a branch that moved on AFTER the run's final record. Both mean **stop and look by hand**; never present them as a finished run.
+- `tandem: evidencia contradictoria para "<slug>" entre raíces de estado` on stderr, with **exit 2 and no report at all** — two state roots tell incompatible stories about the SAME run. Not a phase that lags behind (a stale copy of one run, or a plan-review that ran in the worktree, is normal and is reconciled silently: the most advanced phase wins and the other root is annotated on the `raíz:` row), but an identity fact an honest run cannot hold twice: two thread ids for one key, two approval commits, two terminal records, two Opus lineages (`plan_hash`/`branch`/`agent_type` — never `agent.id`, which a legitimate recovery renews), or two outcomes for the same turn or revision. stderr names every root with its phase and the fact that cannot be reconciled, and closes with `resolver a mano — sin paso siguiente automático`. There is deliberately no `next:`: **surface both roots to the user and let them resolve it by hand.** The usual cause is a `.tandem/` copied between checkouts. In list mode the same slug shows as `<slug> — contradictorio entre raíces` and the listing still exits 0.
 - `commit final (no verificado)` — a final record exists but git could not confirm it descends from the plan commit. Verify it by hand (`git log`) before any merge or PR; "run completo" is reserved for a record git verified.
 - `aprobación no verificada` in `fase:`, `SIN VERIFICAR (<razón>)` in `plan:` — the approval record is structurally sound, but without git (`sin git`) or outside a repository (`fuera de un repositorio git`) the four facts `plan-approve.sh` imposes cannot be checked: that the commit exists, sits on the recorded `source_head`, touches **only** the recorded plan and carries that plan. A corrupt record looks exactly like a good one from there, so this is never reported as `plan aprobado`. Higher evidence still wins the phase, but while the approval is unverified **every** `next:` is the manual verification (`git show --stat <sha>`) — no path recommends `/tandem:implement` or `/tandem:review`. The same block applies when the `tandem/<slug>` branch does not contain the approval commit (reset) or no longer exists mid-run.
 
 ## Exit codes
 
 - `0` — report emitted (a partially `desconocido` report is still a report).
-- `2` — that slug has no trace at all: no log, no state, no plan, no branch. The known runs are listed on stderr; the usual cause is a typo in the slug.
+- `2` — two different situations, with two clearly different messages. Either that slug has no trace at all: no log, no state, no plan, no branch. The known runs are listed on stderr; the usual cause is a typo in the slug (`no hay ni rastro`). Or its state roots carry irreconcilably contradictory evidence: both roots, both phases and the offending fact on stderr, stdout empty, no next step (`evidencia contradictoria`).
 - `64` — usage error (an invalid slug, or more than one argument).
 
 There is no other exit code: no hard dependency and no turn to spend.
 
 ## The `next:` line
 
-It is a suggestion the script derives from the phase, and it names the skill that continues the run (`/tandem:plan`, `/tandem:implement <slug>`, `/tandem:review <slug>`, or the human gate in between). **Offer it, never run it on your own**: invoking the next phase spends real quota and belongs to the user's decision. When the line starts with `ATENCIÓN`, that is not a next step at all — surface the contradiction first.
+It is a suggestion the script derives from the phase, and it names the skill that continues the run (`/tandem:plan`, `/tandem:implement <slug>`, `/tandem:review <slug>`, or the human gate in between). **Offer it, never run it on your own**: invoking the next phase spends real quota and belongs to the user's decision. When the line starts with `ATENCIÓN`, that is not a next step at all — surface the contradiction first. When the roots contradict each other there is no line at all: the report is not emitted, and `sin paso siguiente automático` is the whole answer.
 
 ## Known limits
 

@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.25.0 — 2026-08-02
+
+- **`/tandem:status` reconcilia TODAS las raíces de estado o para con contradicción
+  explícita** (M17, cierre de la Cola 3; hallazgo Major 2 de la primera range review
+  real; plan red-teameado en 7 rondas — las 2 finales autorizadas por el humano tras un
+  deadlock de cap por fallo mecánico del orquestador). El resolutor analiza cada raíz
+  candidata con evidencia del slug (dedupe por ruta FÍSICA, `pwd -P`), reconcilia por
+  rango de fase (`FASE_RANK` 11..0 únicos asignados EN la escalera, jamás un mapa
+  paralelo) y deja la raíz elegida SIEMPRE visible en la fila nueva `raíz:` — el estado
+  rancio se anota, nunca se enmascara ni enmascara.
+- **Contradicción = hechos de identidad, jamás divergencia de fase:** dos thread ids para
+  la misma clave, dos commits de aprobación VALIDADOS, dos registros terminales
+  verificados, dos linajes Opus (`plan_hash`/`branch`/`agent_type` — nunca `agent.id`,
+  que una recovery legítima renueva) o dos desenlaces para el mismo turno/revisión →
+  stderr con ambas raíces, ambas fases y el hecho irreconciliable, exit 2, stdout vacío,
+  sin paso siguiente. La sonda corre sobre TODOS los pares de raíces.
+- **Empate de fase → orden de revisión explícito, no prioridad:** turno mayor gana; a
+  mismo turno, respuesta completada > ausente (verdicts distintos = contradicción); Opus
+  con tupla de progreso VALIDADA (rondas enteras, status del enum, sentinel documentado —
+  lo inválido jamás entra en aritmética): `continuation_rounds` primero, terminal >
+  running en la misma ronda; dominancia válido>inválido en linaje Y en progreso (el
+  snapshot corrupto de la raíz prioritaria no puede ganar por orden ni forzar
+  split-brain). Copias idénticas → prioridad de candidata, como siempre.
+- **Evidencia sin estado con dueño:** sin `.tandem` en ninguna raíz, el report se
+  atribuye a quien POSEE el plan (o la rama — `· rama en <ruta>` cuando divergen), con
+  `(sin estado .tandem)` explícito; el fallback se canonicaliza físico.
+- Suite: 73 ficheros (de 72): `status-multi-root.test.sh` nuevo (casos A–N + aserción
+  estructural de la escalera de rangos + prueba read-only byte a byte + cero codex);
+  bite proof contra el código de HEAD (el caso del backlog falla con el resolutor viejo).
+
 ## 0.24.0 — 2026-08-01
 
 - **El gate crítico de versión de Claude Code es por fin fail-closed de verdad** (M18,

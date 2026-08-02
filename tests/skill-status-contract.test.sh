@@ -93,6 +93,22 @@ assert_file_contains "$FLAT" "The known runs are listed on stderr"
 assert_file_contains "$FLAT" "aprobación no verificada"
 assert_file_contains "$FLAT" "SIN VERIFICAR"
 assert_file_contains "$SCRIPT" 'FASE="aprobación no verificada"'
+# The state root the report was read from is a documented field, not folklore:
+# the skill has to be able to explain the row and the annotation that names a
+# second root holding evidence of the same run.
+assert_file_contains "$FLAT" "raíz:"
+assert_file_contains "$FLAT" "evidencia también en"
+assert_file_contains "$SCRIPT" "'raíz:'"
+# The multi-root contradiction, worded exactly as the script prints it, with the
+# exit code it really uses and the absence of a next step spelled out — exit 2
+# grew a second meaning, and a skill that still promised a report here would
+# send the reader looking for a `next:` that does not exist.
+assert_file_contains "$FLAT" "evidencia contradictoria"
+assert_file_contains "$FLAT" "exit 2"
+assert_file_contains "$FLAT" "sin paso siguiente automático"
+assert_file_contains "$FLAT" "contradictorio entre raíces"
+assert_file_contains "$SCRIPT" 'evidencia contradictoria para'
+assert_file_contains "$SCRIPT" 'sin paso siguiente automático'
 # The next: line is offered, never executed on its own.
 assert_file_contains "$FLAT" "never run it on your own"
 

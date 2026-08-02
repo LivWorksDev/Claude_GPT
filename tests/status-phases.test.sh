@@ -363,6 +363,11 @@ assert_rc 0 "session inside a linked worktree"
 assert_file_contains "$OUT" "gate — lint: OK · main checkout"
 assert_not_contains "$OUT" "gate — lint: OK · worktree"
 assert_matches "$OUT" '^fase: +gate de testing$'
+# …and the report SAYS where it read that from, in physical form: the root is
+# never implicit, so a reader can tell a main checkout's answer from a linked
+# worktree's without reconstructing the resolution by hand. Only the main
+# checkout carries this slug, so it is named alone — no stale-root annotation.
+assert_matches "$OUT" "^raíz: +$D\$"
 
 # =============================================================================
 # The `sol` transport: the attempt is a THREAD, and its ledgers do get summed

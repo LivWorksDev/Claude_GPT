@@ -25,7 +25,11 @@
 # broken machine: that is precisely when it is needed.
 #
 # exit codes: 0 report emitted (a partially `desconocido` report is still one)
-#             2 the slug has no evidence at all (message + known runs on stderr)
+#             2 the slug has no evidence at all (message + known runs on stderr),
+#               OR the state roots contradict each other irreconcilably (both
+#               roots, both phases and the offending fact on stderr, no report
+#               and no next step: a report would have to pick a root for every
+#               other row, which is the masking bug this refuses to commit)
 #             64 usage error
 # Never 1 or 3: there is no hard dependency here and no turn to spend.
 
@@ -76,11 +80,13 @@ fi
 
 # --- where the state lives ---------------------------------------------------
 # Dual-root resolution, like the status line's: the session's project dir, the
-# working directory, and the MAIN checkout of each. In SLUG mode the first root
-# carrying evidence OF THAT SLUG wins — a foreign run's state in a linked
-# worktree's .tandem must not mask the slug that lives under the main checkout.
-# In LIST mode every candidate contributes (the deduplicated union), because a
-# later root is not "the same answer twice".
+# working directory, and the MAIN checkout of each. In SLUG mode EVERY candidate
+# carrying evidence OF THAT SLUG is analyzed and the results are reconciled (see
+# the resolver below) — a foreign run's state in a linked worktree's .tandem
+# must not mask the slug that lives under the main checkout, and a stale copy of
+# the same run must not mask the authoritative one either. In LIST mode every
+# candidate contributes (the deduplicated union), because a later root is not
+# "the same answer twice".
 git_main_from() {
   # git_main_from <dir> — the main checkout seen from <dir>, or nothing.
   local d="${1:-}" common main
@@ -94,13 +100,27 @@ git_main_from() {
   printf '%s' "$main"
 }
 
+phys_path() {
+  # phys_path <dir> — <dir> with every symlink resolved, or nothing. Two logical
+  # names for one directory (a symlink to the checkout, /var vs /private/var on
+  # macOS) are ONE root: deduplicating on the logical path would count the same
+  # evidence twice and could even report it as contradicting itself.
+  local d="${1:-}" p
+  [ -n "$d" ] || return 0
+  [ -d "$d" ] || return 0
+  p="$(CDPATH='' cd -- "$d" 2>/dev/null && pwd -P)"
+  [ -n "$p" ] || return 0
+  printf '%s' "$p"
+  return 0
+}
+
 CAND=()
 CAND_N=0
 add_cand() {
   local d="${1:-}" c i=0
   [ -n "$d" ] || return 0
   [ -d "$d" ] || return 0
-  c="$(CDPATH='' cd -- "$d" 2>/dev/null && pwd)"
+  c="$(phys_path "$d")"
   [ -n "$c" ] || return 0
   while [ "$i" -lt "$CAND_N" ]; do
     [ "${CAND[$i]}" = "$c" ] && return 0
@@ -166,21 +186,36 @@ slug_has_evidence() {
   return 1
 }
 
-resolve_state_root() {
-  # resolve_state_root <slug> — sets ST_BASE (the project root that owns the
-  # evidence) and ST (its .tandem). The git root is derived from ST_BASE, so
-  # state and repository can never come from two different projects.
+EVR=()
+EVR_N=0
+evidence_roots() {
+  # evidence_roots <slug> — EVR[]/EVR_N: every candidate root that carries
+  # evidence OF THAT SLUG, in candidate priority order. The keys must already be
+  # computed for THIS slug (compute_keys): slug_has_evidence reads K_PLAN/K_CR,
+  # so stale keys would silently lose every root whose only trace is a thread.
   local s="$1" i=0
+  EVR=()
+  EVR_N=0
   while [ "$i" -lt "$CAND_N" ]; do
     if slug_has_evidence "${CAND[$i]}" "$s"; then
-      ST_BASE="${CAND[$i]}"
-      ST="$ST_BASE/.tandem"
-      return 0
+      EVR[EVR_N]="${CAND[$i]}"
+      EVR_N=$((EVR_N + 1))
     fi
     i=$((i + 1))
   done
-  ST_BASE="$DEFAULT_ROOT"
-  ST="$ST_BASE/.tandem"
+  return 0
+}
+
+root_has_branch() {
+  # root_has_branch <root> <branch> — does the repository of <root> carry the
+  # branch? The question is asked per ROOT, never once against the default one:
+  # a branch that only exists in another candidate's repository has an owner,
+  # and naming a non-owner would be an invented fact.
+  local g
+  [ "$HAVE_GIT" = "1" ] || return 1
+  g="$(git_main_from "$1")"
+  [ -n "$g" ] || return 1
+  git -C "$g" show-ref --verify --quiet "refs/heads/$2" || return 1
   return 0
 }
 
@@ -206,7 +241,12 @@ short_sha() {
 }
 
 thread_facts() {
-  # thread_facts <state-dir> <key> — TF_HAS, TF_ROUNDS, TF_VERDICTS, TF_LAST.
+  # thread_facts <state-dir> <key> — TF_HAS, TF_ROUNDS, TF_VERDICTS, TF_LAST,
+  # plus the three facts the multi-root resolver needs: TF_ID (the thread id,
+  # an IDENTITY fact — one run cannot have two of them for one key), TF_MAX (the
+  # highest round the state proves, always a number) and TF_TOP (the verdict of
+  # THAT round, empty when its reply is absent — the last verdict of an earlier
+  # round is not this round's outcome).
   # The turn counter is sanitized exactly like codex-start.sh's ('08' would
   # abort as octal, garbage must degrade to `?` and never to an error), and the
   # verdict of each round comes from the real hb_verdict over that round's
@@ -216,7 +256,15 @@ thread_facts() {
   TF_ROUNDS="?"
   TF_VERDICTS=""
   TF_LAST=""
-  [ -f "$dir/$key.thread" ] && TF_HAS=1
+  TF_ID=""
+  TF_MAX=0
+  TF_TOP=""
+  if [ -f "$dir/$key.thread" ]; then
+    TF_HAS=1
+    # One line, whitespace stripped: this id is compared BETWEEN roots, and a
+    # trailing newline must never make one id look like two.
+    TF_ID="$(head -n 1 "$dir/$key.thread" 2>/dev/null | LC_ALL=C tr -d '[:space:]')"
+  fi
   turn="$(cat "$dir/$key.turn" 2>/dev/null)"
   case "$turn" in
     '' | *[!0-9]*)
@@ -238,12 +286,14 @@ thread_facts() {
     [ "$((10#$i))" -gt "$max" ] && max=$((10#$i))
   done
   [ "$n" -gt "$max" ] && max="$n"
+  TF_MAX="$max"
   i=1
   while [ "$i" -le "$max" ]; do
     v="$(hb_verdict "$dir/$key.t$i.reply.txt")"
     [ -n "$v" ] || v="—"
     if [ -n "$TF_VERDICTS" ]; then TF_VERDICTS="$TF_VERDICTS, $v"; else TF_VERDICTS="$v"; fi
     [ "$v" != "—" ] && TF_LAST="$v"
+    if [ "$i" -eq "$max" ] && [ "$v" != "—" ]; then TF_TOP="$v"; fi
     i=$((i + 1))
   done
   return 0
@@ -360,10 +410,14 @@ term_record() {
 }
 
 analyze() {
-  # analyze <slug> — every fact of one run, from disk only.
+  # analyze <slug> <root> — every fact of one run, from disk only, read from ONE
+  # state root. The root is chosen by the resolver and never here: a function
+  # that picked its own root could not be asked the same question about a second
+  # one, which is exactly what reconciling two roots requires.
   SLUG="$1"
   compute_keys "$SLUG"
-  resolve_state_root "$SLUG"
+  ST_BASE="$2"
+  ST="$ST_BASE/.tandem"
   LOG_FILE="$ST/log/$SLUG.md"
   PA_FILE="$ST/state/plan-approve/$SLUG.json"
   PA_PENDING="$PA_FILE.pending"
@@ -542,15 +596,24 @@ analyze() {
   thread_facts "$REVIEW_DIR" "$K_PLAN"
   PR_HAS="$TF_HAS"
   PR_LAST="$TF_LAST"
+  PR_ID="$TF_ID"
+  PR_MAX="$TF_MAX"
+  PR_TOP="$TF_TOP"
   PR_VAL="$(thread_line "$TF_HAS" "$TF_ROUNDS" "$TF_VERDICTS")"
   thread_facts "$REVIEW_DIR" "$K_CR"
   CR_HAS="$TF_HAS"
   CR_LAST="$TF_LAST"
+  CR_ID="$TF_ID"
+  CR_MAX="$TF_MAX"
+  CR_TOP="$TF_TOP"
   CR_VAL="$(thread_line "$TF_HAS" "$TF_ROUNDS" "$TF_VERDICTS")"
   thread_facts "$IMPL_DIR" "$K_PLAN"
   IM_HAS="$TF_HAS"
   IM_ROUNDS="$TF_ROUNDS"
   IM_LAST="$TF_LAST"
+  IM_ID="$TF_ID"
+  IM_MAX="$TF_MAX"
+  IM_TOP="$TF_TOP"
 
   # --- the implementation attempt ---
   # The Opus attempt state gets the same typed distrust as the status line's: a
@@ -561,9 +624,15 @@ analyze() {
   OP_STATUS=""
   OP_SENT=""
   OP_CONT=""
+  OP_ID_VALID=0
+  OP_ID_PRESENT=0
+  OP_PLAN_HASH=""
+  OP_BRANCH=""
+  OP_AGENT_TYPE=""
+  OP_PROG_OK=0
   [ -f "$OP_FILE" ] && OP_HAS=1
   if [ "$OP_HAS" = "1" ] && [ "$HAVE_JQ" = "1" ]; then
-    local opline oprest
+    local opline oprest opid
     opline="$(jq -r --arg us "$US" '
       if type == "object"
          and ((.status | type) == "string")
@@ -581,11 +650,82 @@ analyze() {
       OP_CONT="${oprest#*"$US"}"
       OP_OK=1
     fi
+    # PRESENCE is a separate question from validity, asked with has(): a
+    # lineage key that exists with a null/object value, or only HALF a lineage,
+    # is not the legacy absent shape — it is corrupt state. Legacy treatment is
+    # reserved for a state with ALL lineage keys absent.
+    if jq -e '(type == "object") and (has("plan_hash") or has("branch") or has("agent_type"))' \
+      "$OP_FILE" >/dev/null 2>&1; then
+      OP_ID_PRESENT=1
+    fi
+    # The attempt's IMMUTABLE lineage — `plan_hash` + `branch` are the identity
+    # of the attempt in the implement contract, `agent_type` its closed enum —
+    # validated here exactly like that contract validates it before dispatching
+    # anything. `agent.id` is deliberately NOT part of it: a legitimate recovery
+    # launches a fresh agent and records the new identity without resetting the
+    # attempt, so comparing it between roots would invent a split brain.
+    opid="$(jq -r --arg us "$US" '
+      if type == "object"
+         and ((.plan_hash | type) == "string")
+         and ((.branch | type) == "string")
+      then ([ .plan_hash, .branch,
+              (if (has("agent_type") | not) then "tandem:implementer"
+               elif (.agent_type | type) == "string" then .agent_type
+               else "" end) ] | join($us))
+      else empty end' "$OP_FILE" 2>/dev/null)"
+    if [ -n "$opid" ]; then
+      OP_PLAN_HASH="${opid%%"$US"*}"
+      oprest="${opid#*"$US"}"
+      OP_BRANCH="${oprest%%"$US"*}"
+      OP_AGENT_TYPE="${oprest#*"$US"}"
+      OP_ID_VALID=1
+      is_sha40 "$OP_PLAN_HASH" || OP_ID_VALID=0
+      [ "$OP_BRANCH" = "$BRANCH" ] || OP_ID_VALID=0
+      case "$OP_AGENT_TYPE" in
+        # The absent field is the documented legacy shape and means the default
+        # type; anything outside the enum is a lineage this tool will not read.
+        tandem:implementer | tandem:implementer-critical) : ;;
+        *) OP_ID_VALID=0 ;;
+      esac
+      if [ "$OP_ID_VALID" = "1" ] && [ "$HAVE_GIT" = "1" ] && [ -n "$GIT_ROOT" ]; then
+        # The recorded hash is the COMMITTED plan blob: where there is a
+        # repository to ask, shape alone is not proof.
+        git -C "$GIT_ROOT" rev-parse --verify -q "$OP_PLAN_HASH^{blob}" >/dev/null 2>&1 \
+          || OP_ID_VALID=0
+      fi
+    fi
+    # An invalid lineage carries NO comparable value: it degrades like any other
+    # corrupt state and never enters the identity probe.
+    if [ "$OP_ID_VALID" != "1" ]; then
+      OP_PLAN_HASH=""
+      OP_BRANCH=""
+      OP_AGENT_TYPE=""
+    fi
+  fi
+  # The progress TUPLE is a separate question from the lineage: a snapshot can
+  # be perfectly identified and still carry garbage where the round counter
+  # belongs. Only a VALIDATED tuple is ever ordered against another one —
+  # nothing here may reach arithmetic (`[ 0.5 -gt 0 ]` prints a diagnostic on
+  # stderr, which an exit-0 report promises never to do) or force a split brain.
+  if [ "$OP_OK" = "1" ]; then
+    OP_PROG_OK=1
+    case "$OP_CONT" in '' | *[!0-9]*) OP_PROG_OK=0 ;; esac
+    case "$OP_STATUS" in running | terminal) : ;; *) OP_PROG_OK=0 ;; esac
+    case "$OP_SENT" in
+      '' | IMPLEMENTATION_COMPLETE | IMPLEMENTATION_PARTIAL) : ;;
+      *) OP_PROG_OK=0 ;;
+    esac
   fi
   if [ "$OP_HAS" = "1" ]; then
     if [ "$HAVE_JQ" != "1" ]; then
       IMPL_VAL="opus · desconocido (sin jq)"
-    elif [ "$OP_OK" != "1" ]; then
+    elif [ "$OP_OK" != "1" ] || { [ "$OP_ID_PRESENT" = "1" ] && [ "$OP_ID_VALID" != "1" ]; }; then
+      # A lineage that is PRESENT but does not validate (wrong branch, a hash
+      # that is not the committed plan blob, an unknown agent type) is corrupt
+      # state: its status and sentinel belong to an attempt this tool cannot
+      # identify, and they must not drive a next step. ABSENT lineage fields
+      # are different — that is the legacy shape M11's contract displays as the
+      # typed status it carries.
       IMPL_VAL="opus · desconocido (estado corrupto)"
     else
       IMPL_VAL="opus · $OP_STATUS · ${OP_SENT:-—} · continuaciones: ${OP_CONT:-?}"
@@ -598,7 +738,11 @@ analyze() {
     IMPL_VAL="sin intento"
   fi
   IMPL_SENT=""
-  if [ "$OP_OK" = "1" ]; then IMPL_SENT="$OP_SENT"; elif [ "$IM_HAS" = "1" ]; then IMPL_SENT="$IM_LAST"; fi
+  if [ "$OP_OK" = "1" ] && ! { [ "$OP_ID_PRESENT" = "1" ] && [ "$OP_ID_VALID" != "1" ]; }; then
+    IMPL_SENT="$OP_SENT"
+  elif [ "$IM_HAS" = "1" ]; then
+    IMPL_SENT="$IM_LAST"
+  fi
 
   # --- testing gate + log ---
   GATE_VAL="$(gate_block "$LOG_FILE")"
@@ -662,36 +806,66 @@ analyze() {
     fi
   fi
 
+  # --- the identity of the run, as THIS root tells it ---
+  # The facts an honest run cannot hold two different values of, exported ONLY
+  # when this analyze PROVED them: a plan commit whose record did not validate,
+  # or a terminal sha git did not confirm, keeps its existing degradation and
+  # stays NON-comparable — corruption must never manufacture a split brain.
+  # Deliberately absent: `agent.id`, `task_id`, `status` and the sentinel, none
+  # of which is immutable over the life of one attempt.
+  ID_PLAN_COMMIT=""
+  [ "$PA_VALID" = "1" ] && ID_PLAN_COMMIT="$PLAN_COMMIT"
+  ID_TERM=""
+  case "$TERM_STATE" in
+    verified | advanced) ID_TERM="$TERM_FULL" ;;
+  esac
+
   # --- the phase ladder: the most advanced evidence wins ---
+  # FASE_RANK is assigned in the SAME branch as FASE, never through a parallel
+  # string→number map: the order two roots are reconciled by has to be the very
+  # ladder printed in the report, and a second source of truth could drift from
+  # it. Twelve rungs, twelve UNIQUE ranks, 11 down to 0.
   if [ "$TERM_STATE" = "verified" ]; then
     FASE="commit final"
+    FASE_RANK=11
   elif [ "$TERM_STATE" = "advanced" ]; then
     FASE="contradictorio — rama avanzó tras registro final"
+    FASE_RANK=10
   elif [ "$TERM_STATE" = "unverified" ]; then
     FASE="commit final (no verificado)"
+    FASE_RANK=9
   elif [ "$BR_EXISTS" = "1" ] && [ -n "$BR_AHEAD" ] && [ "$BR_AHEAD" -gt 0 ]; then
     # A commit by the implementer is a hard safety failure for this flow, so an
     # unregistered one is never blessed as a finished run.
     FASE="contradictorio — commits sin registro final"
+    FASE_RANK=8
   elif [ "$CR_HAS" = "1" ]; then
     FASE="code review"
+    FASE_RANK=7
   elif [ "$GATE_HAS" = "1" ]; then
     FASE="gate de testing"
+    FASE_RANK=6
   elif [ "$OP_HAS" = "1" ] || [ "$IM_HAS" = "1" ]; then
     FASE="implementación"
+    FASE_RANK=5
   elif [ "$PA_VALID" = "1" ]; then
     FASE="plan aprobado"
+    FASE_RANK=4
   elif [ "$PA_UNVERIFIED" = "1" ]; then
     # One rung below "plan aprobado" and deliberately WITHOUT that substring: a
     # record whose git invariants could not be checked is not an approval this
     # tool is willing to certify. Any higher evidence still wins the ladder.
     FASE="aprobación no verificada"
+    FASE_RANK=3
   elif [ "$PR_HAS" = "1" ]; then
     FASE="plan en revisión"
+    FASE_RANK=2
   elif [ -n "$PLAN_PATH" ]; then
     FASE="plan (borrador)"
+    FASE_RANK=1
   else
     FASE="desconocido"
+    FASE_RANK=0
   fi
 
   # --- next: derived from the phase, deterministic and testable ---
@@ -793,6 +967,391 @@ analyze() {
   return 0
 }
 
+# --- reconciling the roots ---------------------------------------------------
+# One slug leaving evidence in more than one root is DESIGNED behaviour, not an
+# accident: a run executed in a linked worktree keeps its thread state where it
+# ran while the rest lives in the main checkout. Taking the first root that
+# carries anything lets a stale copy mask the authoritative one — wrong phase,
+# wrong `next:`, which is the whole bug M17 exists to kill. So every root with
+# evidence is analyzed, the consistent ones are reconciled deterministically,
+# and roots whose IDENTITY facts disagree stop the tool instead of being
+# silently narrated from one of them.
+#
+# One snapshot array per fact, indexed by evidence root: bash 3.2 has no
+# associative arrays, and the comparison must run over FROZEN snapshots — never
+# over "whatever the last analyze left behind".
+R_FASE=()
+R_RANK=()
+R_TH_PR=()
+R_TH_IM=()
+R_TH_CR=()
+R_PR_MAX=()
+R_PR_TOP=()
+R_IM_MAX=()
+R_IM_TOP=()
+R_CR_MAX=()
+R_CR_TOP=()
+R_PC=()
+R_TERM=()
+R_OP_HAS=()
+R_OP_IDV=()
+R_OP_PH=()
+R_OP_BR=()
+R_OP_AT=()
+R_OP_PV=()
+R_OP_CONT=()
+R_OP_ST=()
+R_OP_SENT=()
+
+snap_root() {
+  # snap_root <i> — freeze the analyzed root's facts into slot <i>.
+  local i="$1"
+  R_FASE[i]="$FASE"
+  R_RANK[i]="$FASE_RANK"
+  R_TH_PR[i]="$PR_ID"
+  R_TH_IM[i]="$IM_ID"
+  R_TH_CR[i]="$CR_ID"
+  R_PR_MAX[i]="$PR_MAX"
+  R_PR_TOP[i]="$PR_TOP"
+  R_IM_MAX[i]="$IM_MAX"
+  R_IM_TOP[i]="$IM_TOP"
+  R_CR_MAX[i]="$CR_MAX"
+  R_CR_TOP[i]="$CR_TOP"
+  R_PC[i]="$ID_PLAN_COMMIT"
+  R_TERM[i]="$ID_TERM"
+  R_OP_HAS[i]="$OP_HAS"
+  R_OP_IDV[i]="$OP_ID_VALID"
+  R_OP_PH[i]="$OP_PLAN_HASH"
+  R_OP_BR[i]="$OP_BRANCH"
+  R_OP_AT[i]="$OP_AGENT_TYPE"
+  R_OP_PV[i]="$OP_PROG_OK"
+  R_OP_CONT[i]="$OP_CONT"
+  R_OP_ST[i]="$OP_STATUS"
+  R_OP_SENT[i]="$OP_SENT"
+  return 0
+}
+
+id_fact() {
+  # id_fact <fact> <root-index> — the VALIDATED value of one identity fact for
+  # one analyzed root, or nothing when that root does not carry it. Empty is
+  # silence, never disagreement.
+  case "$1" in
+    1) printf '%s' "${R_TH_PR[$2]}" ;;
+    2) printf '%s' "${R_TH_IM[$2]}" ;;
+    3) printf '%s' "${R_TH_CR[$2]}" ;;
+    4) printf '%s' "${R_PC[$2]}" ;;
+    5) printf '%s' "${R_TERM[$2]}" ;;
+    6) printf '%s' "${R_OP_PH[$2]}" ;;
+    7) printf '%s' "${R_OP_BR[$2]}" ;;
+    8) printf '%s' "${R_OP_AT[$2]}" ;;
+  esac
+  return 0
+}
+
+id_label() {
+  # id_label <fact> — how the report names the fact that cannot be reconciled.
+  # Fact 7 (the attempt's branch) is compared for completeness and can only fire
+  # if the lineage validation above ever stops pinning it to `tandem/<slug>`: a
+  # branch that is not this slug's makes the whole lineage invalid, and an
+  # invalid lineage never reaches this probe.
+  case "$1" in
+    1) printf 'thread de plan-review distinto entre raíces' ;;
+    2) printf 'thread de implementación (sol) distinto entre raíces' ;;
+    3) printf 'thread de code-review distinto entre raíces' ;;
+    4) printf 'commit de aprobación del plan distinto entre raíces' ;;
+    5) printf 'commit final registrado distinto entre raíces' ;;
+    6) printf 'plan_hash del intento opus distinto entre raíces' ;;
+    7) printf 'rama del intento opus distinta entre raíces' ;;
+    8) printf 'agent_type del intento opus distinto entre raíces' ;;
+  esac
+  return 0
+}
+
+identity_probe() {
+  # The split-brain probe: one identity fact present in TWO roots with different
+  # VALIDATED values is not stale state — an honest run cannot have two thread
+  # ids for one key, two approval commits or two attempt lineages. Divergence of
+  # PHASE is deliberately not here: that is exactly what legitimate stale state
+  # looks like, and reconciling it is the job of the comparison below.
+  local f=1 i j a b
+  while [ "$f" -le 8 ]; do
+    i=0
+    while [ "$i" -lt "$EVR_N" ]; do
+      a="$(id_fact "$f" "$i")"
+      if [ -n "$a" ]; then
+        j=$((i + 1))
+        while [ "$j" -lt "$EVR_N" ]; do
+          b="$(id_fact "$f" "$j")"
+          if [ -n "$b" ] && [ "$b" != "$a" ]; then
+            CONTRA=1
+            [ -n "$CONTRA_FACT" ] || CONTRA_FACT="$(id_label "$f")"
+            return 0
+          fi
+          j=$((j + 1))
+        done
+      fi
+      i=$((i + 1))
+    done
+    f=$((f + 1))
+  done
+  return 0
+}
+
+thread_vote() {
+  # thread_vote <id-a> <max-a> <top-a> <id-b> <max-b> <top-b> <fact> — VOTE_R:
+  # 0 no order, 1 a, 2 b, 3 irreconcilable. Only the SAME thread can be ordered
+  # (two different ids were already stopped by the identity probe, and a thread
+  # only one root knows says nothing about the other): the later turn wins; at
+  # the same turn a completed reply beats an absent one; and two DIFFERENT
+  # completed verdicts of the same turn are not an order at all.
+  VOTE_R=0
+  if [ -z "$1" ] || [ "$1" != "$4" ]; then return 0; fi
+  if [ "$2" -gt "$5" ]; then VOTE_R=1; return 0; fi
+  if [ "$2" -lt "$5" ]; then VOTE_R=2; return 0; fi
+  if [ -n "$3" ] && [ -z "$6" ]; then VOTE_R=1; return 0; fi
+  if [ -z "$3" ] && [ -n "$6" ]; then VOTE_R=2; return 0; fi
+  if [ -n "$3" ] && [ "$3" != "$6" ]; then
+    VOTE_R=3
+    [ -n "$CONTRA_FACT" ] || CONTRA_FACT="$7"
+  fi
+  return 0
+}
+
+opus_vote() {
+  # opus_vote <i> <j> — the same question over the durable Opus attempt.
+  local a="$1" b="$2"
+  VOTE_R=0
+  if [ "${R_OP_HAS[$a]}" != "1" ] || [ "${R_OP_HAS[$b]}" != "1" ]; then return 0; fi
+  # Progress is only comparable WITHIN one identified attempt: without TWO valid
+  # lineages there is no proof both snapshots describe the same attempt, so no
+  # progress vote is cast at all — both-invalid falls through to candidate
+  # priority, exactly as the plan orders. (Mixed validity never reaches here:
+  # cmp_roots' lineage dominance already decided it.)
+  if [ "${R_OP_IDV[$a]}" != "1" ] || [ "${R_OP_IDV[$b]}" != "1" ]; then return 0; fi
+  # A VALID progress tuple DOMINATES an invalid one: the corrupt snapshot never
+  # wins by candidate priority and never forces a contradiction either.
+  if [ "${R_OP_PV[$a]}" = "1" ] && [ "${R_OP_PV[$b]}" != "1" ]; then VOTE_R=1; return 0; fi
+  if [ "${R_OP_PV[$b]}" = "1" ] && [ "${R_OP_PV[$a]}" != "1" ]; then VOTE_R=2; return 0; fi
+  # Both invalid: nothing to order, candidate priority decides.
+  if [ "${R_OP_PV[$a]}" != "1" ]; then return 0; fi
+  # Rounds FIRST — a running turn of round 1 is newer than a terminal round 0.
+  if [ "${R_OP_CONT[$a]}" -gt "${R_OP_CONT[$b]}" ]; then VOTE_R=1; return 0; fi
+  if [ "${R_OP_CONT[$a]}" -lt "${R_OP_CONT[$b]}" ]; then VOTE_R=2; return 0; fi
+  # Same round: the finished turn beats the one still running.
+  if [ "${R_OP_ST[$a]}" != "${R_OP_ST[$b]}" ]; then
+    if [ "${R_OP_ST[$a]}" = "terminal" ]; then VOTE_R=1; else VOTE_R=2; fi
+    return 0
+  fi
+  # The same terminal revision with two different outcomes is not an order.
+  if [ "${R_OP_ST[$a]}" = "terminal" ] && [ "${R_OP_SENT[$a]}" != "${R_OP_SENT[$b]}" ]; then
+    VOTE_R=3
+    [ -n "$CONTRA_FACT" ] \
+      || CONTRA_FACT="sentinel distinto en la misma revisión terminal del intento opus"
+  fi
+  return 0
+}
+
+cast_vote() {
+  # cast_vote <vote> — merge one channel's verdict into VOTE. Channels that
+  # point in opposite directions are genuinely incomparable, which stops the
+  # tool: an arbitrary pick by priority is the failure mode being fixed.
+  [ "$1" = "0" ] && return 0
+  if [ "$VOTE" = "0" ]; then
+    VOTE="$1"
+  elif [ "$VOTE" != "$1" ]; then
+    VOTE=3
+  fi
+  return 0
+}
+
+cmp_roots() {
+  # cmp_roots <i> <j> — CMP_R: 1 = i wins, 2 = j wins, 0 = no order at all
+  # (candidate priority decides), 3 = irreconcilable.
+  local a="$1" b="$2"
+  CMP_R=0
+  VOTE=0
+  # The ladder first: the most advanced phase wins outright, whatever the
+  # candidate order says.
+  if [ "${R_RANK[$a]}" -gt "${R_RANK[$b]}" ]; then CMP_R=1; return 0; fi
+  if [ "${R_RANK[$a]}" -lt "${R_RANK[$b]}" ]; then CMP_R=2; return 0; fi
+  # Same phase: a VALID Opus lineage dominates an invalid one BEFORE any
+  # progress is compared. The progress rules require the same attempt, which a
+  # corrupt lineage cannot establish — without this rule a corrupt state in the
+  # priority root would tie on phase and win by order, masking a valid
+  # IMPLEMENTATION_COMPLETE in the other one.
+  if [ "${R_OP_HAS[$a]}" = "1" ] && [ "${R_OP_HAS[$b]}" = "1" ]; then
+    if [ "${R_OP_IDV[$a]}" = "1" ] && [ "${R_OP_IDV[$b]}" != "1" ]; then CMP_R=1; return 0; fi
+    if [ "${R_OP_IDV[$b]}" = "1" ] && [ "${R_OP_IDV[$a]}" != "1" ]; then CMP_R=2; return 0; fi
+  fi
+  # Same phase and comparable identity: the explicit REVISION ORDER, channel by
+  # channel. Two copies of one run share a phase and differ in progress, so
+  # picking by candidate priority here would reproduce the very stale `next:`
+  # this exists to prevent.
+  thread_vote "${R_TH_PR[$a]}" "${R_PR_MAX[$a]}" "${R_PR_TOP[$a]}" \
+    "${R_TH_PR[$b]}" "${R_PR_MAX[$b]}" "${R_PR_TOP[$b]}" \
+    'veredictos distintos en el mismo turno del hilo de plan-review'
+  cast_vote "$VOTE_R"
+  thread_vote "${R_TH_IM[$a]}" "${R_IM_MAX[$a]}" "${R_IM_TOP[$a]}" \
+    "${R_TH_IM[$b]}" "${R_IM_MAX[$b]}" "${R_IM_TOP[$b]}" \
+    'resultados distintos en el mismo turno del hilo de implementación'
+  cast_vote "$VOTE_R"
+  thread_vote "${R_TH_CR[$a]}" "${R_CR_MAX[$a]}" "${R_CR_TOP[$a]}" \
+    "${R_TH_CR[$b]}" "${R_CR_MAX[$b]}" "${R_CR_TOP[$b]}" \
+    'veredictos distintos en el mismo turno del hilo de code-review'
+  cast_vote "$VOTE_R"
+  opus_vote "$a" "$b"
+  cast_vote "$VOTE_R"
+  if [ "$VOTE" = "3" ]; then
+    CMP_R=3
+    [ -n "$CONTRA_FACT" ] || CONTRA_FACT="evidencia de progreso incomparable entre raíces"
+  else
+    CMP_R="$VOTE"
+  fi
+  return 0
+}
+
+resolve_slug() {
+  # resolve_slug <slug> — the whole multi-root question, answered once: which
+  # root's story the report tells (RS_ROOT, always PHYSICAL), what that root
+  # does not carry (RS_NOSTATE, RS_BRANCH_ROOT), which other roots also hold
+  # evidence (EVR/R_FASE, RS_WIN) and whether they contradict each other
+  # (CONTRA, CONTRA_FACT). It leaves the WINNER's analyze in place, so every
+  # field the report prints comes from one root and never from a chimera.
+  local s="$1" i=0 j=0 w=0 plan_owner branch_owner
+  CONTRA=0
+  CONTRA_FACT=""
+  RS_NOSTATE=0
+  RS_BRANCH_ROOT=""
+  RS_ROOT=""
+  RS_WIN=-1
+  # FIRST, before any discovery or probe: the thread keys of THIS slug.
+  # slug_has_evidence reads K_PLAN/K_CR, so in list mode a later slug evaluated
+  # with the previous one's keys would lose every thread-only root.
+  compute_keys "$s"
+  evidence_roots "$s"
+
+  if [ "$EVR_N" -eq 0 ]; then
+    # No state anywhere. There can still be a report — a plan on disk, a branch
+    # in some candidate's repository — but it is attributed to whoever OWNS that
+    # evidence: analyzing the default root, where the branch may not exist,
+    # would either report "no trace" or name a root that owns nothing.
+    plan_owner=""
+    branch_owner=""
+    while [ "$i" -lt "$CAND_N" ]; do
+      if [ -z "$plan_owner" ] && [ -f "${CAND[$i]}/docs/plans/$s.plan.md" ]; then
+        plan_owner="${CAND[$i]}"
+      fi
+      if [ -z "$branch_owner" ] && root_has_branch "${CAND[$i]}" "tandem/$s"; then
+        branch_owner="${CAND[$i]}"
+      fi
+      i=$((i + 1))
+    done
+    RS_NOSTATE=1
+    if [ -n "$plan_owner" ]; then
+      RS_ROOT="$plan_owner"
+      # Plan and branch can live in DIFFERENT candidates. That is a fact of the
+      # report, never a licence to name a root that owns neither of them.
+      if [ -n "$branch_owner" ] && [ "$branch_owner" != "$plan_owner" ] \
+        && ! root_has_branch "$plan_owner" "tandem/$s"; then
+        RS_BRANCH_ROOT="$branch_owner"
+      fi
+    elif [ -n "$branch_owner" ]; then
+      RS_ROOT="$branch_owner"
+    else
+      # The fallback goes through the SAME physical machinery as the candidates:
+      # the root named in the report is always canonical.
+      RS_ROOT="$(phys_path "$DEFAULT_ROOT")"
+      [ -n "$RS_ROOT" ] || RS_ROOT="$DEFAULT_ROOT"
+    fi
+    analyze "$s" "$RS_ROOT"
+    return 0
+  fi
+
+  if [ "$EVR_N" -eq 1 ]; then
+    RS_ROOT="${EVR[0]}"
+    analyze "$s" "$RS_ROOT"
+    return 0
+  fi
+
+  # Two or more roots: analyze each one FIRST — the identity facts compared
+  # below are the ones analyze itself validated, never raw file contents.
+  i=0
+  while [ "$i" -lt "$EVR_N" ]; do
+    analyze "$s" "${EVR[$i]}"
+    snap_root "$i"
+    i=$((i + 1))
+  done
+  identity_probe
+  if [ "$CONTRA" = "1" ]; then return 0; fi
+  # EVERY pair is asked whether it can be reconciled at all, not just the ones
+  # the champion below happens to meet: with three roots, two of them could
+  # disagree irreconcilably while both compare cleanly against the third, and
+  # answering from a champion that never met them would hide exactly the split
+  # brain this stops for. cmp_roots is pure in-memory arithmetic over the
+  # snapshots, so asking twice costs nothing.
+  i=0
+  while [ "$i" -lt "$EVR_N" ]; do
+    j=$((i + 1))
+    while [ "$j" -lt "$EVR_N" ]; do
+      cmp_roots "$i" "$j"
+      if [ "$CMP_R" = "3" ]; then
+        CONTRA=1
+        return 0
+      fi
+      j=$((j + 1))
+    done
+    i=$((i + 1))
+  done
+  # Reconcilable: the champion, in candidate order, so an outright tie keeps the
+  # root with priority — the existing doctrine for two identical copies.
+  i=1
+  while [ "$i" -lt "$EVR_N" ]; do
+    cmp_roots "$w" "$i"
+    [ "$CMP_R" = "2" ] && w="$i"
+    i=$((i + 1))
+  done
+  RS_WIN="$w"
+  RS_ROOT="${EVR[$w]}"
+  # The final analyze over the winner: every printed field comes from THAT root.
+  analyze "$s" "$RS_ROOT"
+  return 0
+}
+
+raiz_val() {
+  # raiz_val — the `raíz:` value: the physical root the report was read from,
+  # what that root does not carry, and every other root that also holds
+  # evidence (with the phase it is at, so a stale copy is visible and never
+  # mistaken for the report's own `fase:`).
+  local v="$RS_ROOT" i=0
+  [ "$RS_NOSTATE" = "1" ] && v="$v (sin estado .tandem)"
+  [ -n "$RS_BRANCH_ROOT" ] && v="$v · rama en $RS_BRANCH_ROOT"
+  if [ "$EVR_N" -gt 1 ] && [ "$RS_WIN" -ge 0 ]; then
+    while [ "$i" -lt "$EVR_N" ]; do
+      if [ "$i" != "$RS_WIN" ]; then
+        v="$v · evidencia también en ${EVR[$i]} (fase: ${R_FASE[$i]})"
+      fi
+      i=$((i + 1))
+    done
+  fi
+  printf '%s' "$v"
+  return 0
+}
+
+print_contra() {
+  # print_contra <slug> — every root, every phase, the fact that cannot be
+  # reconciled, and NO next step. stdout stays empty on purpose: a report would
+  # have to choose a root for each of its other rows, which is the masking bug.
+  local s="$1" i=0
+  printf 'tandem: evidencia contradictoria para "%s" entre raíces de estado:\n' "$s" >&2
+  while [ "$i" -lt "$EVR_N" ]; do
+    printf '  - %s — fase: %s\n' "${EVR[$i]}" "${R_FASE[$i]}" >&2
+    i=$((i + 1))
+  done
+  printf '  hecho irreconciliable: %s\n' "$CONTRA_FACT" >&2
+  printf '  resolver a mano — sin paso siguiente automático\n' >&2
+  return 0
+}
+
 # --- the known runs ----------------------------------------------------------
 RUN=()
 RUN_N=0
@@ -858,8 +1417,11 @@ collect_runs() {
 }
 
 print_runs() {
-  # print_runs <out|err> — one `<slug> — <phase>` line per known run.
-  local stream="$1" sorted rest s
+  # print_runs <out|err> — one `<slug> — <phase>` line per known run. A slug
+  # whose roots contradict each other is listed as such and does NOT change the
+  # exit code: the list is the panoramic view, and the detail (both roots, both
+  # phases, the offending fact) is what slug mode is for.
+  local stream="$1" sorted rest s ph
   if [ "$RUN_N" -eq 0 ]; then
     if [ "$stream" = "err" ]; then
       printf '(ningún run conocido)\n' >&2
@@ -874,11 +1436,13 @@ print_runs() {
     s="${rest%%"$NL"*}"
     if [ "$s" = "$rest" ]; then rest=""; else rest="${rest#*"$NL"}"; fi
     [ -n "$s" ] || continue
-    analyze "$s"
+    resolve_slug "$s"
+    ph="$FASE"
+    [ "$CONTRA" = "1" ] && ph="contradictorio entre raíces"
     if [ "$stream" = "err" ]; then
-      printf '  %s — %s\n' "$s" "$FASE" >&2
+      printf '  %s — %s\n' "$s" "$ph" >&2
     else
-      printf '%s — %s\n' "$s" "$FASE"
+      printf '%s — %s\n' "$s" "$ph"
     fi
   done
   return 0
@@ -894,7 +1458,11 @@ if [ "$LIST_MODE" = "1" ]; then
 fi
 
 # --- slug mode ---------------------------------------------------------------
-analyze "$ARG_SLUG"
+resolve_slug "$ARG_SLUG"
+if [ "$CONTRA" = "1" ]; then
+  print_contra "$ARG_SLUG"
+  exit 2
+fi
 if [ "$HAS_ANY" != "1" ]; then
   printf 'tandem: no hay ni rastro del run "%s" (ni log, ni estado, ni plan, ni rama).\n' \
     "$ARG_SLUG" >&2
@@ -905,6 +1473,11 @@ if [ "$HAS_ANY" != "1" ]; then
 fi
 
 row 'slug:' "$SLUG"
+# `raíz:` is printed ALWAYS, single root included: one more row in exchange for
+# the user always seeing where the truth came from. Its label carries one
+# two-byte character and printf pads by BYTES, so it gets one extra column of
+# width to line up with the ASCII labels around it.
+printf '%-15s %s\n' 'raíz:' "$(raiz_val)"
 row 'plan:' "$PLAN_VAL"
 row 'rama:' "$RAMA_VAL"
 row 'plan-review:' "$PR_VAL"
