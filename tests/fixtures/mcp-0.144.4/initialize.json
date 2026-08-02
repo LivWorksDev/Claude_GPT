@@ -1,0 +1,18 @@
+{
+ "id": 1,
+ "jsonrpc": "2.0",
+ "result": {
+  "capabilities": {
+   "tools": {
+    "listChanged": true
+   }
+  },
+  "protocolVersion": "2025-06-18",
+  "serverInfo": {
+   "name": "codex-mcp-server",
+   "title": "Codex",
+   "user_agent": "codex_cli_rs/0.144.4 (Mac OS 26.5.2; arm64) vscode/1.127.0 (tandem-audit; 0.0.1)",
+   "version": "0.144.4"
+  }
+ }
+}
