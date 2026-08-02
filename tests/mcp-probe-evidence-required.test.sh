@@ -91,3 +91,26 @@ run env CODEX_STUB_VERSION_TEXT="codex-cli 0.144.4-dev" bash "$PROBE"
 assert_rc 1 "suffixed version"
 assert_file_contains "$OUT" "PROBE d: INDETERMINABLE"
 assert_not_contains "$OUT" "PROBE d: STATIC"
+
+# (c) The path the probe SENDS must be the path the server can echo back. macOS
+# exports TMPDIR with a trailing slash, so an unnormalized `mktemp -d` yields
+# `…/T//tandem-mcp.XXXX` while the server answers with the collapsed form: probe
+# (c) then reports INDETERMINABLE over a mismatch that never happened. That is
+# not hypothetical — it is what the FIRST real run of this script did, with its
+# own evidence showing the inheritance had worked. Anchored on the request the
+# probe writes: no doubled separator may reach the wire.
+reset_stub
+mkdir -p "$SANDBOX/withslash"
+run env TMPDIR="$SANDBOX/withslash/" CODEX_STUB_MCP_ROLLOUT=1 \
+  CODEX_STUB_MCP_THREAD_ID=thr_mcp_slash CODEX_STUB_THREAD_ID=thr_mcp_slash \
+  CODEX_STUB_REPLY_FILE="$CODEX_STUB_LOG.mcp.codeword" bash "$PROBE" --spend
+assert_rc 0 "TMPDIR with a trailing slash"
+PROBE_B_REQ="$(find "$CLAUDE_PROJECT_DIR/.tandem/state/mcp-probe" -type f \
+  -name request.json -path '*/probe-b/*' 2>/dev/null | LC_ALL=C sort | tail -n 1)"
+CWD_SENT="$(jq -r '.params.arguments.cwd' "$PROBE_B_REQ" 2>/dev/null)"
+case "$CWD_SENT" in
+  *//*) fail "the cwd sent to the server carries a doubled separator: $CWD_SENT" ;;
+  '') fail "no cwd was recorded in probe b's request" ;;
+  *) : ;;
+esac
+assert_file_contains "$OUT" "PROBE c: PASS"

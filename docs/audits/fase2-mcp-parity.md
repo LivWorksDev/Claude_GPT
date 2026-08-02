@@ -104,3 +104,39 @@ resolver antes de decidir.
 3. Si M19 falla en (a) o (b): la migración se DESCARTA con este documento como razón, y
    la Fase 2 se replantea (p.ej. esperar upstream: ignore-user-config en mcp-server, o
    resume desde rollout).
+
+
+---
+
+# Resultados M19 — run real con `--spend` (2026-08-02)
+
+Ejecutado con `scripts/mcp-probe.sh --spend` contra la CLI real (codex-cli 0.144.4):
+**3 turnos de cuota**, evidencia en `.tandem/state/mcp-probe/20260802T212926.99831/`.
+
+| Probe | Veredicto | Qué quedó probado |
+| --- | --- | --- |
+| b · home-auth | **PASS** | El `auth.json` copiado a un CODEX_HOME propiedad de tandem AUTORIZÓ un turno real (thread `019fc3f3-…`). La mitigación de que el servidor no tenga `--ignore-user-config` FUNCIONA. |
+| c · frozen-inheritance | **PASS** (ver nota) | El `turn_context` de la continuación ecoa `model gpt-5.6-sol`, `effort xhigh`, `approval_policy never`, `sandbox read-only` y el cwd aislado — los valores pineados en la llamada 1 — con un `config.toml` hostil en el home. La herencia congelada de `codex-reply` es real. |
+| a · rollout-resume | **PASS** (confirmado a mano) | `codex exec resume <threadId>` levantó el hilo creado vía MCP tras morir el servidor: `thread.started` idéntico al pedido y respuesta = el codeword sembrado en el turno 1. **El híbrido MCP-vivo + CLI-resurrección funciona end-to-end.** Basta con el fichero de rollout: se reconstruyó un CODEX_HOME solo con él. |
+| d · elicitation-never | **STATIC** | Supresión total de approvals exec/patch bajo `never`; el cuelgue por aprobación de MCP-tool es alcanzable e irresoluble desde el cliente. |
+
+**Nota honesta sobre (c):** el script emitió `INDETERMINABLE` en el run, y el fallo era
+del INSTRUMENTO, no del servidor: macOS exporta `TMPDIR` con barra final, así que el
+`cwd` enviado llevaba `//` y el servidor lo devolvía normalizado — el comparador vio un
+desajuste que nunca existió. Corregido (canonicalización con `pwd -P`), con ancla de
+regresión probada por mutación, y el veredicto material se estableció leyendo la
+evidencia archivada, que se commiteó como fixture (`rollout-turn-context.json`).
+Por el DAG, (a) quedó `NOT_RUN` en el run y se confirmó después a mano con el rollout
+archivado — el tercer turno autorizado.
+
+## Veredicto de la Fase 2: VIABLE — M20 sigue adelante
+
+Las dos regresiones bloqueantes de la auditoría están CERRADAS con evidencia viva:
+los hilos sobreviven al proceso del servidor (vía rollout + `exec resume`) y el
+aislamiento del config del usuario se logra con un CODEX_HOME propiedad de tandem cuyo
+`auth.json` autoriza. La forma de migración sigue siendo la de wrapper-cliente.
+
+**Requisito nuevo y duro para M20**, del cierre estático de (d): una aprobación de
+MCP-tool bajo `never` cuelga el turno **sin timeout y sin que el cliente pueda
+resolverlo** (el runner descarta el `ElicitationRequest`). El transporte de producción
+necesita su propio watchdog por turno — no basta con `approval-policy: never`.

@@ -11,6 +11,8 @@ que el servidor responde sin autenticar.
 | `initialize.json` | la respuesta de `initialize` (capabilities, protocolVersion, serverInfo) |
 | `tools-list.json` | la respuesta de `tools/list`: los inputSchema completos de `codex` y `codex-reply` |
 | `codex-version.txt` | `codex --version` de la CLI auditada |
+| `rollout-turn-context.json` | una línea `turn_context` REAL del rollout que el servidor escribió, capturada en el run con `--spend` de M19 (2026-08-02): guardada COMPACTA en una sola línea porque eso es exactamente lo que es —
+  una línea del rollout jsonl, que el probe lee línea a línea; la forma exacta que el probe de herencia lee (`payload.model`, `.effort`, `.approval_policy`, `.sandbox_policy.type`, `.cwd`) |
 
 Existen para que la suite no pueda quedar verde contra un stub que inventa formas de
 frame: el stub y el parser se contrastan con estos bytes reales. Si el servidor upstream

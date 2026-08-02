@@ -36,7 +36,7 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
 | M17 | Status: resolución multi-raíz con reconciliación o contradicción explícita | UX | P2 | M | hecha (v0.25.0) |
 | M18 | Doctor: parser de versión estricto en el gate crítico | Diagnóstico | P2 | S | hecha (v0.24.0) |
 | M19 | Fase 2: probes de comportamiento del transporte MCP | Transporte | P2 | M | hecha (v0.26.0) |
-| M20 | Fase 2: `TANDEM_TRANSPORT=mcp` en los wrappers (contingente a M19) | Transporte | P2 | L | pendiente |
+| M20 | Fase 2: `TANDEM_TRANSPORT=mcp` en los wrappers | Transporte | P2 | L | pendiente (DESBLOQUEADA: M19 cerró en verde) |
 
 ## Orden de ataque recomendado
 
@@ -392,3 +392,11 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
 - **Aceptación:** con `TANDEM_TRANSPORT=mcp`, la suite completa pasa con el stub; un run
   tandem real por rol migrado con paridad de artefactos byte-compatible donde aplique;
   `TANDEM_TRANSPORT` inválido → fail-closed 64; default intacto.
+- **Estado tras M19 (2026-08-02):** DESBLOQUEADA. El run real cerró en verde los dos
+  bloqueantes — auth desde un CODEX_HOME de tandem autoriza, y el hilo creado por MCP
+  revive con `codex exec resume` (probado end-to-end con el codeword). Resultados y
+  evidencia en docs/audits/fase2-mcp-parity.md.
+- **REQUISITO NUEVO Y DURO** (del cierre estático del probe d): una aprobación de
+  MCP-tool bajo `never` cuelga el turno sin timeout y el cliente MCP NO puede resolverla
+  (el runner descarta el `ElicitationRequest`). El transporte de producción necesita su
+  propio watchdog por turno; `approval-policy: never` no basta.

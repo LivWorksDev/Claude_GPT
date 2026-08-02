@@ -188,6 +188,16 @@ PROBE_TMP="$(mktemp -d "${TMPDIR:-/tmp}/tandem-mcp.XXXXXX" 2>/dev/null)"
 if [ -z "${PROBE_TMP:-}" ] || [ ! -d "$PROBE_TMP" ]; then
   die "cannot create a temporary directory under ${TMPDIR:-/tmp}" 3
 fi
+# CANONICAL from here on. macOS exports TMPDIR with a trailing slash, so mktemp
+# hands back `…/T//tandem-mcp.XXXX`: the server normalizes that before echoing it
+# back in the rollout's turn_context, and a probe comparing its own string
+# against the echoed one reports a mismatch that never happened. Found by the
+# first REAL run of this script, where probe (c) said INDETERMINABLE while its
+# own evidence showed the inheritance had worked.
+PROBE_TMP="$(CDPATH='' cd -- "$PROBE_TMP" 2>/dev/null && pwd -P)"
+if [ -z "${PROBE_TMP:-}" ] || [ ! -d "$PROBE_TMP" ]; then
+  die "cannot resolve the temporary directory to a physical path" 3
+fi
 PROBE_HOME="$PROBE_TMP/home"
 PROBE_CWD="$PROBE_TMP/cwd"
 mkdir -p "$PROBE_HOME" "$PROBE_CWD" || die "cannot populate $PROBE_TMP" 3

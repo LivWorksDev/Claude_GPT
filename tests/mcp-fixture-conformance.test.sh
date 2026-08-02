@@ -127,7 +127,7 @@ assert_file_contains "$PROBE" "structuredContent.content"
 # Deliberately not invented here. When the orchestrator commits them from the
 # real `--spend` run, the conformance extends to the stub's own emission.
 SC_FIX="$FIX/session-configured.json"
-TC_FIX="$FIX/turn-context.json"
+TC_FIX="$FIX/rollout-turn-context.json"
 RUN_DIR="$(LC_ALL=C grep '^MCP-PROBE RESULT:' "$OUT" | LC_ALL=C sed -e 's|.*evidence: ||' | tail -n 1)"
 assert_file "$RUN_DIR/probe-c/turn-context.last.json"
 
@@ -143,3 +143,25 @@ if [ -f "$SC_FIX" ]; then
 else
   note "PENDING fixture: $SC_FIX (a real SessionConfigured frame — costs one paid turn)"
 fi
+
+# --- the REAL turn_context, captured in the paid run of M19 -----------------
+# The probe's inheritance verdict rests on reading five fields out of this item.
+# Until the paid run there was no captured shape to check the reader against —
+# and the very first real run proved why it matters: the probe compared its own
+# unnormalized cwd against the server's normalized one and called a working
+# inheritance INDETERMINABLE. These anchors tie the reader to the real bytes.
+TC="$FIX/rollout-turn-context.json"
+assert_file "$TC"
+assert_eq "turn_context" "$(jq -r '.type' "$TC")" "the item's type tag"
+for f in model effort approval_policy cwd; do
+  v="$(jq -r --arg f "$f" '.payload[$f] // empty' "$TC")"
+  [ -n "$v" ] || fail "the real turn_context has no payload.$f — the probe reads it"
+done
+assert_eq "read-only" "$(jq -r '.payload.sandbox_policy.type' "$TC")" "sandbox_policy shape"
+# …and the probe's own selector must actually match this real item: the tolerant
+# `type == turn_context` branch is the one the live rollout exercises.
+jq -Rc 'fromjson? | objects
+  | select(((.type? // "") == "turn_context")
+           or ((.item_type? // "") == "turn_context")
+           or (has("turn_context")))' "$TC" | grep -q . \
+  || fail "the probe's turn_context selector does not match the REAL item"

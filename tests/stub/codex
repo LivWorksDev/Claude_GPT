@@ -259,7 +259,7 @@ if [ "${1:-}" = "mcp-server" ]; then
     dir="$MCP_HOME/sessions/2026/08/02"
     mkdir -p "$dir" 2>/dev/null || return 0
     file="$dir/rollout-2026-08-02T00-00-00-$MCP_TID.jsonl"
-    printf '{"type":"turn_context","payload":{"cwd":"%s","approval_policy":"%s","sandbox_policy":{"mode":"%s"},"model":"%s","effort":"%s"}}\n' \
+    printf '{"timestamp":"2026-08-02T00:00:00.000Z","type":"turn_context","payload":{"cwd":"%s","approval_policy":"%s","sandbox_policy":{"type":"%s"},"model":"%s","effort":"%s"}}\n' \
       "$cwd" "$approval" "$sandbox" "$model" "$effort" >>"$file"
     return 0
   }
