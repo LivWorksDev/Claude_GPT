@@ -35,6 +35,8 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
 | M16 | Status: `PA_VALID` verifica los invariantes reales de la aprobación | UX | P2 | S | hecha (v0.23.0) |
 | M17 | Status: resolución multi-raíz con reconciliación o contradicción explícita | UX | P2 | M | hecha (v0.25.0) |
 | M18 | Doctor: parser de versión estricto en el gate crítico | Diagnóstico | P2 | S | hecha (v0.24.0) |
+| M19 | Fase 2: probes de comportamiento del transporte MCP | Transporte | P2 | M | pendiente |
+| M20 | Fase 2: `TANDEM_TRANSPORT=mcp` en los wrappers (contingente a M19) | Transporte | P2 | L | pendiente |
 
 ## Orden de ataque recomendado
 
@@ -347,3 +349,46 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
 - **Aceptación:** salidas con número de build delante y con fechas → FAIL por
   indeterminable, nunca pass; `2.1.111` y superiores con formato normal siguen ok;
   `2.1.110` sigue FAIL.
+
+## M19 — Fase 2: probes de comportamiento del transporte MCP
+
+- **Severidad/Esfuerzo:** P2 / M · **Slug sugerido:** `mcp-preflight-probes`
+- **Problema:** la auditoría de paridad (docs/audits/fase2-mcp-parity.md, 2026-08-02)
+  dejó cuatro desconocidos que deciden la viabilidad de la Fase 2 y que solo un
+  comportamiento observado puede cerrar: (a) si `codex mcp-server` escribe rollouts que
+  `codex exec resume <threadId>` pueda levantar (de esto depende la durabilidad de hilos
+  — sin ella, los deadlocks resumibles días después dejan de existir); (b) si un
+  CODEX_HOME propiedad de tandem (config.toml nuestro + auth del usuario) autentica un
+  turno real — la única mitigación de que el servidor NO tenga `--ignore-user-config`;
+  (c) si la herencia congelada de `codex-reply` resiste un config.toml hostil cambiado
+  entre llamadas; (d) qué pasa de verdad con una elicitation bajo `approval-policy:
+  never` en headless (riesgo de turno colgado sin timeout).
+- **Evidencia:** hallazgos 1, 3, 6 y 7 de la auditoría de fuente (tag rust-v0.144.4,
+  commit 8c68d4c) con fichero:línea del código Rust; superficie confirmada por JSON-RPC
+  real (tools/list capturado).
+- **Propuesta:** script de probes gateado (algunos gastan UN turno de modelo cada uno —
+  jamás en CI por defecto, mismo criterio que `doctor --smoke`), con veredicto por probe
+  y registro en docs/audits/. Si (a) o (b) fallan, la Fase 2 se descarta con razón
+  documentada y M20 pasa a `descartada`.
+- **Aceptación:** cada probe produce un veredicto reproducible pass/fail con su evidencia
+  capturada; el documento de auditoría se actualiza con los resultados; cero turnos
+  gastados fuera del flag explícito.
+
+## M20 — Fase 2: `TANDEM_TRANSPORT=mcp` en los wrappers (contingente a M19)
+
+- **Severidad/Esfuerzo:** P2 / L · **Slug sugerido:** `mcp-transport-wrappers`
+- **Problema:** migrar el transporte conservando TODAS las garantías de la matriz de
+  paridad. Forma decidida por la auditoría: los wrappers bash se vuelven clientes MCP
+  (ndjson JSON-RPC contra un proceso `codex mcp-server` con CODEX_HOME de tandem) y
+  conservan su interfaz completa — exit codes, artefactos por turno, línea USAGE (desde
+  las notificaciones TokenCount), heartbeat, semáforo. La forma "registrar el servidor y
+  llamar tools directamente" queda descartada (pierde usage, artefactos y aislamiento).
+- **Evidencia:** docs/audits/fase2-mcp-parity.md (matriz completa con severidades).
+- **Propuesta:** flag `TANDEM_TRANSPORT` con doble vía y default `exec`; stub de servidor
+  MCP para la suite; migración rol a rol (ask → review → implement, cada salto con su
+  run tandem); drift-probe equivalente para el map `config` (additionalProperties:true =
+  clave renombrada muda); auto-deny de elicitations; híbrido de resume vía CLI si M19(a)
+  lo permite; pins por llamada como cinturón sobre el CODEX_HOME aislado.
+- **Aceptación:** con `TANDEM_TRANSPORT=mcp`, la suite completa pasa con el stub; un run
+  tandem real por rol migrado con paridad de artefactos byte-compatible donde aplique;
+  `TANDEM_TRANSPORT` inválido → fail-closed 64; default intacto.
