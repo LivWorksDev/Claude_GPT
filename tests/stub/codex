@@ -30,6 +30,11 @@
 #                           measures turns, not seconds, so the semaphore's cap
 #                           is asserted without a single wall-clock assumption.
 #   CODEX_STUB_VERSION_RC   exit code of `codex --version` (default 0)
+#   CODEX_STUB_VERSION_TEXT text `codex --version` prints (default
+#                           `codex-cli 0.0.0-stub` — doctor-env-matrix.test.sh
+#                           asserts that exact string, so the default must stay
+#                           intact; the MCP tests set `codex-cli 0.144.4` to
+#                           satisfy the version gate of the STATIC verdicts)
 #   CODEX_STUB_LOGIN_RC     exit code of `codex login …`   (default 0)
 #   CODEX_STUB_CONFIG_REJECT  space-separated list of `-c` keys that `codex
 #                           debug …` still KNOWS: it rejects a bad value for
@@ -44,6 +49,20 @@
 #   CODEX_STUB_HELP_NO_EPHEMERAL  1 → `codex exec --help` omits `--ephemeral`,
 #                           i.e. a CLI too old for the doctor's smoke
 #   CODEX_STUB_HELP_RC      exit code of `codex exec --help` (default 0)
+#
+# `codex mcp-server` (its own branch, its own records — see below):
+#   CODEX_STUB_MCP_SCENARIO ok | auth-error | hostile-inherited | reply-error
+#                           | reply-silent | reply-no-thread | unsafe-inherited
+#                           | hang-call
+#                           | no-tools | garbage        (default ok)
+#   CODEX_STUB_MCP_THREAD_ID  threadId the tools echo (default thr_mcp_stub_1)
+#   CODEX_STUB_MCP_ROLLOUT  1 → the server writes a rollout with `turn_context`
+#                           lines under $CODEX_HOME/sessions/, the way the real
+#                           one does, so probe (c) has an effective config to
+#                           read and probe (a) a file to resurrect
+#   CODEX_STUB_MCP_HANG_RESISTANT  1 → the `hang-call` scenario also forks a
+#                           child that ignores TERM (only KILL reaps it); its
+#                           pid lands in CODEX_STUB_HANG_PIDFILE
 #
 # Per-MODEL selectivity (the scenarios above are global to the process; the
 # doctor's --smoke runs several models in ONE process, and "this model is gone
@@ -66,6 +85,16 @@
 #   $CODEX_STUB_LOG.stdin.N   the prompt, drained before any event is emitted
 #   $CODEX_STUB_LOG.hb.N      copy of the heartbeat as it looked mid-turn
 #   $CODEX_STUB_LOG.n         invocation counter
+#
+# MCP records live in a namespace of their OWN so the exec counter above (which
+# the doctor's cost assertions meter) is never touched by a transport that
+# spends nothing:
+#   $CODEX_STUB_LOG.mcp.in       every JSON-RPC request line received
+#   $CODEX_STUB_LOG.mcp.calls    tools/call counter (absent = not one call)
+#   $CODEX_STUB_LOG.mcp.cfg.N    $CODEX_HOME/config.toml as it was AT call N
+#   $CODEX_STUB_LOG.mcp.auth.N   present|absent of $CODEX_HOME/auth.json at call N
+#   $CODEX_STUB_LOG.mcp.codeword the codeword RECOVERED from call 1's prompt
+#   $CODEX_STUB_LOG.mcp.call1.*  model/effort/cwd as call 1 asked for them
 #
 # bash 3.2 compatible on purpose: this runs under whatever /bin/bash the
 # platform ships.
@@ -90,7 +119,7 @@ if [ "${1:-}" = "--version" ]; then
   rc="${CODEX_STUB_VERSION_RC:-0}"
   [ "$SCENARIO" = "version-fail" ] && rc="${CODEX_STUB_VERSION_RC:-1}"
   if [ "$rc" -eq 0 ]; then
-    printf 'codex-cli 0.0.0-stub\n'
+    printf '%s\n' "${CODEX_STUB_VERSION_TEXT:-codex-cli 0.0.0-stub}"
   else
     printf 'codex-stub: simulated broken install\n' >&2
   fi
@@ -146,6 +175,244 @@ if [ "${1:-}" = "debug" ]; then
     stub_prev="$a"
   done
   exit "${CODEX_STUB_DEBUG_RC:-0}"
+fi
+
+# --- mcp-server branch ------------------------------------------------------
+# `codex mcp-server` speaks ndjson JSON-RPC over stdio. It shares NOTHING with
+# the exec branch below: its own records (.mcp.*), and it never advances the
+# exec invocation counter, so "not one real turn" stays a countable fact for
+# both transports at once.
+#
+# The frame shapes below are the ones captured from the REAL 0.144.4 server in
+# tests/fixtures/mcp-0.144.4/ (tests/mcp-fixture-conformance.test.sh contrasts
+# the two and fails on divergence). The `turn_context` line of the rollout is
+# the one shape with NO captured fixture yet — it costs a paid turn — so the
+# stub emits a plausible item and the script's discriminator is value based
+# rather than key based on purpose.
+if [ "${1:-}" = "mcp-server" ]; then
+  MCP_SCEN="${CODEX_STUB_MCP_SCENARIO:-ok}"
+  MCP_TID="${CODEX_STUB_MCP_THREAD_ID:-thr_mcp_stub_1}"
+  MCP_HOME="${CODEX_HOME:-}"
+
+  # The `garbage` scenario writes junk BEFORE every frame: a client polling an
+  # NDJSON file while it is being written must skip whatever jq refuses and
+  # re-poll instead of breaking.
+  mcp_noise() {
+    [ "$MCP_SCEN" = "garbage" ] || return 0
+    printf 'this line is not json at all\n'
+    printf '{"jsonrpc":"2.0","id":\n'
+    return 0
+  }
+
+  # mcp_idjson <raw> — the id as JSON: a number stays a number, anything else
+  # becomes a string instead of invalid JSON.
+  mcp_idjson() {
+    case "$1" in
+      '' | *[!0-9]*) jq -nc --arg i "$1" '$i' ;;
+      *) printf '%s' "$1" ;;
+    esac
+  }
+
+  mcp_initialize() {
+    mcp_noise
+    printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{"listChanged":true}},"serverInfo":{"name":"codex-mcp-server","title":"Codex","version":"0.144.4","user_agent":"codex_cli_rs/0.144.4 (stub)"}}}\n' \
+      "$(mcp_idjson "$1")"
+  }
+
+  mcp_tools_list() {
+    mcp_noise
+    if [ "$MCP_SCEN" = "no-tools" ]; then
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[]}}\n' "$(mcp_idjson "$1")"
+      return 0
+    fi
+    printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[' "$(mcp_idjson "$1")"
+    printf '{"name":"codex","title":"Codex","description":"Run a Codex session. Accepts configuration parameters matching the Codex Config struct.","inputSchema":{"additionalProperties":false,"properties":'
+    printf '{"approval-policy":{"description":"Approval policy for shell commands generated by the model.","type":"string","enum":["untrusted","on-request","never"]},'
+    printf '"base-instructions":{"description":"The set of instructions to use instead of the default ones.","type":"string"},'
+    printf '"compact-prompt":{"description":"Prompt used when compacting the conversation.","type":"string"},'
+    printf '"config":{"description":"Individual config settings that will override what is in CODEX_HOME/config.toml.","type":"object","additionalProperties":true},'
+    printf '"cwd":{"description":"Working directory for the session. If relative, it is resolved against the server process current working directory.","type":"string"},'
+    printf '"developer-instructions":{"description":"Developer instructions that should be injected as a developer role message.","type":"string"},'
+    printf '"model":{"description":"Optional override for the model name.","type":"string"},'
+    printf '"prompt":{"description":"The initial user prompt to start the Codex conversation.","type":"string"},'
+    printf '"sandbox":{"description":"Sandbox mode.","type":"string","enum":["read-only","workspace-write","danger-full-access"]}},'
+    printf '"required":["prompt"],"type":"object"},"outputSchema":{"type":"object","properties":{"threadId":{"type":"string"},"content":{"type":"string"}},"required":["threadId","content"]}},'
+    printf '{"name":"codex-reply","title":"Codex Reply","description":"Continue a Codex conversation by providing the thread id and prompt.","inputSchema":{"properties":'
+    printf '{"conversationId":{"description":"DEPRECATED: use threadId instead.","type":"string"},'
+    printf '"prompt":{"description":"The next user prompt to continue the Codex conversation.","type":"string"},'
+    printf '"threadId":{"description":"The thread id for this Codex session.","type":"string"}},'
+    printf '"required":["prompt"],"type":"object"},"outputSchema":{"type":"object","properties":{"threadId":{"type":"string"},"content":{"type":"string"}},"required":["threadId","content"]}}'
+    printf ']}}\n'
+    return 0
+  }
+
+  # The rollout the real server writes through its RolloutRecorder:
+  # CODEX_HOME/sessions/YYYY/MM/DD/rollout-…-<ThreadId>.jsonl, one turn_context
+  # item appended per turn.
+  # mcp_rollout_append <model> <effort> <cwd> [approval] [sandbox] — one
+  # turn_context line. The last two default to the pinned policy; a scenario
+  # passes them to emit a DEGRADED context on purpose.
+  mcp_rollout_append() {
+    local model="$1" effort="$2" cwd="$3" approval="${4:-never}" sandbox="${5:-read-only}" dir file
+    [ "${CODEX_STUB_MCP_ROLLOUT:-0}" = "1" ] || return 0
+    [ -n "$MCP_HOME" ] || return 0
+    dir="$MCP_HOME/sessions/2026/08/02"
+    mkdir -p "$dir" 2>/dev/null || return 0
+    file="$dir/rollout-2026-08-02T00-00-00-$MCP_TID.jsonl"
+    printf '{"type":"turn_context","payload":{"cwd":"%s","approval_policy":"%s","sandbox_policy":{"mode":"%s"},"model":"%s","effort":"%s"}}\n' \
+      "$cwd" "$approval" "$sandbox" "$model" "$effort" >>"$file"
+    return 0
+  }
+
+  # The model/effort the home's config.toml carries RIGHT NOW — how a server
+  # that re-read the user config on a continuation would behave.
+  mcp_cfg_field() {
+    [ -n "$MCP_HOME" ] || return 0
+    [ -f "$MCP_HOME/config.toml" ] || return 0
+    LC_ALL=C sed -n "s/^$1 = \"\(.*\)\"\$/\1/p" "$MCP_HOME/config.toml" 2>/dev/null | head -n 1
+  }
+
+  mcp_ok_result() {
+    local id="$1" text="$2"
+    mcp_noise
+    jq -nc --argjson id "$(mcp_idjson "$id")" --arg t "$MCP_TID" --arg c "$text" \
+      '{jsonrpc:"2.0", id:$id,
+        result:{content:[{type:"text", text:$c}],
+                structuredContent:{threadId:$t, content:$c}, isError:false}}'
+  }
+
+  mcp_error_result() {
+    local id="$1" text="$2"
+    mcp_noise
+    jq -nc --argjson id "$(mcp_idjson "$id")" --arg c "$text" \
+      '{jsonrpc:"2.0", id:$id, result:{content:[{type:"text", text:$c}], isError:true}}'
+  }
+
+  mcp_call() {
+    local id="$1" line="$2" n=0 tool prompt model effort cwd cw
+    n=0
+    if [ -f "$CODEX_STUB_LOG.mcp.calls" ]; then
+      n="$(cat "$CODEX_STUB_LOG.mcp.calls" 2>/dev/null || printf '0')"
+    fi
+    case "$n" in '' | *[!0-9]*) n=0 ;; esac
+    n=$((n + 1))
+    printf '%s\n' "$n" >"$CODEX_STUB_LOG.mcp.calls"
+
+    # Snapshots taken AT the call: this is what makes a config rewritten
+    # BETWEEN two calls observable from a test.
+    if [ -n "$MCP_HOME" ] && [ -f "$MCP_HOME/config.toml" ]; then
+      cp "$MCP_HOME/config.toml" "$CODEX_STUB_LOG.mcp.cfg.$n" 2>/dev/null || true
+    fi
+    if [ -n "$MCP_HOME" ] && [ -f "$MCP_HOME/auth.json" ]; then
+      printf 'present\n' >"$CODEX_STUB_LOG.mcp.auth.$n"
+    else
+      printf 'absent\n' >"$CODEX_STUB_LOG.mcp.auth.$n"
+    fi
+
+    if [ "$MCP_SCEN" = "hang-call" ]; then
+      if [ "${CODEX_STUB_MCP_HANG_RESISTANT:-0}" = "1" ]; then
+        (
+          trap '' TERM
+          sleep "${CODEX_STUB_HANG_SECONDS:-600}"
+        ) &
+        if [ -n "${CODEX_STUB_HANG_PIDFILE:-}" ]; then
+          printf '%s\n' "$!" >"$CODEX_STUB_HANG_PIDFILE"
+        fi
+      fi
+      # No answer, ever: only the client's watchdog can end this.
+      sleep "${CODEX_STUB_HANG_SECONDS:-600}"
+      return 0
+    fi
+    if [ "$MCP_SCEN" = "auth-error" ]; then
+      mcp_error_result "$id" \
+        'Error: 401 Unauthorized — the stored token was rejected. Run `codex login`.'
+      return 0
+    fi
+
+    tool="$(printf '%s' "$line" | jq -r '.params.name // empty' 2>/dev/null)"
+    if [ "$tool" = "codex" ]; then
+      model="$(printf '%s' "$line" | jq -r '.params.arguments.model // empty' 2>/dev/null)"
+      effort="$(printf '%s' "$line" | jq -r '.params.arguments.config["model_reasoning_effort"] // empty' 2>/dev/null)"
+      cwd="$(printf '%s' "$line" | jq -r '.params.arguments.cwd // empty' 2>/dev/null)"
+      printf '%s' "$model" >"$CODEX_STUB_LOG.mcp.call1.model"
+      printf '%s' "$effort" >"$CODEX_STUB_LOG.mcp.call1.effort"
+      printf '%s' "$cwd" >"$CODEX_STUB_LOG.mcp.call1.cwd"
+      # The codeword is RECOVERED from what call 1 actually sent, never
+      # hardcoded: an answer built from a value the stub knew in advance would
+      # prove nothing about memory.
+      prompt="$(printf '%s' "$line" | jq -r '.params.arguments.prompt // empty' 2>/dev/null)"
+      cw="$(printf '%s\n' "$prompt" | LC_ALL=C sed -n 's/^codeword: //p' | head -n 1)"
+      if [ -n "$cw" ]; then
+        printf '%s\n' "$cw" >"$CODEX_STUB_LOG.mcp.codeword"
+      fi
+      mcp_rollout_append "$model" "$effort" "$cwd"
+      mcp_ok_result "$id" "OK"
+      return 0
+    fi
+
+    # codex-reply: the continuation.
+    # `reply-error`: the call fails and appends NOTHING — the case that would let
+    # a probe read call 1's own turn_context and certify a failed continuation.
+    if [ "$MCP_SCEN" = "reply-error" ]; then
+      mcp_error_result "$id" "the continuation failed: model stream error"
+      return 0
+    fi
+    # `reply-silent`: the call SUCCEEDS but appends no turn_context — same trap,
+    # without an error to notice it by.
+    if [ "$MCP_SCEN" = "reply-silent" ]; then
+      mcp_ok_result "$id" "OK"
+      return 0
+    fi
+    # `reply-no-thread`: a perfectly good continuation that appends a pinned
+    # context but echoes NO threadId — the answer cannot be tied to the thread.
+    if [ "$MCP_SCEN" = "reply-no-thread" ]; then
+      model="$(cat "$CODEX_STUB_LOG.mcp.call1.model" 2>/dev/null || printf '')"
+      effort="$(cat "$CODEX_STUB_LOG.mcp.call1.effort" 2>/dev/null || printf '')"
+      cwd="$(cat "$CODEX_STUB_LOG.mcp.call1.cwd" 2>/dev/null || printf '')"
+      mcp_rollout_append "$model" "$effort" "$cwd"
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"content":[{"type":"text","text":"OK"}],"structuredContent":{"content":"OK"}}}\n' "$id"
+      return 0
+    fi
+    # `unsafe-inherited`: model and effort are inherited correctly, but the
+    # continuation's turn_context carries a DEGRADED sandbox/approval — the half
+    # of the promise that a model-only check would miss.
+    if [ "$MCP_SCEN" = "unsafe-inherited" ]; then
+      model="$(cat "$CODEX_STUB_LOG.mcp.call1.model" 2>/dev/null || printf '')"
+      effort="$(cat "$CODEX_STUB_LOG.mcp.call1.effort" 2>/dev/null || printf '')"
+      cwd="$(cat "$CODEX_STUB_LOG.mcp.call1.cwd" 2>/dev/null || printf '')"
+      mcp_rollout_append "$model" "$effort" "$cwd" "on-request" "danger-full-access"
+      mcp_ok_result "$id" "OK"
+      return 0
+    fi
+    # `hostile-inherited` is the server that RE-READ the home's config.toml, so
+    # its turn_context echoes whatever sits there now instead of call 1's pins.
+    if [ "$MCP_SCEN" = "hostile-inherited" ]; then
+      model="$(mcp_cfg_field model)"
+      effort="$(mcp_cfg_field model_reasoning_effort)"
+    else
+      model="$(cat "$CODEX_STUB_LOG.mcp.call1.model" 2>/dev/null || printf '')"
+      effort="$(cat "$CODEX_STUB_LOG.mcp.call1.effort" 2>/dev/null || printf '')"
+    fi
+    cwd="$(cat "$CODEX_STUB_LOG.mcp.call1.cwd" 2>/dev/null || printf '')"
+    mcp_rollout_append "$model" "$effort" "$cwd"
+    mcp_ok_result "$id" "OK"
+    return 0
+  }
+
+  while IFS= read -r mcp_line; do
+    [ -n "$mcp_line" ] || continue
+    printf '%s\n' "$mcp_line" >>"$CODEX_STUB_LOG.mcp.in"
+    mcp_method="$(printf '%s' "$mcp_line" | jq -r '.method // empty' 2>/dev/null)"
+    mcp_id="$(printf '%s' "$mcp_line" | jq -r 'if has("id") then (.id | tostring) else "" end' 2>/dev/null)"
+    case "$mcp_method" in
+      initialize) mcp_initialize "$mcp_id" ;;
+      notifications/initialized) : ;;
+      tools/list) mcp_tools_list "$mcp_id" ;;
+      tools/call) mcp_call "$mcp_id" "$mcp_line" ;;
+      *) : ;;
+    esac
+  done
+  exit 0
 fi
 
 # --- exec branch ------------------------------------------------------------

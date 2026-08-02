@@ -35,7 +35,7 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
 | M16 | Status: `PA_VALID` verifica los invariantes reales de la aprobación | UX | P2 | S | hecha (v0.23.0) |
 | M17 | Status: resolución multi-raíz con reconciliación o contradicción explícita | UX | P2 | M | hecha (v0.25.0) |
 | M18 | Doctor: parser de versión estricto en el gate crítico | Diagnóstico | P2 | S | hecha (v0.24.0) |
-| M19 | Fase 2: probes de comportamiento del transporte MCP | Transporte | P2 | M | pendiente |
+| M19 | Fase 2: probes de comportamiento del transporte MCP | Transporte | P2 | M | hecha (v0.26.0) |
 | M20 | Fase 2: `TANDEM_TRANSPORT=mcp` en los wrappers (contingente a M19) | Transporte | P2 | L | pendiente |
 
 ## Orden de ataque recomendado

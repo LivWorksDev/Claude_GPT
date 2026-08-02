@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.26.0 — 2026-08-02
+
+- **`scripts/mcp-probe.sh`: el instrumento que decide la Fase 2** (M19, primera de la
+  Cola 4). Cuatro probes sobre `codex mcp-server` con evidencia archivada bajo
+  `.tandem/state/mcp-probe/<run>/` y línea parseable por probe
+  (`PROBE <n>: PASS|FAIL|INDETERMINABLE|STATIC|NOT_RUN — <razón> (evidence: <ruta>)`):
+  (b) auth con un CODEX_HOME propiedad de tandem, (c) herencia congelada de `codex-reply`
+  frente a un config.toml reescrito entre llamadas, (a) el híbrido rollout →
+  `codex exec resume` tras matar el servidor, (d) elicitation bajo `never`.
+- **Cero cuota sin `--spend`**, con el presupuesto por probe impreso ANTES del primer
+  turno; DAG de dependencias `b → c → a` con saltos `NOT_RUN` de cero turnos; watchdog
+  vencido es SIEMPRE `INDETERMINABLE` (jamás FAIL: no prueba nada más que "sin respuesta")
+  y ningún estado no-verde produce exit 0.
+- **Seguridad por construcción:** la reescritura hostil del probe (c) solo puede cambiar
+  modelo y effort — todos los campos de seguridad se derivan de `codex_pins()`, así que la
+  config tandem y la hostil llevan seguridad byte-idéntica. Degradarlas antes del turno
+  cuya premisa es que no se heredan habría corrido un turno pagado sin contención en la
+  máquina del usuario (hallazgo del red-team).
+- **Veredictos estáticos atados a la versión auditada** (0.144.4): en cualquier otra CLI
+  degradan a `INDETERMINABLE` en vez de dar verde por código que esa versión no contiene.
+- **Fixtures reales commiteados** (`tests/fixtures/mcp-0.144.4/`, captura de cero turnos):
+  handshake crudo, `initialize` y `tools/list` con los inputSchema completos; un test de
+  conformance ata stub y parser a esos bytes, y el job semanal `config-drift` gana dos
+  pasos SIN GASTO que comparan el handshake real (pineada y `@latest`) contra ellos.
+- Suite: 79 ficheros (de 73): 6 tests nuevos (gating, veredictos, evidencia exigida,
+  timeout/cleanup, evidencia, conformance) contra un stub `mcp-server` con 10 escenarios y namespace de
+  registros propio.
+
 ## 0.25.0 — 2026-08-02
 
 - **`/tandem:status` reconcilia TODAS las raíces de estado o para con contradicción

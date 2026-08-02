@@ -242,6 +242,62 @@ jobs:
           codex --version
           bash "$GITHUB_WORKSPACE/scripts/config-probe.sh"
 
+      # The MCP tool surface drifts the same way a config key does, and the
+      # interface is declared experimental upstream. This costs NOTHING: the
+      # handshake (initialize + tools/list) needs no auth and issues no
+      # tools/call, so it is a real-server check that can live outside the
+      # secret gate, exactly like the config probe above.
+      - name: probe A2 — the pinned CLI still serves the audited MCP tool surface
+        id: mcp_a
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          codex --version
+          home="$(mktemp -d)"
+          out="$(mktemp)"
+          # Handshake only: initialize + tools/list. No tools/call, so no turn.
+          # stdin is held open by the trailing sleep — the server exits on EOF
+          # and would otherwise die before answering.
+          {
+            printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"tandem-drift","version":"1"}}}'
+            printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+            printf '%s\n' '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
+            sleep 15
+          } | CODEX_HOME="$home" codex mcp-server >"$out" 2>"$home/stderr.log" || true
+          # The FUNCTIONAL schema, not just its names: a removed `never` from the
+          # approval enum or a `read-only` gone from the sandbox enum is exactly
+          # the change that invalidates containment, and comparing key names
+          # alone would stay green through it. Types, enums and
+          # additionalProperties are part of the contract too.
+          q='[.result.tools[] | {name,
+               props:(.inputSchema.properties // {} | to_entries
+                      | map({k:.key, type:.value.type, enum:(.value.enum // []),
+                             addl:(.value.additionalProperties)})
+                      | sort_by(.k)),
+               schema_type:(.inputSchema.type),
+               required:((.inputSchema.required // []) | sort),
+               addl:(.inputSchema.additionalProperties),
+               out_props:(.outputSchema.properties // {} | to_entries
+                          | map({k:.key, type:.value.type}) | sort_by(.k)),
+               out_required:((.outputSchema.required // []) | sort)}]
+             | sort_by(.name)'
+          jq -Rc 'fromjson? | objects | select(.id == 2)' "$out" >"$home/frames.json" || true
+          got="$(head -n 1 "$home/frames.json" | jq -S -c "$q" || true)"
+          want="$(jq -S -c "$q" "$GITHUB_WORKSPACE/tests/fixtures/mcp-0.144.4/tools-list.json")"
+          if [ "$got" = "$want" ]; then
+            echo "MCP tool surface matches tests/fixtures/mcp-0.144.4/tools-list.json"
+            exit 0
+          fi
+          {
+            echo '### MCP tool surface drift (pinned 0.144.4)'
+            echo '```'
+            echo "want: $want"
+            echo "got:  ${got:-<no tools/list frame>}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::the MCP tool surface no longer matches the audited fixture"
+          exit 1
+
       - name: probe B — @latest still knows every pinned config key
         id: probe_b
         continue-on-error: true
@@ -252,11 +308,61 @@ jobs:
           echo "resolved \`@openai/codex@latest\` = \`$ver\`" >> "$GITHUB_STEP_SUMMARY"
           bash "$GITHUB_WORKSPACE/scripts/config-probe.sh"
 
+      - name: probe B2 — @latest still serves the audited MCP tool surface
+        id: mcp_b
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          codex --version
+          home="$(mktemp -d)"
+          out="$(mktemp)"
+          {
+            printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"tandem-drift","version":"1"}}}'
+            printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+            printf '%s\n' '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
+            sleep 15
+          } | CODEX_HOME="$home" codex mcp-server >"$out" 2>"$home/stderr.log" || true
+          # The FUNCTIONAL schema, not just its names: a removed `never` from the
+          # approval enum or a `read-only` gone from the sandbox enum is exactly
+          # the change that invalidates containment, and comparing key names
+          # alone would stay green through it. Types, enums and
+          # additionalProperties are part of the contract too.
+          q='[.result.tools[] | {name,
+               props:(.inputSchema.properties // {} | to_entries
+                      | map({k:.key, type:.value.type, enum:(.value.enum // []),
+                             addl:(.value.additionalProperties)})
+                      | sort_by(.k)),
+               schema_type:(.inputSchema.type),
+               required:((.inputSchema.required // []) | sort),
+               addl:(.inputSchema.additionalProperties),
+               out_props:(.outputSchema.properties // {} | to_entries
+                          | map({k:.key, type:.value.type}) | sort_by(.k)),
+               out_required:((.outputSchema.required // []) | sort)}]
+             | sort_by(.name)'
+          jq -Rc 'fromjson? | objects | select(.id == 2)' "$out" >"$home/frames.json" || true
+          got="$(head -n 1 "$home/frames.json" | jq -S -c "$q" || true)"
+          want="$(jq -S -c "$q" "$GITHUB_WORKSPACE/tests/fixtures/mcp-0.144.4/tools-list.json")"
+          if [ "$got" = "$want" ]; then
+            echo "MCP tool surface of @latest matches the audited fixture"
+            exit 0
+          fi
+          {
+            echo '### MCP tool surface drift (@latest)'
+            echo '```'
+            echo "want: $want"
+            echo "got:  ${got:-<no tools/list frame>}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::@latest no longer serves the audited MCP tool surface"
+          exit 1
+
       - name: drift summary
         if: always()
         env:
           PA: ${{ steps.probe_a.outcome }}
           PB: ${{ steps.probe_b.outcome }}
+          MA: ${{ steps.mcp_a.outcome }}
+          MB: ${{ steps.mcp_b.outcome }}
         run: |
           set -uo pipefail
           {
@@ -266,6 +372,8 @@ jobs:
             echo "| --- | --- |"
             echo "| A — pinned 0.144.4 | ${PA:-skipped} |"
             echo "| B — @latest | ${PB:-skipped} |"
+            echo "| A2 — MCP tool surface, pinned 0.144.4 | ${MA:-skipped} |"
+            echo "| B2 — MCP tool surface, @latest | ${MB:-skipped} |"
           } >> "$GITHUB_STEP_SUMMARY"
           # The steps tolerate their own failure so that a dead pin in one CLI
           # still lets the other be probed; the SIGNAL has to survive that, or a
@@ -274,4 +382,6 @@ jobs:
           rc=0
           [ "${PA:-skipped}" = "failure" ] && rc=1
           [ "${PB:-skipped}" = "failure" ] && rc=1
+          [ "${MA:-skipped}" = "failure" ] && rc=1
+          [ "${MB:-skipped}" = "failure" ] && rc=1
           exit "$rc"
