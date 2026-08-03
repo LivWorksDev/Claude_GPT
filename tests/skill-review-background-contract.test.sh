@@ -21,8 +21,8 @@
 # per codex launch and writes:
 #   <prefix>.<n>         the section, whitespace-flattened (Markdown wraps; a
 #                        re-wrapped sentence is the same contract)
-#   <prefix>.launches    one "<kind> <mode> <section-path>" record per launch,
-#                        in order
+#   <prefix>.launches    one "<kind> <mode> <script> <section-path>" record per
+#                        launch, in order
 # Every line of the file belongs to exactly ONE section: the launch block it is
 # closest to (ties go to the earlier block). Commands are accumulated across
 # backslash continuations, like the worktree and turn-effort contracts, so a
@@ -32,6 +32,13 @@
 # two of them: the pipeline (`cr-<slug>`) and the out-of-pipeline range review
 # (`range-review-<label>`). Each group is then counted and judged on its own —
 # a file-wide total would let a lost pipeline launch be masked by a range one.
+#
+# The SCRIPT (`codex-start.sh` vs `codex-resume.sh`) is the third axis, and the
+# only one that can express the mcp rule: a START is the one turn that arms the
+# MCP watchdog, so under that transport it loses the small-input exception,
+# while a continuation is a plain `codex exec resume` turn that keeps it. A
+# file-level grep could not tell them apart — the exception legitimately
+# survives in the resume sections — so the rule is judged per launch here.
 split_launches() {
   local f="$1" pfx="$2"
   local line stripped cmd="" cont=0 fence=0 n=0 i=0 k=0 nl=0
@@ -45,6 +52,7 @@ split_launches() {
   BEND=()
   BKIND=()
   BMODE=()
+  BSCRIPT=()
 
   # classify_cmd <command-text> — counts the launches of the block being read.
   classify_cmd() {
@@ -88,6 +96,11 @@ split_launches() {
             case "$blk_cmd" in
               *range-review-*) BMODE[n]="range" ;;
               *) BMODE[n]="pipeline" ;;
+            esac
+            case "$blk_cmd" in
+              *codex-start.sh*) BSCRIPT[n]="start" ;;
+              *codex-resume.sh*) BSCRIPT[n]="resume" ;;
+              *) BSCRIPT[n]="unknown" ;;
             esac
           fi
         else
@@ -149,31 +162,42 @@ split_launches() {
   k=1
   while [ "$k" -le "$n" ]; do
     LC_ALL=C tr '\n' ' ' <"$pfx.$k.raw" | LC_ALL=C tr -s ' ' >"$pfx.$k"
-    printf '%s %s %s\n' "${BKIND[k]}" "${BMODE[k]}" "$pfx.$k" >>"$pfx.launches"
+    printf '%s %s %s %s\n' "${BKIND[k]}" "${BMODE[k]}" "${BSCRIPT[k]}" "$pfx.$k" \
+      >>"$pfx.launches"
     k=$((k + 1))
   done
 }
 
 # check_skill <skill-file> <prefix> <small-input-noun>
 #             <pipeline-real> <pipeline-nudges> <range-real> <range-nudges>
+#             <mcp-start-rule>
 # The four counts are EXACT and per group: the launches this contract knows how
 # to reason about, in the mode they belong to. A lost pipeline launch, a nudge
 # that became a fourth launch, or a range branch that quietly disappeared are
 # all different bugs — and none of them may be absorbed by another group's count.
+#
+# <mcp-start-rule> is 1 for the skill whose role the mcp transport supports: its
+# real START launches must carry the mcp background rule as well as everything
+# below. Resume and nudge launches are judged EXACTLY as before either way —
+# they are `codex exec resume` turns, with no MCP watchdog to outlive.
 check_skill() {
   local f="$1" pfx="$2" noun="$3"
-  local want_pr="$4" want_pn="$5" want_rr="$6" want_rn="$7"
-  local kind mode sec real=0 nudges=0 rreal=0 rnudges=0
+  local want_pr="$4" want_pn="$5" want_rr="$6" want_rn="$7" want_mcp="${8:-0}"
+  local kind mode script sec real=0 nudges=0 rreal=0 rnudges=0
   # Single quotes: the phrase carries backticks and must never be re-evaluated.
   local exception='foreground with `timeout: 600000` only for small '"$noun"
 
   split_launches "$f" "$pfx"
 
-  while read -r kind mode sec; do
+  while read -r kind mode script sec; do
     [ -n "$kind" ] || continue
     case "$mode" in
       pipeline | range) : ;;
       *) fail "$f: unknown launch mode [$mode]" ;;
+    esac
+    case "$script" in
+      start | resume) : ;;
+      *) fail "$f: a launch runs neither codex-start.sh nor codex-resume.sh [$script]" ;;
     esac
     case "$kind" in
       real)
@@ -192,6 +216,17 @@ check_skill() {
         LC_ALL=C sed "s|$exception||g" <"$sec" >"$sec.noexc"
         assert_not_contains "$sec.noexc" 'timeout: 600000'
         assert_not_contains "$sec" 'Bash timeout: 600000'
+        # …and, for the role the mcp transport serves, a START loses that
+        # exception entirely under `mcp`: it is the only turn that arms the MCP
+        # watchdog, whose review default sits ABOVE the foreground cap, so a
+        # foreground start would be killed by the tool before the watchdog could
+        # classify the hang and account the turn. The escape hatch is named, so
+        # the rule is actionable instead of merely prohibitive.
+        if [ "$want_mcp" = "1" ] && [ "$script" = "start" ]; then
+          assert_file_contains "$sec" '`TANDEM_TRANSPORT=mcp`'
+          assert_file_contains "$sec" 'Under `mcp` this launch is `run_in_background: true` ALWAYS'
+          assert_file_contains "$sec" 'TANDEM_MCP_TIMEOUT_SECONDS'
+        fi
         ;;
       nudge)
         if [ "$mode" = "range" ]; then rnudges=$((rnudges + 1)); else nudges=$((nudges + 1)); fi
@@ -214,11 +249,14 @@ check_skill() {
   note "$(basename "$(dirname "$f")")/SKILL.md — pipeline: $real real + $nudges nudge · range: $rreal real + $rnudges nudge"
 }
 
-check_skill "$REPO_ROOT/skills/plan/SKILL.md" "$SANDBOX/plan" "plans" 2 1 0 0
+# plan launches the `review` ROLE too, but its opt-in note is not part of this
+# hop (docs/plans/mcp-transport-review.plan.md, Files to touch): 0.
+check_skill "$REPO_ROOT/skills/plan/SKILL.md" "$SANDBOX/plan" "plans" 2 1 0 0 0
 # review carries both modes: the pipeline review (start + resume + nudge) and
 # the out-of-pipeline range review (start-range + resume-range + nudge), each
-# with the same background/barrier guarantees.
-check_skill "$REPO_ROOT/skills/review/SKILL.md" "$SANDBOX/review" "diffs" 2 1 2 1
+# with the same background/barrier guarantees — and, in both modes, the mcp rule
+# on the START launch alone.
+check_skill "$REPO_ROOT/skills/review/SKILL.md" "$SANDBOX/review" "diffs" 2 1 2 1 1
 
 # --- the barrier language itself, once per skill -----------------------------
 # Markdown wraps, so the prose anchors are judged on a flattened copy.

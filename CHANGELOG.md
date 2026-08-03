@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.28.0 — 2026-08-03
+
+- **Segundo salto de la Fase 2: `TANDEM_TRANSPORT=mcp` para el rol `review`** (M20b).
+  El gate compartido pasa a un case CERRADO `ask | review` (cualquier otro rol → 64
+  nombrando M20c) y cubre los DOS modos del rol — pipeline (`cr-<slug>`) y range
+  (`range-review-<label>`), que comparten wrapper — con paridad total de artefactos por
+  el camino compartido de M20a: cero ramas nuevas en los wrappers, solo gate + watchdog
+  + cobertura.
+- **Watchdog por ROL:** `review` estrena `TANDEM_MCP_TIMEOUT_DEFAULT_REVIEW=3600` — sus
+  turnos xhigh corren en background precisamente porque superan los 10 minutos, y el
+  default de 540s (atado al cap foreground de Bash, correcto para `ask`) los mataría a
+  los 9. `TANDEM_MCP_TIMEOUT_SECONDS` sigue ganando para cualquier rol.
+- **Bug latente cerrado:** `TANDEM_MCP_TIMEOUT_SECONDS=` (definido-pero-vacío) caía en
+  SILENCIO al default por el `:-` — el rechazo de vacío era inalcanzable. Disciplina
+  `${VAR+set}` (la de TANDEM_TURN_EFFORT/TANDEM_TRANSPORT): vacío → 64 en ambos
+  wrappers, nunca una espera de una hora por un error de config.
+- **La regla de background bajo mcp es contrato ejecutable POR LANZAMIENTO:** el
+  clasificador de `skill-review-background-contract` gana el eje start/resume — los
+  STARTS mcp (los únicos turnos que arman el watchdog) pierden la excepción foreground
+  small-diff; los resumes híbridos (turnos exec) y los nudges quedan intactos.
+  `skills/review/SKILL.md` documenta el opt-in en ambos modos sin cambiar ningún
+  comando; `skills/ask/SKILL.md` deja de decir "`ask` only" (hallazgo Minor de la code
+  review) con ancla anti-drift de la frase de roles compartida en ambas skills.
+- Suite: 82 ficheros (de 81): `mcp-transport-review` (comportamental — paridad
+  pipeline+range con los params del rol en el call frame, resume híbrido honesto,
+  watchdog por rol, override vacío → 64, cwd con espacios, gate image→64); el caso de
+  gate del test de ask migra a `implement`; contrato estático del watchdog re-atado por
+  rol (540/3600, con orden entre ambos).
+
 ## 0.27.0 — 2026-08-03
 
 - **Primer salto de la Fase 2: `TANDEM_TRANSPORT=mcp` para el rol `ask`** (M20a, Cola 4).

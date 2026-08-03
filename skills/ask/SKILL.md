@@ -24,7 +24,7 @@ bash "$SCRIPTS/codex-start.sh" ask <topic-label> \
 
 Exit 2 → the topic already has a thread; use the follow-up form below (or reset if it is genuinely a new subject under an old name).
 
-**Transport (opt-in, `ask` only).** The default is `codex exec` and nothing about the commands below changes. Setting `TANDEM_TRANSPORT=mcp` routes the *new-topic* turn through `codex mcp-server` instead, with identical artefacts, `USAGE:` line and exit codes; follow-ups always continue through `codex exec resume`, because a thread does not survive the server that created it. Any other value, or `mcp` on another role, is a usage error (64).
+**Transport (opt-in).** The default is `codex exec` and nothing about the commands below changes. Setting `TANDEM_TRANSPORT=mcp` routes the *new-topic* turn through `codex mcp-server` instead, with identical artefacts, `USAGE:` line and exit codes; follow-ups always continue through `codex exec resume`, because a thread does not survive the server that created it. The transport serves the roles `ask` and `review` (the review skill documents its own background rule); any other value, or `mcp` on any other role, is a usage error (64).
 
 **Follow-up** — write it to `.tandem/tmp/<topic>-q.md` and (Bash timeout: 600000):
 

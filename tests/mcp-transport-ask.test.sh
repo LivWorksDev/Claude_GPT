@@ -237,18 +237,22 @@ done
 # any state mutation.
 assert_eq "4" "$(cat "$SD/$(tkey seeded).turn")" "turn counter after eight refusals"
 
-# `mcp` outside `ask` is refused by BOTH wrappers, naming the pending hops.
-seed_thread review scoped thr_scoped 2
+# `mcp` on a role this hop does NOT serve is refused by BOTH wrappers, naming
+# the pending one. `review` joined `ask` in M20b, so the role asserted here is
+# `implement` — the other still-excluded role, `image`, carries the same assert
+# in tests/mcp-transport-review.test.sh.
+seed_thread implement scoped thr_scoped 2
 for S in codex-start.sh codex-resume.sh; do
   rm -f "$CODEX_STUB_LOG".*
-  run env TANDEM_TRANSPORT=mcp bash "$SCRIPTS/$S" review scoped "$SANDBOX/p.tpl"
-  assert_rc 64 "$S with role review"
-  assert_file_contains "$ERR" "role ask only in this hop"
-  assert_file_contains "$ERR" "M20b/M20c"
+  run env TANDEM_TRANSPORT=mcp bash "$SCRIPTS/$S" implement scoped "$SANDBOX/p.tpl"
+  assert_rc 64 "$S with role implement"
+  assert_file_contains "$ERR" "supports roles ask and review in this hop"
+  assert_file_contains "$ERR" "M20c"
   assert_no_file "$CODEX_STUB_LOG.n"
   assert_no_file "$CODEX_STUB_LOG.mcp.in"
 done
-assert_eq "2" "$(cat "$(state_dir review)/$(tkey scoped).turn")" "review turn counter untouched"
+assert_eq "2" "$(cat "$(state_dir implement)/$(tkey scoped).turn")" \
+  "implement turn counter untouched"
 
 # =============================================================================
 # 5. the watchdog: a hung turn exits 1, the group dies, the ledger survives

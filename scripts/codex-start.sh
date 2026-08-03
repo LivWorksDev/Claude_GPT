@@ -10,9 +10,12 @@
 #      state and the heartbeat stay where CLAUDE_PROJECT_DIR points — see
 #      codex_cwd_validate/codex_pins in _common.sh for the whole policy block.
 #      TANDEM_TRANSPORT  exec (default) | mcp. `mcp` routes the turn through
-#      `codex mcp-server` and is supported for role `ask` only in this hop; every
-#      artefact, exit code and guard is identical either way (scripts/_mcp.sh).
-#      TANDEM_MCP_TIMEOUT_SECONDS  per-turn watchdog for the mcp transport.
+#      `codex mcp-server` and is supported for roles `ask` and `review` in this
+#      hop; every artefact, exit code and guard is identical either way
+#      (scripts/_mcp.sh).
+#      TANDEM_MCP_TIMEOUT_SECONDS  per-turn watchdog for the mcp transport; it
+#      overrides a default that is resolved PER ROLE (review gets a wide one —
+#      its turns run in the background and legitimately exceed ten minutes).
 #
 # exit codes: 0 ok · 1 codex failure · 2 thread already exists (resume instead)
 #             3 missing dependency · 64 usage error

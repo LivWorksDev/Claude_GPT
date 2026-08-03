@@ -36,7 +36,7 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
 | M17 | Status: resolución multi-raíz con reconciliación o contradicción explícita | UX | P2 | M | hecha (v0.25.0) |
 | M18 | Doctor: parser de versión estricto en el gate crítico | Diagnóstico | P2 | S | hecha (v0.24.0) |
 | M19 | Fase 2: probes de comportamiento del transporte MCP | Transporte | P2 | M | hecha (v0.26.0) |
-| M20 | Fase 2: `TANDEM_TRANSPORT=mcp` en los wrappers | Transporte | P2 | L | en curso — M20a `ask` hecha (v0.27.0); M20b review y M20c implement pendientes |
+| M20 | Fase 2: `TANDEM_TRANSPORT=mcp` en los wrappers | Transporte | P2 | L | en curso — M20a `ask` hecha (v0.27.0); M20b `review` hecha (v0.28.0); M20c implement pendiente |
 
 ## Orden de ataque recomendado
 

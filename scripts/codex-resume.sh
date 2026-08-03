@@ -16,7 +16,8 @@
 #                           run when a reply arrived without its VERDICT:/sentinel
 #                           line: re-emitting what is missing must not pay the
 #                           role's expensive reasoning. The sandbox is untouched.
-#        TANDEM_TRANSPORT   exec (default) | mcp. Validated here EXACTLY as in
+#        TANDEM_TRANSPORT   exec (default) | mcp, for roles `ask` and `review`
+#                           in this hop. Validated here EXACTLY as in
 #                           codex-start.sh, but a continuation is always the
 #                           HYBRID `codex exec resume`: `codex-reply` only exists
 #                           inside one invocation, and the thread dies with the

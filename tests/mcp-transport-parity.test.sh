@@ -174,8 +174,9 @@ assert_not_contains "$SANDBOX/relocate.sh" 'mv "$src"'
 assert_not_contains "$SANDBOX/relocate.sh" 'mv -f'
 
 # =============================================================================
-# 4. the watchdog default is TIED to the skills' foreground Bash timeout
+# 4. the watchdog defaults, re-tied PER ROLE
 # =============================================================================
+# ask: a FOREGROUND turn, so its default is tied to the Bash tool's ceiling.
 WD="$(LC_ALL=C sed -n 's|^TANDEM_MCP_TIMEOUT_DEFAULT=\([0-9][0-9]*\)$|\1|p' "$SCRIPTS/_mcp.sh" | head -n 1)"
 [ -n "$WD" ] || fail "_mcp.sh declares no TANDEM_MCP_TIMEOUT_DEFAULT"
 assert_eq "540" "$WD" "the per-turn watchdog default"
@@ -188,6 +189,32 @@ assert_eq "600000" "$SKILL_MS" "the skill's foreground Bash timeout, in ms"
 # the tool's ceiling would be killed before it could do any of it.
 [ $((WD * 1000)) -lt "$SKILL_MS" ] \
   || fail "the watchdog default (${WD}s) must stay below the skills' foreground Bash timeout (${SKILL_MS}ms)"
+
+# review: a BACKGROUND turn, where no Bash-tool ceiling applies and an xhigh
+# review legitimately runs past ten minutes — so its default is a separate
+# literal, deliberately ABOVE the foreground one. Keeping the ask value here
+# would kill the role's main use case; the rule that a review start under mcp
+# never runs in the foreground is the executable contract of
+# tests/skill-review-background-contract.test.sh, not a grep in this file.
+WDR="$(LC_ALL=C sed -n 's|^TANDEM_MCP_TIMEOUT_DEFAULT_REVIEW=\([0-9][0-9]*\)$|\1|p' \
+  "$SCRIPTS/_mcp.sh" | head -n 1)"
+[ -n "$WDR" ] || fail "_mcp.sh declares no TANDEM_MCP_TIMEOUT_DEFAULT_REVIEW"
+assert_eq "3600" "$WDR" "the review watchdog default"
+[ "$WDR" -gt "$WD" ] \
+  || fail "the review watchdog default (${WDR}s) must exceed the foreground one (${WD}s) — otherwise it has no reason to exist"
+# Both are mandatory: a role default that is not a positive integer would be the
+# "no watchdog" degradation the transport exists to forbid.
+case "$WD$WDR" in *[!0-9]*) fail "the watchdog defaults are not plain integers" ;; esac
+
+# --- the user-facing role set, named consistently wherever the transport is
+# documented. The gate is a closed `ask | review` case in transport_resolve; a
+# skill note still claiming "`ask` only" is factually wrong guidance — exactly
+# what M20b's widening left behind in the ask skill until review caught it. One
+# shared phrase, greppable in both skills that document the transport.
+for f in "$REPO_ROOT/skills/ask/SKILL.md" "$REPO_ROOT/skills/review/SKILL.md"; do
+  assert_file_contains "$f" 'the roles `ask` and `review`'
+done
+assert_not_contains "$REPO_ROOT/skills/ask/SKILL.md" '`ask` only'
 
 # =============================================================================
 # 5. conformance: the REAL frames, replayed through the REAL adapter

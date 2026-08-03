@@ -34,6 +34,19 @@
 # tests/mcp-transport-parity.test.sh ties the two numbers together statically.
 TANDEM_MCP_TIMEOUT_DEFAULT=540
 
+# …and the default for `review`, which is a DIFFERENT problem. A review at
+# xhigh runs in the BACKGROUND precisely because it regularly exceeds ten
+# minutes (skills/review/SKILL.md), where no Bash-tool ceiling applies, so the
+# 540 s above would kill the role's main use case. The value lives here rather
+# than in the skill on purpose: delegating it to "export
+# TANDEM_MCP_TIMEOUT_SECONDS on every launch" turns one forgotten line of
+# documentation into reviews that die at nine minutes — fail-open in practice.
+# A per-role default is fail-closed even when the caller configures nothing.
+# 3600 is a CHOSEN bound (the xhigh turns observed in this repo take ~10–25
+# min), not a measured one; TANDEM_MCP_TIMEOUT_SECONDS exists for the extreme
+# case, and the timeout message names it.
+TANDEM_MCP_TIMEOUT_DEFAULT_REVIEW=3600
+
 # --- the shared transport validator ------------------------------------------
 # transport_resolve <role> <start|resume> — called by codex-start.sh AND
 # codex-resume.sh BEFORE any dependency check and before a single byte of state
@@ -72,16 +85,25 @@ transport_resolve() {
       die "TANDEM_TRANSPORT is not a valid transport: '$TRANSPORT_REQUESTED' (expected: exec or mcp)" 64
       ;;
   esac
-  if [ "$TRANSPORT_REQUESTED" = "mcp" ] && [ "$role" != "ask" ]; then
-    die "TANDEM_TRANSPORT=mcp supports role ask only in this hop (got: '$role') — see docs/BACKLOG.md M20b/M20c" 64
+  # A CLOSED set of roles, never a negation: the roles this transport has been
+  # proved for are enumerated, and every other one — including a typo — is
+  # refused. `implement`/`image` (workspace-write) are the hop that remains.
+  if [ "$TRANSPORT_REQUESTED" = "mcp" ]; then
+    case "$role" in
+      ask | review) : ;;
+      *)
+        die "TANDEM_TRANSPORT=mcp supports roles ask and review in this hop (got: '$role') — see docs/BACKLOG.md M20c" 64
+        ;;
+    esac
   fi
   TRANSPORT="$TRANSPORT_REQUESTED"
   TRANSPORT_EFFECTIVE="$TRANSPORT_REQUESTED"
   if [ "$TRANSPORT_REQUESTED" = "mcp" ]; then
     # Validated in BOTH wrappers even though only the start path arms a
     # watchdog: one bad value must produce the same 64 from either entry point
-    # instead of failing in only half the flow.
-    mcp_timeout_validate
+    # instead of failing in only half the flow. The ROLE travels with it: the
+    # default is per role.
+    mcp_timeout_validate "$role"
     if [ "$kind" = "resume" ]; then
       TRANSPORT="exec"
       TRANSPORT_EFFECTIVE="exec-resume"
@@ -90,11 +112,25 @@ transport_resolve() {
   return 0
 }
 
-# mcp_timeout_validate — the per-turn watchdog, a positive integer of seconds.
-# Fail-closed with 64: a bogus value must never degrade into "no watchdog", which
-# is precisely the hang this transport exists to bound.
+# mcp_timeout_validate <role> — the per-turn watchdog, a positive integer of
+# seconds. Fail-closed with 64: a bogus value must never degrade into "no
+# watchdog", which is precisely the hang this transport exists to bound.
+#
+# The DEFAULT is resolved per role; TANDEM_MCP_TIMEOUT_SECONDS overrides it for
+# every role, with the same validation. That override uses the `${VAR+set}`
+# discipline of TANDEM_TURN_EFFORT/TANDEM_TRANSPORT rather than `:-`: with `:-`
+# a DEFINED-but-empty value is treated as unset, so the rejection of the empty
+# string below was unreachable and `TANDEM_MCP_TIMEOUT_SECONDS=` would fall
+# silently onto the (now much larger) role default instead of answering 64.
 mcp_timeout_validate() {
-  MCP_TIMEOUT="${TANDEM_MCP_TIMEOUT_SECONDS:-$TANDEM_MCP_TIMEOUT_DEFAULT}"
+  local role="${1:-}"
+  case "$role" in
+    review) MCP_TIMEOUT="$TANDEM_MCP_TIMEOUT_DEFAULT_REVIEW" ;;
+    *) MCP_TIMEOUT="$TANDEM_MCP_TIMEOUT_DEFAULT" ;;
+  esac
+  case "${TANDEM_MCP_TIMEOUT_SECONDS+set}" in
+    set) MCP_TIMEOUT="$TANDEM_MCP_TIMEOUT_SECONDS" ;;
+  esac
   case "$MCP_TIMEOUT" in
     '' | *[!0-9]*)
       die "TANDEM_MCP_TIMEOUT_SECONDS must be a positive integer of seconds (got: '$MCP_TIMEOUT')" 64
