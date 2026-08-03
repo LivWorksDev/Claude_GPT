@@ -47,6 +47,16 @@ TANDEM_MCP_TIMEOUT_DEFAULT=540
 # case, and the timeout message names it.
 TANDEM_MCP_TIMEOUT_DEFAULT_REVIEW=3600
 
+# …and `implement`, which shares review's PROFILE rather than its sandbox: its
+# turns run in the background by contract (skills/implement/SKILL.md) and are
+# frequently the longest in the system, so the foreground default above would
+# kill the role's main use case exactly as it would kill review's.
+#
+# A literal of its OWN, deliberately not an alias of the review one: the value
+# coincides today (3600), but the static contract stays readable per role and
+# either role can diverge tomorrow without renaming anything.
+TANDEM_MCP_TIMEOUT_DEFAULT_IMPLEMENT=3600
+
 # --- the shared transport validator ------------------------------------------
 # transport_resolve <role> <start|resume> <target> — called by codex-start.sh AND
 # codex-resume.sh BEFORE any dependency check and before a single byte of state
@@ -101,12 +111,14 @@ transport_resolve() {
   esac
   # A CLOSED set of roles, never a negation: the roles this transport has been
   # proved for are enumerated, and every other one — including a typo — is
-  # refused. `implement`/`image` (workspace-write) are the hop that remains.
+  # refused. The set is now the four roles the wrappers know (M20c closed the
+  # matrix with the two workspace-write ones), so an unknown value here is a
+  # typo or a caller inventing a role, never a hop that is still pending.
   if [ "$TRANSPORT_REQUESTED" = "mcp" ]; then
     case "$role" in
-      ask | review) : ;;
+      ask | review | implement | image) : ;;
       *)
-        die "TANDEM_TRANSPORT=mcp supports roles ask and review in this hop (got: '$role') — see docs/BACKLOG.md M20c" 64
+        die "TANDEM_TRANSPORT=mcp supports roles ask, review, implement and image (got: '$role')" 64
         ;;
     esac
   fi
@@ -118,7 +130,9 @@ transport_resolve() {
   # transport it asks for, under the pipeline's own contracts; what this closes
   # is the plan review silently losing a foreground turn. `ask` is NOT gated
   # here — its targets are free-form topics with no foreground exception to
-  # protect.
+  # protect, and neither are `implement`/`image`: a plan path and a topic label
+  # are single launch families whose mcp contract lives in their own skills, so
+  # a target axis for them would be empty symmetry.
   if [ "$TRANSPORT_REQUESTED" = "mcp" ] && [ "$role" = "review" ]; then
     case "$target" in
       cr-* | range-review-*) : ;;
@@ -159,10 +173,21 @@ transport_resolve() {
 # a DEFINED-but-empty value is treated as unset, so the rejection of the empty
 # string below was unreachable and `TANDEM_MCP_TIMEOUT_SECONDS=` would fall
 # silently onto the (now much larger) role default instead of answering 64.
+#
+# The MATRIX is decided by the role's DOMINANT LAUNCH MODE, never by its
+# sandbox: `review` and `implement` run in the background and legitimately pass
+# ten minutes, so they get the wide default; `ask` and `image` are foreground
+# contracts (a topic answer, 1–3 assets) and keep the 540 s that sits BELOW the
+# Bash tool's ceiling so the watchdog classifies the hang first. `image` writes
+# to the workspace and still belongs here: giving every workspace-write role an
+# hour would make a hung one-asset turn wait sixty minutes instead of nine, and
+# the legitimate long case (large sets in the background) has the explicit
+# TANDEM_MCP_TIMEOUT_SECONDS override.
 mcp_timeout_validate() {
   local role="${1:-}"
   case "$role" in
     review) MCP_TIMEOUT="$TANDEM_MCP_TIMEOUT_DEFAULT_REVIEW" ;;
+    implement) MCP_TIMEOUT="$TANDEM_MCP_TIMEOUT_DEFAULT_IMPLEMENT" ;;
     *) MCP_TIMEOUT="$TANDEM_MCP_TIMEOUT_DEFAULT" ;;
   esac
   case "${TANDEM_MCP_TIMEOUT_SECONDS+set}" in

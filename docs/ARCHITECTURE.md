@@ -89,14 +89,21 @@ Los temp roots (`/tmp`, `$TMPDIR`) siguen escribibles a propósito (`exclude_*` 
 
 `scripts/worktree-root.sh <slug>` es quien resuelve esa raíz y lo que ambas skills invocan: sin `TANDEM_WORKTREE=1` imprime el checkout principal; con él, la ruta del worktree **registrado** para `refs/heads/tandem/<slug>` leída de `git worktree list` — no la convención `.worktrees/<slug>`, que un worktree reutilizado en otra ruta rompería. Cero coincidencias, varias, o una ruta registrada ausente del disco son error duro (65): jamás un fallback silencioso al principal. `TANDEM_WORKTREE` gobierna **la aprobación del plan e implement/review**: desde 0.12, `scripts/plan-approve.sh` crea `tandem/<slug>` en la aprobación y el flag decide dónde aterriza el commit del plan (in-place en el checkout principal, o movido a `.worktrees/<slug>` con el worktree creado ya en ese momento), con estado durable en `.tandem/state/plan-approve/<slug>.json` y el modo real derivado de `git worktree list` — un mismatch con el entorno es error duro, nunca una adivinanza. `ask` e `image` no se anclan y no hay que esperar aislamiento ahí.
 
-**Fase 2 — EN CURSO (M20a `ask` v0.27.0 · M20b `review` v0.28.0).** `TANDEM_TRANSPORT=mcp`
-enruta el turno de ARRANQUE de `ask` y de `review` — este último en sus DOS modos,
-pipeline y range, que comparten wrapper y gate — por `codex mcp-server` (opt-in; el
-default sigue siendo `exec`, byte a byte). El gate tiene TRES ejes: transporte → rol →
-TARGET — cualquier otro rol → 64, y dentro de `review` solo los targets del pipeline
+**Fase 2 — wrappers con los CUATRO roles (M20a `ask` v0.27.0 · M20b `review` v0.28.0 ·
+M20c `implement`+`image` v0.30.0); el CIERRE queda bloqueado sobre los canarios reales
+de implement e image.** `TANDEM_TRANSPORT=mcp` enruta el turno de ARRANQUE de cualquier
+rol por `codex mcp-server` (opt-in; el default sigue siendo `exec`, byte a byte). El
+gate tiene TRES ejes: transporte → rol → TARGET — el case de roles es cerrado
+(desconocido → 64) y dentro de `review` solo los targets del pipeline
 (`cr-*`/`range-review-*`): la plan review de `tandem:plan` usa el mismo rol pero
 conserva su excepción foreground, así que bajo mcp responde 64 fail-closed en vez de
-perder el turno contra el cap de Bash (M21). Forma decidida por la
+perder el turno contra el cap de Bash (M21). La matriz de watchdog se decide por el
+modo de lanzamiento DOMINANTE del rol, no por su sandbox: `review` e `implement` 3600 s
+(background), `ask` e `image` 540 s (foreground, bajo el cap para que el watchdog
+clasifique primero — image escribe y aun así pertenece aquí). El swarm de ultra sigue
+`exec` POR DISEÑO: `codex-swarm.sh` no comparte el camino de los wrappers y migrarlo
+sería soporte nuevo (homes efímeros por seat × semáforo), no un gate — entrada de
+backlog propia solo si se demanda. Forma decidida por la
 auditoría (docs/audits/fase2-mcp-parity.md) y probada con cuota real en M19:
 **wrappers como clientes MCP**, no el servidor registrado en la sesión — así se conservan
 el ledger de tokens, los artefactos por turno y el aislamiento.
@@ -106,11 +113,12 @@ el arranque MCP realoja al store real del usuario es todo lo que necesita, y el 
 registra honesto (`transport_effective: "exec-resume"`). Un CODEX_HOME efímero propiedad
 de tandem (config.toml solo con los pins; model y effort viajan como params del call)
 aporta el aislamiento que el servidor no ofrece: no existe `--ignore-user-config` en
-mcp-server. Watchdog por turno OBLIGATORIO y por ROL (`ask` 540 s, por debajo del timeout
-foreground de las skills; `review` 3600 s — sus turnos xhigh corren en background, y bajo
-mcp el start va SIEMPRE en background por contrato ejecutable): una aprobación de
-MCP-tool bajo `never` cuelga sin timeout y el cliente MCP no puede resolverla. Pendiente:
-`implement`/swarm (M20c).
+mcp-server. Watchdog por turno OBLIGATORIO y por ROL (la matriz de arriba; bajo mcp los
+starts de review e implement van SIEMPRE en background por contrato ejecutable): una
+aprobación de MCP-tool bajo `never` cuelga sin timeout y el cliente MCP no puede
+resolverla. Pendiente para declarar la Fase 2 (wrappers) COMPLETA: los canarios reales
+de implement (turno workspace-write real) e image (1 asset), cuyo commit de evidencia
+es quien cierra M20.
 
 **Fase 2 (resto del roadmap)**: sustituir los scripts Codex por el servidor MCP oficial (`codex mcp-server`, tools `codex` y `codex-reply` con parámetros `model`, `sandbox`, `cwd`, `approval-policy`, `threadId`). Las skills no cambian de lógica — solo de transporte. Registro cuando se decida migrar:
 

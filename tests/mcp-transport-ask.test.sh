@@ -237,22 +237,13 @@ done
 # any state mutation.
 assert_eq "4" "$(cat "$SD/$(tkey seeded).turn")" "turn counter after eight refusals"
 
-# `mcp` on a role this hop does NOT serve is refused by BOTH wrappers, naming
-# the pending one. `review` joined `ask` in M20b, so the role asserted here is
-# `implement` — the other still-excluded role, `image`, carries the same assert
-# in tests/mcp-transport-review.test.sh.
-seed_thread implement scoped thr_scoped 2
-for S in codex-start.sh codex-resume.sh; do
-  rm -f "$CODEX_STUB_LOG".*
-  run env TANDEM_TRANSPORT=mcp bash "$SCRIPTS/$S" implement scoped "$SANDBOX/p.tpl"
-  assert_rc 64 "$S with role implement"
-  assert_file_contains "$ERR" "supports roles ask and review in this hop"
-  assert_file_contains "$ERR" "M20c"
-  assert_no_file "$CODEX_STUB_LOG.n"
-  assert_no_file "$CODEX_STUB_LOG.mcp.in"
-done
-assert_eq "2" "$(cat "$(state_dir implement)/$(tkey scoped).turn")" \
-  "implement turn counter untouched"
+# NOTE (M20c): the `mcp + implement → 64` case that used to live here is GONE
+# because `implement` now passes — M20c closed the role matrix with the two
+# workspace-write roles. The negative coverage of the ROLE gate did not vanish
+# with it: it moved, in the same shape (64 + not one invocation + the turn
+# counter untouched), to the unknown-role case of
+# tests/mcp-transport-implement.test.sh, which is also where the positive
+# coverage of both new roles lives.
 
 # =============================================================================
 # 5. the watchdog: a hung turn exits 1, the group dies, the ledger survives

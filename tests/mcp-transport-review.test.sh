@@ -218,25 +218,16 @@ assert_json "$RCALL" '.params.arguments.model == "gpt-5.6-sol"'
 assert_json "$RCALL" '.params.arguments.sandbox == "read-only"'
 assert_json "$RCALL" '.params.arguments.config["model_reasoning_effort"] == "xhigh"'
 
-# =============================================================================
-# 5. the gate: `mcp` on the other still-excluded role is 64 from BOTH wrappers
-# =============================================================================
-# `implement` carries the same assert in tests/mcp-transport-ask.test.sh; this
-# is the second of the two roles M20c still owes.
-seed_thread image scoped thr_scoped 2
-for S in codex-start.sh codex-resume.sh; do
-  rm -f "$CODEX_STUB_LOG".*
-  run env TANDEM_TRANSPORT=mcp bash "$SCRIPTS/$S" image scoped "$SANDBOX/p.tpl"
-  assert_rc 64 "$S with role image"
-  assert_file_contains "$ERR" "supports roles ask and review in this hop"
-  assert_file_contains "$ERR" "M20c"
-  assert_no_file "$CODEX_STUB_LOG.n"
-  assert_no_file "$CODEX_STUB_LOG.mcp.in"
-done
-assert_eq "2" "$(cat "$(state_dir image)/$(tkey scoped).turn")" "image turn counter untouched"
+# NOTE (M20c): the `mcp + image → 64` case that used to live here is GONE
+# because `image` now passes — M20c closed the role matrix with the two
+# workspace-write roles. The negative coverage of the ROLE gate did not vanish
+# with it: it moved, in the same shape (64 + not one invocation + the turn
+# counter untouched), to the unknown-role case of
+# tests/mcp-transport-implement.test.sh. What this file keeps is the axis that
+# is genuinely its own — the review TARGET gate below.
 
 # =============================================================================
-# 6. the gate's THIRD axis: a review TARGET the transport does not serve
+# 5. the gate's THIRD axis: a review TARGET the transport does not serve
 # =============================================================================
 # The role gate above cannot see WHICH of review's three launch families is
 # calling: `tandem:plan` reviews a plan path through the very same wrapper, and
@@ -274,4 +265,4 @@ assert_not_contains "$ERR" "must be a positive integer of seconds"
 # topics (section 3 started `topic` over mcp) and the pipeline/range targets of
 # sections 1 and 4 are the positive coverage.
 
-note "mcp transport, review role: pipeline and range parity, hybrid resume, per-role watchdog, role and target gates"
+note "mcp transport, review role: pipeline and range parity, hybrid resume, per-role watchdog, target gate"

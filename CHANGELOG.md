@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.30.0 — 2026-08-03
+
+- **Tercer y último salto de la Fase 2 en los wrappers: `TANDEM_TRANSPORT=mcp` para los
+  roles workspace-write** (M20c). El gate pasa al case cerrado de los CUATRO roles
+  (`ask | review | implement | image`; desconocido → 64 nombrando el conjunto); el eje
+  target de review (M21) intacto; `implement`/`image` sin eje target (familias de
+  lanzamiento únicas — simetría vacía). **La declaración de completitud de M20/Fase 2
+  NO viaja en esta versión:** queda bloqueada sobre los dos canarios reales post-merge
+  (implement real + image 1 asset), y solo su commit de evidencia cierra la fila.
+- **La matriz de watchdog se completa por el modo de lanzamiento DOMINANTE, no por el
+  sandbox:** `implement` estrena `TANDEM_MCP_TIMEOUT_DEFAULT_IMPLEMENT=3600` (perfil
+  background como review — literal propio, no alias); `image` conserva 540s aunque
+  escriba (contrato foreground de 1–3 assets: el watchdog clasifica ANTES del cap de
+  Bash), con la AUSENCIA del literal `_IMAGE` anclada estáticamente — un default ancho
+  para image sería un ensanchamiento silencioso de su contrato.
+- **Las promesas de M2 verificadas sobre el call frame MCP** (la prueba del salto): el
+  map `config` se compara como OBJETO ENTERO contra el conjunto exacto de pins de
+  escritura — `network_access=false`, `writable_roots=[]`, `approval_policy=never`,
+  `approvals_reviewer=user` y `web_search=disabled` — un pin perdido O SOBRANTE falla.
+  Precedencia de effort probada sobre el transporte (CRITICAL → xhigh;
+  `TANDEM_IMPLEMENT_EFFORT` gana).
+- **implement/SKILL.md armonizada al contrato ejecutable** (deuda de M10): sus tres
+  lanzamientos sol llevan ahora el lenguaje estándar (background by default + barrera;
+  nudge foreground) y `check_skill` los cubre con la regla mcp en el start; image queda
+  fuera del contrato con razón documentada (su contrato es el INVERSO: foreground es lo
+  correcto). Frase de roles compartida migrada y anclada en las CUATRO skills, con
+  negativo del texto viejo.
+- Suite: 83 ficheros (de 82): `mcp-transport-implement` (paridad write, pins como
+  objeto, cwd con espacios, matriz, gate bogus); los casos de gate flipados de
+  ask/review retirados con notas de bookkeeping hacia la cobertura heredera.
+
 ## 0.29.0 — 2026-08-03
 
 - **El gate mcp del rol `review` gana el eje TARGET** (M21; hallazgo Major del run real

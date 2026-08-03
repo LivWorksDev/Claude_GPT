@@ -51,6 +51,8 @@ bash "$SCRIPTS/codex-start.sh" image <asset-label> \
 
 Foreground with Bash `timeout: 600000` for 1–3 assets; `run_in_background: true` for larger sets (announce completion clearly before doing anything else).
 
+**Transport (opt-in) — `TANDEM_TRANSPORT=mcp`.** The default is `codex exec` and nothing about the command above changes. With the variable set, this START turn is routed through `codex mcp-server`, with identical artefacts, `USAGE:` line, heartbeat, exit codes and guards — the workspace-write pins included (sandbox `workspace-write`, no network, no extra writable roots, approvals `never`): they travel as parameters of the tool call instead of argv. The transport serves every role — `review` only for its pipeline targets `cr-*`/`range-review-*` — and any other value, or an unknown role, is a usage error (64). The foreground criterion above is **unchanged** under `mcp`: this role's watchdog default is 540s, deliberately BELOW the Bash tool's 10-minute ceiling, precisely so a hung 1–3 asset turn is classified, its server group reaped and its quota accounted by the wrapper instead of being killed by the tool first. For a large set you intend to run in the background, raise `TANDEM_MCP_TIMEOUT_SECONDS` explicitly — the wrapper's `transport=mcp` line on stderr names the value it actually armed, so check it there rather than assuming. Refinements and nudges are unaffected: a continuation always runs through `codex exec resume` (a thread does not survive the server that created it).
+
 Exit 2 → the label already has a thread: refine it (Step 3), or `codex-reset.sh image <asset-label>` if it is genuinely a new asset under an old name.
 
 ## Step 2 — Your verification (never delegated)

@@ -16,8 +16,9 @@
 #                           run when a reply arrived without its VERDICT:/sentinel
 #                           line: re-emitting what is missing must not pay the
 #                           role's expensive reasoning. The sandbox is untouched.
-#        TANDEM_TRANSPORT   exec (default) | mcp, for roles `ask` and `review`
-#                           in this hop — `review` only for its pipeline targets
+#        TANDEM_TRANSPORT   exec (default) | mcp, for the four roles the
+#                           wrappers know (ask, review, implement, image) —
+#                           `review` only for its pipeline targets
 #                           (`cr-*`/`range-review-*`; plan reviews stay on exec,
 #                           M21). Validated here EXACTLY as in
 #                           codex-start.sh, but a continuation is always the

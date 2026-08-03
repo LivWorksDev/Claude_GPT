@@ -259,6 +259,19 @@ check_skill "$REPO_ROOT/skills/plan/SKILL.md" "$SANDBOX/plan" "plans" 2 1 0 0 0
 # with the same background/barrier guarantees — and, in both modes, the mcp rule
 # on the START launch alone.
 check_skill "$REPO_ROOT/skills/review/SKILL.md" "$SANDBOX/review" "diffs" 2 1 2 1 1
+# implement's `sol` launches: the start, the continuation and the nudge, with no
+# range mode. Its role joined the transport in M20c and its start arms the
+# 3600 s implement watchdog, so it carries the mcp rule exactly like review's —
+# the same >10-minute reality, judged by the same contract instead of by a
+# checker written around three sentences.
+#
+# skills/image/SKILL.md is deliberately NOT here. Its contract is the INVERSE
+# one — foreground IS correct for 1–3 assets, which is why its watchdog default
+# stays below the Bash tool's cap — so running it through check_skill would
+# demand a new profile in order to anchor a background rule that does not exist
+# for that role. Its mcp note is anchored statically by
+# tests/mcp-transport-parity.test.sh instead.
+check_skill "$REPO_ROOT/skills/implement/SKILL.md" "$SANDBOX/implement" "plans" 2 1 0 0 1
 
 # --- the barrier language itself, once per skill -----------------------------
 # Markdown wraps, so the prose anchors are judged on a flattened copy.

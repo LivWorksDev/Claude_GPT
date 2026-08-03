@@ -202,17 +202,43 @@ WDR="$(LC_ALL=C sed -n 's|^TANDEM_MCP_TIMEOUT_DEFAULT_REVIEW=\([0-9][0-9]*\)$|\1
 assert_eq "3600" "$WDR" "the review watchdog default"
 [ "$WDR" -gt "$WD" ] \
   || fail "the review watchdog default (${WDR}s) must exceed the foreground one (${WD}s) — otherwise it has no reason to exist"
-# Both are mandatory: a role default that is not a positive integer would be the
-# "no watchdog" degradation the transport exists to forbid.
-case "$WD$WDR" in *[!0-9]*) fail "the watchdog defaults are not plain integers" ;; esac
+
+# implement: the SAME background profile as review — its turns run in the
+# background by contract and are frequently the longest in the system — with a
+# literal of its own rather than an alias, so the static contract stays readable
+# per role and either one can diverge tomorrow without a rename.
+WDI="$(LC_ALL=C sed -n 's|^TANDEM_MCP_TIMEOUT_DEFAULT_IMPLEMENT=\([0-9][0-9]*\)$|\1|p' \
+  "$SCRIPTS/_mcp.sh" | head -n 1)"
+[ -n "$WDI" ] || fail "_mcp.sh declares no TANDEM_MCP_TIMEOUT_DEFAULT_IMPLEMENT"
+assert_eq "3600" "$WDI" "the implement watchdog default"
+[ "$WDI" -gt "$WD" ] \
+  || fail "the implement watchdog default (${WDI}s) must exceed the foreground one (${WD}s) — a background role would die at nine minutes"
+assert_eq "$WDR" "$WDI" "implement and review share the background profile"
+
+# image: NO literal of its own, on purpose. Its contract is the FOREGROUND one
+# of 1–3 assets, so it falls through the matrix's `*` arm onto the same default
+# `ask` uses — the matrix is decided by the role's dominant LAUNCH MODE, not by
+# its sandbox. A `_IMAGE` literal appearing here would be a silent widening of
+# exactly that contract (a hung one-asset turn waiting an hour instead of nine
+# minutes), so its absence is asserted rather than assumed.
+assert_not_contains "$SCRIPTS/_mcp.sh" 'TANDEM_MCP_TIMEOUT_DEFAULT_IMAGE'
+
+# All three are mandatory: a role default that is not a positive integer would
+# be the "no watchdog" degradation the transport exists to forbid.
+case "$WD$WDR$WDI" in *[!0-9]*) fail "the watchdog defaults are not plain integers" ;; esac
 
 # --- the user-facing role set, named consistently wherever the transport is
-# documented. The gate is a closed `ask | review` case in transport_resolve; a
-# skill note still claiming "`ask` only" is factually wrong guidance — exactly
+# documented. The gate is a closed `ask | review | implement | image` case in
+# transport_resolve, narrowed for review alone by the TARGET axis of M21; a
+# skill note still claiming a smaller set is factually wrong guidance — exactly
 # what M20b's widening left behind in the ask skill until review caught it. One
-# shared phrase, greppable in both skills that document the transport.
-for f in "$REPO_ROOT/skills/ask/SKILL.md" "$REPO_ROOT/skills/review/SKILL.md"; do
-  assert_file_contains "$f" 'the roles `ask` and `review`'
+# shared phrase, greppable in the FOUR skills that document the transport.
+for f in "$REPO_ROOT/skills/ask/SKILL.md" "$REPO_ROOT/skills/review/SKILL.md" \
+  "$REPO_ROOT/skills/implement/SKILL.md" "$REPO_ROOT/skills/image/SKILL.md"; do
+  assert_file_contains "$f" 'every role — `review` only for its pipeline targets `cr-*`/`range-review-*`'
+  # The superseded wording is GONE, not merely supplemented: a note carrying
+  # both would document two different role sets at once.
+  assert_not_contains "$f" 'the roles `ask` and `review`'
 done
 assert_not_contains "$REPO_ROOT/skills/ask/SKILL.md" '`ask` only'
 
