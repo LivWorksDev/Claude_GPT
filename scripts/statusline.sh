@@ -355,22 +355,30 @@ LINE2="${COL}${ICON} codex ${HB_MODEL}${R}${SEP}${COL}${HB_ROLE}${R}"
 # Live activity while running: the last meaningful item event in the NDJSON
 # says what Codex is doing right now. tail -c bounds the read (single events
 # can be huge); fromjson? tolerates the partial first line that produces.
+#
+# The discriminator is `.type` INSIDE the item: that is what codex-cli 0.144.4
+# really emits (see the archived streams and scripts/_common.sh:stream_milestones)
+# and what the mcp transport's adapter produces. Reading only the stale
+# `.item_type` kept this block permanently silent on real turns while the
+# fixtures — which carried the old name — stayed green. `.item_type` remains as
+# a compatibility read for older archived streams.
 if [ "$HB_STATUS" = "running" ] && [ -n "${HB_EVENTS:-}" ] && [ -f "$HB_EVENTS" ]; then
   ACT="$(tail -c 100000 "$HB_EVENTS" 2>/dev/null | jq -Rrs '
     [ split("\n")[] | fromjson?
       | select(.type == "item.started" or .type == "item.updated"
                or .type == "item.completed")
       | .item
-      | if .item_type == "command_execution" then
+      | (.type // .item_type // "") as $it
+      | if $it == "command_execution" then
           "exec \((.command // "?") | gsub("\\s+"; " ") | .[0:40])"
-        elif .item_type == "file_change" then
+        elif $it == "file_change" then
           ((.changes // []) as $c
            | if ($c | length) == 1 then "edit \(($c[0].path // "?") | split("/") | last)"
              elif ($c | length) > 1 then "edit \($c | length) files"
              else "edit" end)
-        elif .item_type == "reasoning" then "thinking…"
-        elif .item_type == "agent_message" then "writing reply…"
-        elif .item_type == "web_search" then "searching web…"
+        elif $it == "reasoning" then "thinking…"
+        elif $it == "agent_message" then "writing reply…"
+        elif $it == "web_search" then "searching web…"
         else empty end ]
     | last // empty' 2>/dev/null || true)"
   [ -n "$ACT" ] && LINE2="${LINE2}${SEP}${COL}${ACT}${R}"

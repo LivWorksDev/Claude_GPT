@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.27.0 — 2026-08-03
+
+- **Primer salto de la Fase 2: `TANDEM_TRANSPORT=mcp` para el rol `ask`** (M20a, Cola 4).
+  El turno de arranque viaja por `codex mcp-server` con paridad TOTAL de artefactos y
+  contratos (mismos t<N>.*, `USAGE:`, heartbeat, exit codes); las continuaciones usan el
+  híbrido `codex exec resume` probado por M19 — `codex-reply` no cruza invocaciones — y
+  el meta lo registra honesto (`transport_effective: "exec-resume"`). Default `exec`
+  byte-idéntico (anclado); valor inválido o rol no migrado → 64 fail-closed en AMBOS
+  wrappers vía `transport_resolve` compartido.
+- **`scripts/_mcp.sh`** (nuevo, 792 líneas): CODEX_HOME efímero de tandem (config.toml
+  SOLO con los pins — model/effort viajan como params JSON-seguros del call: el writer
+  TOML era inyectable), auth.json copiado 600 y BORRADO en todo camino (solo el rollout
+  puede sobrevivir un fallo de realojo, en recuperación 700/600), ciclo de vida único
+  EXIT/INT/TERM que compone limpieza mcp + heartbeat, watchdog por turno obligatorio
+  (default 540s < los 600s de Bash de las skills, atados por contrato — hallazgo d de
+  M19), guardias sin señales, y el **adaptador de eventos** contra la serialización
+  EXACTA de exec 0.144.4: `thread.started`/`turn.completed` con Usage de 4 campos (sin
+  `total_tokens`) e items con discriminador `item.type`.
+- **Bug latente preexistente cazado y corregido de rebote:** la narración
+  (`stream_milestones`), el lector de actividad de la statusline y el clasificador de
+  drift usaban el discriminador `item_type`, que los streams REALES de exec no emiten
+  (`item.type`) — la actividad en vivo degradaba en silencio. Los tres resuelven ahora
+  `.type // .item_type`, con la matriz de statusline migrada al real + caso explícito de
+  compatibilidad y un replay verbatim de un stream real archivado.
+- **Realojo del rollout al store real del usuario** con staging seguro: server segado
+  primero, copia a temporal oculto DENTRO del destino (un mv desde TMPDIR no es rename),
+  validación, rename intra-directorio con guard de no-sobrescritura.
+- Fixtures: `exec-items.ndjson` (items REALES de exec extraídos de streams archivados) se
+  suma a `notifications.ndjson`; el stub emite el stream real de notificaciones.
+- Suite: 81 ficheros (de 79): mcp-transport-ask (comportamental) y mcp-transport-parity
+  (estático + replay-conformance del fixture real por el adaptador real).
+
 ## 0.26.0 — 2026-08-02
 
 - **`scripts/mcp-probe.sh`: el instrumento que decide la Fase 2** (M19, primera de la

@@ -9,6 +9,10 @@
 # env: TANDEM_CODEX_CWD  optional working root for the turn (`--cd`); the thread
 #      state and the heartbeat stay where CLAUDE_PROJECT_DIR points — see
 #      codex_cwd_validate/codex_pins in _common.sh for the whole policy block.
+#      TANDEM_TRANSPORT  exec (default) | mcp. `mcp` routes the turn through
+#      `codex mcp-server` and is supported for role `ask` only in this hop; every
+#      artefact, exit code and guard is identical either way (scripts/_mcp.sh).
+#      TANDEM_MCP_TIMEOUT_SECONDS  per-turn watchdog for the mcp transport.
 #
 # exit codes: 0 ok · 1 codex failure · 2 thread already exists (resume instead)
 #             3 missing dependency · 64 usage error
@@ -17,11 +21,19 @@ set -euo pipefail
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_common.sh
 . "$SCRIPT_DIR/_common.sh"
+# shellcheck source=_mcp.sh
+. "$SCRIPT_DIR/_mcp.sh"
 
 [ $# -ge 3 ] || die "usage: codex-start.sh <role> <target> <template.tpl> [extra-file] [notes-file]" 64
 ROLE_ARG="$1" TARGET="$2" TPL="$3" EXTRA_FILE="${4:-}" NOTES_FILE="${5:-}"
 
 codex_cwd_validate
+# The transport is validated BEFORE any dependency check and before a single
+# byte of state moves: an invalid value must answer 64 without launching codex
+# and without advancing the turn counter. Same call, same order, in
+# codex-resume.sh — a resume that fell back to exec on a bogus value would break
+# the fail-closed rule exactly where it matters most.
+transport_resolve "$ROLE_ARG" start
 need_codex
 need_jq
 resolve_role "$ROLE_ARG"
@@ -75,30 +87,63 @@ META_JSON="$(jq -n \
   --arg effort "$CODEX_EFFORT" \
   --arg sandbox "$CODEX_SANDBOX" \
   '{role: $role, model: $model, effort: $effort, sandbox: $sandbox}' 2>/dev/null || true)"
+# The legacy object stays EXACTLY four keys for the default transport: the
+# opt-in fields are added only when TANDEM_TRANSPORT was actually given, so a
+# turn that nobody opted in for keeps the record every existing consumer reads.
+if [ -n "$META_JSON" ] && [ "${TRANSPORT_OPT_IN:-0}" = "1" ]; then
+  META_WITH_TRANSPORT="$(printf '%s' "$META_JSON" | jq -c \
+    --arg requested "$TRANSPORT_REQUESTED" \
+    --arg effective "$TRANSPORT_EFFECTIVE" \
+    '. + {transport_requested: $requested, transport_effective: $effective}' \
+    2>/dev/null || true)"
+  if [ -n "$META_WITH_TRANSPORT" ]; then
+    META_JSON="$META_WITH_TRANSPORT"
+  fi
+fi
 if [ -n "$META_JSON" ]; then
   usage_persist "$STATE_DIR/$KEY.t$TURN.meta.json" "$META_JSON" || true
 fi
 
 printf 'tandem: starting codex thread — role=%s model=%s effort=%s sandbox=%s target=%s\n' \
   "$ROLE" "$CODEX_MODEL" "$CODEX_EFFORT" "$CODEX_SANDBOX" "$TARGET" >&2
+if [ "$TRANSPORT" = "mcp" ]; then
+  printf 'tandem: transport=mcp (codex mcp-server, one server per turn, watchdog %ss)\n' \
+    "$MCP_TIMEOUT" >&2
+fi
 
 hb_begin
+
+# The mcp branch owns EXIT/INT/TERM from here: traps do not stack and hb_begin
+# has just replaced the EXIT trap, so ONE composable owner chains the mcp
+# cleanup and the heartbeat's failure handling (scripts/_mcp.sh).
+if [ "$TRANSPORT" = "mcp" ]; then
+  mcp_lifecycle_arm
+  mcp_home_build
+fi
 
 # Events stream through tee: the full NDJSON is still captured for the
 # thread-id extraction and the durable record, while stream_milestones narrates
 # progress on stdout. PIPESTATUS[0] (not $?) keeps codex's own exit code — a
 # filter hiccup must never masquerade as a codex failure.
 set +e
-codex exec \
-  --json --skip-git-repo-check --color never \
-  --model "$CODEX_MODEL" \
-  --sandbox "$CODEX_SANDBOX" \
-  -c model_reasoning_effort="$CODEX_EFFORT" \
-  "${CODEX_PINS[@]}" \
-  --output-last-message "$MSG_FILE" \
-  - <"$PROMPT_FILE" 2>"$EVENTS_FILE.stderr" \
-  | tee "$EVENTS_FILE" | stream_milestones
-rc="${PIPESTATUS[0]}"
+if [ "$TRANSPORT" = "mcp" ]; then
+  # The helper RETURNS a status and never exits once the turn has started, so
+  # the shared accounting below runs on every path — a hung turn is still a
+  # turn, and its quota is still spent.
+  mcp_turn_start "$PROMPT_FILE" "$EVENTS_FILE" "$MSG_FILE" "$EVENTS_FILE.stderr"
+  rc=$?
+else
+  codex exec \
+    --json --skip-git-repo-check --color never \
+    --model "$CODEX_MODEL" \
+    --sandbox "$CODEX_SANDBOX" \
+    -c model_reasoning_effort="$CODEX_EFFORT" \
+    "${CODEX_PINS[@]}" \
+    --output-last-message "$MSG_FILE" \
+    - <"$PROMPT_FILE" 2>"$EVENTS_FILE.stderr" \
+    | tee "$EVENTS_FILE" | stream_milestones
+  rc="${PIPESTATUS[0]}"
+fi
 set -e
 
 # Token accounting, BEFORE any check on purpose: a turn that produced a
@@ -120,7 +165,11 @@ if [ -n "$USAGE_JSON" ]; then
 fi
 
 if [ "$rc" -ne 0 ]; then
-  printf 'tandem: codex exec failed (exit %s). Last stderr lines:\n' "$rc" >&2
+  if [ "$TRANSPORT" = "mcp" ]; then
+    printf 'tandem: the mcp turn failed — %s. Last stderr lines:\n' "${MCP_STATUS:-unknown reason}" >&2
+  else
+    printf 'tandem: codex exec failed (exit %s). Last stderr lines:\n' "$rc" >&2
+  fi
   tail -n 20 "$EVENTS_FILE.stderr" >&2 || true
   die "full logs: $EVENTS_FILE and $EVENTS_FILE.stderr" 1
 fi
@@ -130,6 +179,16 @@ fi
 # exit code past our documented contract — the emptiness check handles them.
 THREAD_ID="$(jq -rs '[.[] | select(.type == "thread.started") | .thread_id][0] // empty' "$EVENTS_FILE" 2>/dev/null || true)"
 [ -n "$THREAD_ID" ] || die "could not capture a thread.started event — see $EVENTS_FILE" 1
+# Under mcp the tool RESULT echoes the id too, and the two must agree: the
+# stream says which thread the server configured, the result says which thread
+# it is answering for. Persisting either one alone would let a mismatch pass as
+# a perfectly ordinary start.
+if [ "$TRANSPORT" = "mcp" ]; then
+  [ -n "${MCP_THREAD_ID:-}" ] \
+    || die "the mcp result echoed no threadId — see $EVENTS_FILE" 1
+  [ "$MCP_THREAD_ID" = "$THREAD_ID" ] \
+    || die "the mcp result echoed thread $MCP_THREAD_ID but the stream announced $THREAD_ID — refusing to persist an ambiguous thread id" 1
+fi
 printf '%s\n' "$THREAD_ID" >"$THREAD_FILE"
 # Per-turn replies are the durable record; last.txt is a convenience pointer
 # to the newest one, updated only after every success check passed.

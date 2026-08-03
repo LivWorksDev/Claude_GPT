@@ -269,20 +269,29 @@ hb_write() {
 # turn while it runs. Malformed lines are skipped (fromjson?); if jq itself
 # ever died, the trailing cat keeps draining so codex (behind tee) never
 # receives SIGPIPE mid-turn.
+#
+# The item discriminator is `.item.type`: that is what codex-cli 0.144.4 really
+# emits (every real stream archived under .tandem/state/ carries it, and
+# ThreadItemDetails declares it) and what the mcp transport's adapter produces.
+# `.item.item_type` is the STALE name this filter used to read alone — it stayed
+# green only because the fixtures carried it too, while every real turn narrated
+# nothing but the thread line. It survives as a COMPATIBILITY read, second in
+# the `//` chain, so an older archived stream still renders.
 stream_milestones() {
   jq --unbuffered -Rr '
     fromjson? |
+    (.item.type // .item.item_type // "") as $it |
     if .type == "thread.started" then "» thread \(.thread_id // "?")"
-    elif .type == "item.started" and (.item.item_type // "") == "command_execution" then
+    elif .type == "item.started" and $it == "command_execution" then
       "» exec \((.item.command // "?") | gsub("\\s+"; " ") | .[0:110])"
-    elif .type == "item.completed" and (.item.item_type // "") == "command_execution" then
+    elif .type == "item.completed" and $it == "command_execution" then
       (if (.item.exit_code // 0) == 0 then "  ✓ ok"
        else "  ✗ exit \(.item.exit_code)" end)
-    elif .type == "item.completed" and (.item.item_type // "") == "file_change" then
+    elif .type == "item.completed" and $it == "file_change" then
       "» edit \((.item.changes // []) | map(.path // "?")
         | if length <= 3 then join(", ")
           else (.[0:3] | join(", ")) + " +\(length - 3) more" end)"
-    elif .type == "item.started" and (.item.item_type // "") == "web_search" then
+    elif .type == "item.started" and $it == "web_search" then
       "» web search"
     elif .type == "turn.completed" then
       "» turn done — tokens in \(.usage.input_tokens // "?") · out \(.usage.output_tokens // "?")"

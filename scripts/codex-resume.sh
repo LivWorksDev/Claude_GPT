@@ -16,6 +16,15 @@
 #                           run when a reply arrived without its VERDICT:/sentinel
 #                           line: re-emitting what is missing must not pay the
 #                           role's expensive reasoning. The sandbox is untouched.
+#        TANDEM_TRANSPORT   exec (default) | mcp. Validated here EXACTLY as in
+#                           codex-start.sh, but a continuation is always the
+#                           HYBRID `codex exec resume`: `codex-reply` only exists
+#                           inside one invocation, and the thread dies with the
+#                           server that created it. The rollout the mcp start
+#                           relocated into the user's store is all resume needs
+#                           (probe (a) of M19). The turn records
+#                           transport_effective "exec-resume", never a bare
+#                           "mcp" that would falsify the audit trail.
 # exit codes: 0 ok · 1 codex failure · 2 no thread yet (start instead)
 #             3 missing dependency · 64 usage error
 
@@ -23,11 +32,18 @@ set -euo pipefail
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_common.sh
 . "$SCRIPT_DIR/_common.sh"
+# shellcheck source=_mcp.sh
+. "$SCRIPT_DIR/_mcp.sh"
 
 [ $# -ge 3 ] || die "usage: codex-resume.sh <role> <target> <template.tpl> [extra-file] [notes-file]" 64
 ROLE_ARG="$1" TARGET="$2" TPL="$3" EXTRA_FILE="${4:-}" NOTES_FILE="${5:-}"
 
 codex_cwd_validate
+# The SHARED validator, in the same position as in codex-start.sh: before any
+# dependency check and before a single byte of state moves. A resume that
+# silently fell back to exec on a bogus TANDEM_TRANSPORT would be exactly the
+# quiet degradation the fail-closed rule exists to forbid.
+transport_resolve "$ROLE_ARG" resume
 # TANDEM_TURN_EFFORT — validated HERE, next to the other usage checks and BEFORE
 # need_codex/need_jq on purpose: a bad value is a usage error and must answer 64
 # even when the toolchain is missing, never degrade into "missing dependency" (3).
@@ -103,12 +119,29 @@ META_JSON="$(jq -n \
   --arg effort "$CODEX_EFFORT" \
   --arg sandbox "$CODEX_SANDBOX" \
   '{role: $role, model: $model, effort: $effort, sandbox: $sandbox}' 2>/dev/null || true)"
+# The legacy object stays EXACTLY four keys for the default transport; the two
+# opt-in fields appear only when TANDEM_TRANSPORT was actually given. Under
+# `mcp` the effective value is "exec-resume": what really spoke to the model
+# here is `codex exec resume`, and the audit trail must say so.
+if [ -n "$META_JSON" ] && [ "${TRANSPORT_OPT_IN:-0}" = "1" ]; then
+  META_WITH_TRANSPORT="$(printf '%s' "$META_JSON" | jq -c \
+    --arg requested "$TRANSPORT_REQUESTED" \
+    --arg effective "$TRANSPORT_EFFECTIVE" \
+    '. + {transport_requested: $requested, transport_effective: $effective}' \
+    2>/dev/null || true)"
+  if [ -n "$META_WITH_TRANSPORT" ]; then
+    META_JSON="$META_WITH_TRANSPORT"
+  fi
+fi
 if [ -n "$META_JSON" ]; then
   usage_persist "$STATE_DIR/$KEY.t$TURN.meta.json" "$META_JSON" || true
 fi
 
 printf 'tandem: resuming codex thread %s — role=%s model=%s effort=%s sandbox=%s turn=%s\n' \
   "$THREAD_ID" "$ROLE" "$CODEX_MODEL" "$CODEX_EFFORT" "$CODEX_SANDBOX" "$TURN" >&2
+if [ "$TRANSPORT_EFFECTIVE" = "exec-resume" ]; then
+  printf 'tandem: transport=mcp requested — the continuation is the hybrid exec-resume (codex-reply cannot cross invocations)\n' >&2
+fi
 
 hb_begin
 

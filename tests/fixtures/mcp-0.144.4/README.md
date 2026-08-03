@@ -14,6 +14,7 @@ que el servidor responde sin autenticar.
 | `notifications.ndjson` | los 14 frames estructurales `codex/event` de un turno REAL (M20a): `params={_meta,id,msg}` con session_configured/task_started/item_*/token_count/task_complete — la referencia del adaptador de eventos; saneado (sin raw_response_item, textos truncados) |
 | `rollout-turn-context.json` | una línea `turn_context` REAL del rollout que el servidor escribió, capturada en el run con `--spend` de M19 (2026-08-02): guardada COMPACTA en una sola línea porque eso es exactamente lo que es —
   una línea del rollout jsonl, que el probe lee línea a línea; la forma exacta que el probe de herencia lee (`payload.model`, `.effort`, `.approval_policy`, `.sandbox_policy.type`, `.cwd`) |
+| `exec-items.ndjson` | el OTRO lado del adaptador: eventos REALES de `codex exec --json` 0.144.4, extraídos de los streams archivados bajo `.tandem/state/` (textos largos recortados, nada inventado). Fijan el discriminador real `item.type` para `command_execution` / `file_change` / `web_search` / `agent_message` y los CUATRO campos públicos de `turn.completed.usage`. Existe porque la conformance del adaptador no puede pasar con dos esquemas incompatibles: lo que sale de `mcp_events_adapt` tiene que ser exactamente esto |
 
 Existen para que la suite no pueda quedar verde contra un stub que inventa formas de
 frame: el stub y el parser se contrastan con estos bytes reales. Si el servidor upstream

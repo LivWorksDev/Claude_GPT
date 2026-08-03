@@ -28,9 +28,21 @@ Then trim `raw.ndjson` to the events of interest and re-check with
 
 ## Validation status
 
+## The item discriminator: `item.type`, not `item.item_type`
+
+codex-cli 0.144.4 tags an item with **`item.type`** — that is what every real
+stream archived under `.tandem/state/` carries, and what `ThreadItemDetails`
+declares. The filters used to read `item.item_type` alone, so they matched these
+fixtures and nothing else: a real turn narrated only its thread line while the
+suite stayed green. Both filters (and `check-drift.sh`) now resolve
+`.item.type // .item.item_type`, `happy.ndjson` carries the real name, and the
+remaining fixtures deliberately keep the old one so the compatibility read has a
+case of its own. `tests/fixtures/mcp-0.144.4/exec-items.ndjson` is an archived
+REAL exec stream that pins the same thing from the other side.
+
 | Fixture | Status |
 | --- | --- |
-| `happy.ndjson` | validated against the real CLI (0.144.4): `thread.started`, `turn.started`, `item.{started,completed}` for `reasoning` / `command_execution` / `file_change` / `web_search` / `agent_message`, `turn.completed.usage` |
+| `happy.ndjson` | validated against the real CLI (0.144.4): `thread.started`, `turn.started`, `item.{started,completed}` for `reasoning` / `command_execution` / `file_change` / `web_search` / `agent_message`, `turn.completed.usage`. Uses the REAL `item.type` discriminator |
 | `multi-thread.ndjson` | **best-effort** — a second `thread.started` in one stream has not been observed in the wild; it exists to pin the "first one wins" contract of `codex-start.sh` and the fallback guard of `codex-resume.sh` |
 | `corrupt.ndjson` | best-effort — models a truncated write and the non-JSON preamble the CLI prints on stderr-to-stdout mixups; pins `fromjson?` tolerance |
 | `turn-failed.ndjson` | validated shape (`turn.failed.error.message`) |

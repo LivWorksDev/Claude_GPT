@@ -27,12 +27,18 @@ command -v jq >/dev/null 2>&1 || { printf 'check-drift: jq not found\n' >&2; exi
 # (arithmetic on usage, exit_code comparisons), so it must be visible here.
 # Non-JSON lines are skipped the same way the production filters skip them
 # (fromjson?).
+#
+# The item class resolves `.item.type` FIRST: that is the discriminator
+# codex-cli 0.144.4 really emits, so reading only the stale `.item.item_type`
+# classified every real capture as `-` and left the tier-2 load-bearing checks
+# permanently "advisory" — a drift report that could not detect the drift it
+# exists for. `.item_type` stays as the compatibility read.
 shape() {
   cat "$@" 2>/dev/null | jq -Rr '
     fromjson? |
     . as $e
     | (($e.type // "?")) as $t
-    | (($e.item.item_type // "-")) as $it
+    | (($e.item.type // $e.item.item_type // "-")) as $it
     | ([ $e | paths(scalars) ])[]
     | . as $p
     | "\($t)|\($it)|\($p | map(tostring) | join(".")):\($e | getpath($p) | type)"

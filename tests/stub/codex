@@ -60,9 +60,20 @@
 #                           lines under $CODEX_HOME/sessions/, the way the real
 #                           one does, so probe (c) has an effective config to
 #                           read and probe (a) a file to resurrect
+#   CODEX_STUB_MCP_REPLY    the text the `codex` tool answers with, and the text
+#                           its agent_message frames carry (default OK)
+#   CODEX_STUB_MCP_TOKENS_*  IN/CACHED/OUT/REASONING/TOTAL of the token_count
+#                           frame (defaults 1234/1000/56/7/2290). TOTAL exists so
+#                           a test can prove the adapter DROPS `total_tokens`:
+#                           exec's Usage has four public fields and a fifth one
+#                           in the ledger would be a field no exec turn carries
 #   CODEX_STUB_MCP_HANG_RESISTANT  1 → the `hang-call` scenario also forks a
 #                           child that ignores TERM (only KILL reaps it); its
 #                           pid lands in CODEX_STUB_HANG_PIDFILE
+#   CODEX_STUB_MCP_HANG_AFTER_EVENTS  1 → `hang-call` emits the WHOLE
+#                           notification stream (turn.completed included) and
+#                           only then hangs: a turn that already burned its
+#                           quota must still reach the client's ledger
 #
 # Per-MODEL selectivity (the scenarios above are global to the process; the
 # doctor's --smoke runs several models in ONE process, and "this model is gone
@@ -272,6 +283,99 @@ if [ "${1:-}" = "mcp-server" ]; then
     LC_ALL=C sed -n "s/^$1 = \"\(.*\)\"\$/\1/p" "$MCP_HOME/config.toml" 2>/dev/null | head -n 1
   }
 
+  # --- the codex/event notification stream ----------------------------------
+  # Shapes copied from tests/fixtures/mcp-0.144.4/notifications.ndjson, the 14
+  # structural frames of a REAL 0.144.4 turn: params={_meta,id,msg} with msg
+  # types session_configured / mcp_startup_update / task_started / item_started /
+  # item_completed / user_message / agent_message* / token_count / task_complete.
+  # scripts/_mcp.sh:mcp_events_adapt is the consumer, and
+  # tests/mcp-transport-parity.test.sh replays the REAL fixture through it so a
+  # stub that drifted from those bytes cannot keep the suite green on its own.
+  #
+  # The CommandExecution item is the ONE shape with no captured fixture — the
+  # real M19 turn ran no command — so it is RECONSTRUCTED exactly like the
+  # `turn_context` line above: PascalCase item type, exec's own field names. It
+  # is marked as such on purpose; it is not captured ground truth.
+  mcp_event() {
+    # mcp_event <request-id> <event-id> <msg-json>
+    jq -nc --argjson rid "$(mcp_idjson "$1")" --arg tid "$MCP_TID" \
+      --arg eid "$2" --argjson msg "$3" \
+      '{jsonrpc:"2.0", method:"codex/event",
+        params:{_meta:{requestId:$rid, threadId:$tid}, id:$eid, msg:$msg}}'
+  }
+
+  # mcp_notify_turn <request-id> <prompt> <model> <effort> <cwd>
+  mcp_notify_turn() {
+    local rid="$1" prompt="$2" model="$3" effort="$4" cwd="$5"
+    local reply="${CODEX_STUB_MCP_REPLY:-OK}" rollout=""
+    if [ -n "$MCP_HOME" ] && [ "${CODEX_STUB_MCP_ROLLOUT:-0}" = "1" ]; then
+      rollout="$MCP_HOME/sessions/2026/08/02/rollout-2026-08-02T00-00-00-$MCP_TID.jsonl"
+    fi
+    mcp_event "$rid" "" "$(jq -nc --arg tid "$MCP_TID" --arg cwd "$cwd" \
+      --arg model "$model" --arg effort "$effort" --arg rollout "$rollout" \
+      '{approval_policy:"never", approvals_reviewer:"user", cwd:$cwd, model:$model,
+        model_provider_id:"openai", reasoning_effort:$effort, rollout_path:$rollout,
+        session_id:$tid, thread_id:$tid, type:"session_configured"}')"
+    mcp_event "$rid" "" \
+      '{"server":"codex_apps","status":{"state":"ready"},"type":"mcp_startup_update"}'
+    mcp_event "$rid" "$rid" "$(jq -nc --arg t "$rid" \
+      '{collaboration_mode_kind:"default", model_context_window:258400,
+        started_at:1785698969, turn_id:$t, type:"task_started"}')"
+    mcp_event "$rid" "$rid" "$(jq -nc --arg p "$prompt" --arg tid "$MCP_TID" --arg t "$rid" \
+      '{item:{content:[{text:$p, text_elements:[], type:"text"}],
+              id:"stub-user-item", type:"UserMessage"},
+        started_at_ms:1785698971940, thread_id:$tid, turn_id:$t, type:"item_started"}')"
+    mcp_event "$rid" "$rid" "$(jq -nc --arg p "$prompt" --arg tid "$MCP_TID" --arg t "$rid" \
+      '{completed_at_ms:1785698971940,
+        item:{content:[{text:$p, text_elements:[], type:"text"}],
+              id:"stub-user-item", type:"UserMessage"},
+        thread_id:$tid, turn_id:$t, type:"item_completed"}')"
+    mcp_event "$rid" "$rid" "$(jq -nc --arg p "$prompt" \
+      '{images:[], local_images:[], message:$p, text_elements:[], type:"user_message"}')"
+    # RECONSTRUCTED (no captured fixture): a command execution item.
+    mcp_event "$rid" "$rid" "$(jq -nc --arg tid "$MCP_TID" --arg t "$rid" \
+      '{item:{command:"echo   hello\nworld", aggregated_output:"", exit_code:null,
+              id:"stub-cmd-item", status:"in_progress", type:"CommandExecution"},
+        started_at_ms:1785698972000, thread_id:$tid, turn_id:$t, type:"item_started"}')"
+    mcp_event "$rid" "$rid" "$(jq -nc --arg tid "$MCP_TID" --arg t "$rid" \
+      '{completed_at_ms:1785698972500,
+        item:{command:"echo hello", aggregated_output:"hello", exit_code:0,
+              id:"stub-cmd-item", status:"completed", type:"CommandExecution"},
+        thread_id:$tid, turn_id:$t, type:"item_completed"}')"
+    mcp_event "$rid" "$rid" "$(jq -nc --arg tid "$MCP_TID" --arg t "$rid" \
+      '{item:{content:[{text:"", type:"Text"}], id:"stub-agent-item",
+              phase:"final_answer", type:"AgentMessage"},
+        started_at_ms:1785698973629, thread_id:$tid, turn_id:$t, type:"item_started"}')"
+    mcp_event "$rid" "$rid" "$(jq -nc --arg r "$reply" --arg tid "$MCP_TID" --arg t "$rid" \
+      '{delta:$r, item_id:"stub-agent-item", thread_id:$tid, turn_id:$t,
+        type:"agent_message_content_delta"}')"
+    mcp_event "$rid" "$rid" "$(jq -nc --arg r "$reply" --arg tid "$MCP_TID" --arg t "$rid" \
+      '{completed_at_ms:1785698973699,
+        item:{content:[{text:$r, type:"Text"}], id:"stub-agent-item",
+              phase:"final_answer", type:"AgentMessage"},
+        thread_id:$tid, turn_id:$t, type:"item_completed"}')"
+    mcp_event "$rid" "$rid" "$(jq -nc --arg r "$reply" \
+      '{memory_citation:null, message:$r, phase:"final_answer", type:"agent_message"}')"
+    mcp_event "$rid" "$rid" "$(jq -nc \
+      --argjson i "${CODEX_STUB_MCP_TOKENS_IN:-1234}" \
+      --argjson c "${CODEX_STUB_MCP_TOKENS_CACHED:-1000}" \
+      --argjson o "${CODEX_STUB_MCP_TOKENS_OUT:-56}" \
+      --argjson r "${CODEX_STUB_MCP_TOKENS_REASONING:-7}" \
+      --argjson tt "${CODEX_STUB_MCP_TOKENS_TOTAL:-2290}" \
+      '{info:{last_token_usage:{cached_input_tokens:$c, input_tokens:$i,
+                                output_tokens:$o, reasoning_output_tokens:$r,
+                                total_tokens:$tt},
+              model_context_window:258400,
+              total_token_usage:{cached_input_tokens:$c, input_tokens:$i,
+                                 output_tokens:$o, reasoning_output_tokens:$r,
+                                 total_tokens:$tt}},
+        rate_limits:null, type:"token_count"}')"
+    mcp_event "$rid" "$rid" "$(jq -nc --arg r "$reply" --arg t "$rid" \
+      '{completed_at:1785698973, duration_ms:4528, last_agent_message:$r,
+        time_to_first_token_ms:4448, turn_id:$t, type:"task_complete"}')"
+    return 0
+  }
+
   mcp_ok_result() {
     local id="$1" text="$2"
     mcp_noise
@@ -310,6 +414,19 @@ if [ "${1:-}" = "mcp-server" ]; then
     fi
 
     if [ "$MCP_SCEN" = "hang-call" ]; then
+      # CODEX_STUB_MCP_HANG_AFTER_EVENTS=1 emits the WHOLE notification stream
+      # and only then hangs: the turn produced its `turn.completed` and burned
+      # its quota, so a client that let the watchdog kill it without running the
+      # accounting would silently lose a paid turn. That is the case the knob
+      # exists to make observable.
+      if [ "${CODEX_STUB_MCP_HANG_AFTER_EVENTS:-0}" = "1" ]; then
+        model="$(printf '%s' "$line" | jq -r '.params.arguments.model // empty' 2>/dev/null)"
+        effort="$(printf '%s' "$line" | jq -r '.params.arguments.config["model_reasoning_effort"] // empty' 2>/dev/null)"
+        cwd="$(printf '%s' "$line" | jq -r '.params.arguments.cwd // empty' 2>/dev/null)"
+        prompt="$(printf '%s' "$line" | jq -r '.params.arguments.prompt // empty' 2>/dev/null)"
+        mcp_rollout_append "$model" "$effort" "$cwd"
+        mcp_notify_turn "$id" "$prompt" "$model" "$effort" "$cwd"
+      fi
       if [ "${CODEX_STUB_MCP_HANG_RESISTANT:-0}" = "1" ]; then
         (
           trap '' TERM
@@ -346,7 +463,10 @@ if [ "${1:-}" = "mcp-server" ]; then
         printf '%s\n' "$cw" >"$CODEX_STUB_LOG.mcp.codeword"
       fi
       mcp_rollout_append "$model" "$effort" "$cwd"
-      mcp_ok_result "$id" "OK"
+      # The notification stream comes BEFORE the result, exactly as the real
+      # server orders it: the client adapts what it read once the call answers.
+      mcp_notify_turn "$id" "$prompt" "$model" "$effort" "$cwd"
+      mcp_ok_result "$id" "${CODEX_STUB_MCP_REPLY:-OK}"
       return 0
     fi
 
