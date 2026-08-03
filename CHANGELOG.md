@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.29.0 — 2026-08-03
+
+- **El gate mcp del rol `review` gana el eje TARGET** (M21; hallazgo Major del run real
+  de M20b — cazado por el propio transporte que estrenaba). `transport_resolve` pasa a
+  `<role> <kind> <target>`: bajo mcp, `review` exige `cr-*` (pipeline) o
+  `range-review-*` (range); cualquier otro target — el plan path de `tandem:plan`
+  incluido — responde 64 fail-closed en AMBOS wrappers, antes de dependencias y de
+  estado. Las plan reviews se quedan en `exec`, donde su excepción foreground para
+  planes pequeños es correcta: por mcp, el watchdog de review (3600s) supera el cap
+  foreground de Bash (600s) y el tool mataría el turno antes de que el watchdog
+  clasifique — quota gastada, cero ledger.
+- **Orden anclado por test:** los errores de flujo (qué lanzamientos existen bajo mcp)
+  deciden antes que los de parámetros — con target no soportado Y override de timeout
+  vacío a la vez, contesta el 64 de target. El caso de override vacío migra su target a
+  `cr-seeded` para seguir probando el 64 del timeout, no el del gate.
+- `skills/plan/SKILL.md` documenta la negativa (nota post-Round-1, cero comandos
+  tocados); las cabeceras de ambos wrappers describen el eje target; el comentario del
+  contrato ejecutable cita la decisión de M21.
+
 ## 0.28.0 — 2026-08-03
 
 - **Segundo salto de la Fase 2: `TANDEM_TRANSPORT=mcp` para el rol `review`** (M20b).

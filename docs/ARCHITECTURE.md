@@ -92,7 +92,11 @@ Los temp roots (`/tmp`, `$TMPDIR`) siguen escribibles a propósito (`exclude_*` 
 **Fase 2 — EN CURSO (M20a `ask` v0.27.0 · M20b `review` v0.28.0).** `TANDEM_TRANSPORT=mcp`
 enruta el turno de ARRANQUE de `ask` y de `review` — este último en sus DOS modos,
 pipeline y range, que comparten wrapper y gate — por `codex mcp-server` (opt-in; el
-default sigue siendo `exec`, byte a byte; cualquier otro rol → 64). Forma decidida por la
+default sigue siendo `exec`, byte a byte). El gate tiene TRES ejes: transporte → rol →
+TARGET — cualquier otro rol → 64, y dentro de `review` solo los targets del pipeline
+(`cr-*`/`range-review-*`): la plan review de `tandem:plan` usa el mismo rol pero
+conserva su excepción foreground, así que bajo mcp responde 64 fail-closed en vez de
+perder el turno contra el cap de Bash (M21). Forma decidida por la
 auditoría (docs/audits/fase2-mcp-parity.md) y probada con cuota real en M19:
 **wrappers como clientes MCP**, no el servidor registrado en la sesión — así se conservan
 el ledger de tokens, los artefactos por turno y el aislamiento.

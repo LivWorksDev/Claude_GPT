@@ -48,11 +48,25 @@ TANDEM_MCP_TIMEOUT_DEFAULT=540
 TANDEM_MCP_TIMEOUT_DEFAULT_REVIEW=3600
 
 # --- the shared transport validator ------------------------------------------
-# transport_resolve <role> <start|resume> — called by codex-start.sh AND
+# transport_resolve <role> <start|resume> <target> — called by codex-start.sh AND
 # codex-resume.sh BEFORE any dependency check and before a single byte of state
 # moves, so an invalid value answers 64 without launching codex and without
 # advancing the turn counter. A resume that fell back to exec on a bogus value
 # would violate the fail-closed rule in the one place it matters most.
+#
+# The gate has THREE axes, in this order: transport → role → TARGET. The third
+# one exists because the ROLE does not distinguish its callers, and `review` has
+# three launch families behind one wrapper: the pipeline review of
+# `tandem:review` (`cr-<slug>`), its out-of-pipeline range mode
+# (`range-review-<label>`) — both migrated and proved under mcp by M20b — and
+# the PLAN review of `tandem:plan`, whose target is the plan path and which
+# legitimately keeps its foreground exception for small plans. That third family
+# is not migrated: routing it through mcp would arm the review watchdog (3600 s,
+# far above the 600 s Bash-tool cap the skill's foreground launch runs under),
+# so the tool would kill the wrapper before the watchdog could classify the
+# hang, reap the group and account the turn — the turn would be lost with its
+# quota already spent. A `mcp` merely INHERITED from the environment is exactly
+# that vector, so the target axis answers 64 instead of taking the risk (M21).
 #
 # Sets:
 #   TRANSPORT            the code path to take here: exec | mcp
@@ -68,7 +82,7 @@ TANDEM_MCP_TIMEOUT_DEFAULT_REVIEW=3600
 # documented OUTPUTS: they are read by the wrappers that source this file, which
 # a standalone lint of this helper cannot see.
 transport_resolve() {
-  local role="${1:-}" kind="${2:-start}"
+  local role="${1:-}" kind="${2:-start}" target="${3:-}"
   TRANSPORT_OPT_IN=0
   TRANSPORT_REQUESTED="exec"
   # A DEFINED-but-empty value is invalid like any other, never "unset": the same
@@ -96,6 +110,23 @@ transport_resolve() {
         ;;
     esac
   fi
+  # …and, for `review` alone, a CLOSED set of TARGETS: the two launch families
+  # the transport has been proved for. The prefix is read on the RAW target, not
+  # on the sanitized state key: the skills pass `cr-<slug>` and
+  # `range-review-<label>` literally, while a plan path arrives with slashes and
+  # dots. A hand-written review target starting with `cr-` gets exactly the
+  # transport it asks for, under the pipeline's own contracts; what this closes
+  # is the plan review silently losing a foreground turn. `ask` is NOT gated
+  # here — its targets are free-form topics with no foreground exception to
+  # protect.
+  if [ "$TRANSPORT_REQUESTED" = "mcp" ] && [ "$role" = "review" ]; then
+    case "$target" in
+      cr-* | range-review-*) : ;;
+      *)
+        die "TANDEM_TRANSPORT=mcp supports review targets cr-<slug> and range-review-<label> only (got: '$target') — plan reviews stay on exec; see docs/BACKLOG.md M21" 64
+        ;;
+    esac
+  fi
   TRANSPORT="$TRANSPORT_REQUESTED"
   TRANSPORT_EFFECTIVE="$TRANSPORT_REQUESTED"
   if [ "$TRANSPORT_REQUESTED" = "mcp" ]; then
@@ -103,6 +134,12 @@ transport_resolve() {
     # watchdog: one bad value must produce the same 64 from either entry point
     # instead of failing in only half the flow. The ROLE travels with it: the
     # default is per role.
+    #
+    # AFTER the target case on purpose: which launches exist under mcp is a
+    # FLOW error and answers before a parameter one (how wide the watchdog is).
+    # An unsupported target must therefore report itself even when the timeout
+    # is also invalid — and the timeout cases can use a valid target with no
+    # ambiguity about which 64 they are proving.
     mcp_timeout_validate "$role"
     if [ "$kind" = "resume" ]; then
       TRANSPORT="exec"

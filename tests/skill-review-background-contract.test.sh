@@ -249,8 +249,10 @@ check_skill() {
   note "$(basename "$(dirname "$f")")/SKILL.md — pipeline: $real real + $nudges nudge · range: $rreal real + $rnudges nudge"
 }
 
-# plan launches the `review` ROLE too, but its opt-in note is not part of this
-# hop (docs/plans/mcp-transport-review.plan.md, Files to touch): 0.
+# plan launches the `review` ROLE too, but there is no mcp rule to anchor in it:
+# M21 gave the gate a TARGET axis, and a plan path is refused with 64 under
+# `mcp` (docs/plans/mcp-plan-gate.plan.md). Its launches are exec-only by
+# decision, so the mcp start rule does not apply here: 0.
 check_skill "$REPO_ROOT/skills/plan/SKILL.md" "$SANDBOX/plan" "plans" 2 1 0 0 0
 # review carries both modes: the pipeline review (start + resume + nudge) and
 # the out-of-pipeline range review (start-range + resume-range + nudge), each

@@ -39,6 +39,8 @@ bash "$SCRIPTS/codex-start.sh" review docs/plans/<slug>.plan.md \
   "${CLAUDE_SKILL_DIR}/prompts/start.tpl"
 ```
 
+**Transport — `TANDEM_TRANSPORT=mcp` does NOT apply to a plan review.** These turns run on `codex exec`, always: never export the variable for them, and if one is inherited from the environment the wrapper answers 64 fail-closed (both start and resume), naming the review targets the transport does serve. The refusal is the safe answer, not an obstacle — the mcp watchdog for the `review` role defaults to 3600s, far above the foreground cap this launch may legitimately use for a small plan, so a plan review routed through mcp in the foreground would be killed by the Bash tool before the watchdog could classify the hang, reap the server group and account the turn, and the turn would be lost with its quota already spent. The `review` role's mcp transport lives in `tandem:review`, whose targets are `cr-<slug>` and `range-review-<label>` (see `docs/BACKLOG.md` M21).
+
 **The task-completion notification of that Bash run is a hard synchronization barrier.** Nothing happens before it arrives: you do not read the `VERDICT:` line, you do not copy the `USAGE:` line into the log — never a premature `tokens: n/a` out of impatience, the line is simply not there yet — and you launch no resume and no nudge. The thread is not even persisted before that point, and a concurrent resume over a live turn is exactly the class of corruption this barrier exists to forbid.
 
 Exit 2 means a thread already exists for this plan: resume it if you are continuing the same work, or `codex-reset.sh review docs/plans/<slug>.plan.md` if this is a fresh plan under a reused name.

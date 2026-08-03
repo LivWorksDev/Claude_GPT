@@ -159,17 +159,22 @@ assert_not_contains "$ERR" "watchdog 3600s"
 # A DEFINED-but-empty override is invalid like any other value — never "unset",
 # and never a silent fall back onto the (much larger) role default. Both
 # wrappers, nothing launched, no turn consumed.
-seed_thread review seeded thr_seeded 4
+#
+# The target is `cr-seeded` and not a bare `seeded` on purpose: the target gate
+# of section 6 would refuse the launch BEFORE the watchdog is validated at all,
+# and this case exists to prove the timeout's own 64. The order between the two
+# is itself asserted below.
+seed_thread review cr-seeded thr_seeded 4
 for S in codex-start.sh codex-resume.sh; do
   rm -f "$CODEX_STUB_LOG".*
   run env TANDEM_TRANSPORT=mcp TANDEM_MCP_TIMEOUT_SECONDS= \
-    bash "$SCRIPTS/$S" review seeded "$SANDBOX/p.tpl"
+    bash "$SCRIPTS/$S" review cr-seeded "$SANDBOX/p.tpl"
   assert_rc 64 "$S with a defined-but-empty watchdog override"
   assert_file_contains "$ERR" "must be a positive integer of seconds (got: '')"
   assert_no_file "$CODEX_STUB_LOG.n"
   assert_no_file "$CODEX_STUB_LOG.mcp.in"
 done
-assert_eq "4" "$(cat "$SD/$(tkey seeded).turn")" "turn counter after the empty-override refusals"
+assert_eq "4" "$(cat "$SD/$(tkey cr-seeded).turn")" "turn counter after the empty-override refusals"
 
 # =============================================================================
 # 4. the RANGE mode: the skill's pins survive the transport
@@ -230,4 +235,43 @@ for S in codex-start.sh codex-resume.sh; do
 done
 assert_eq "2" "$(cat "$(state_dir image)/$(tkey scoped).turn")" "image turn counter untouched"
 
-note "mcp transport, review role: pipeline and range parity, hybrid resume, per-role watchdog, gate"
+# =============================================================================
+# 6. the gate's THIRD axis: a review TARGET the transport does not serve
+# =============================================================================
+# The role gate above cannot see WHICH of review's three launch families is
+# calling: `tandem:plan` reviews a plan path through the very same wrapper, and
+# it legitimately keeps a foreground exception for small plans. Routed through
+# mcp it would arm the 3600s review watchdog, and the Bash tool's 600s cap would
+# kill the turn before the watchdog could classify anything — quota spent, no
+# ledger. So a target that is neither `cr-*` nor `range-review-*` is 64 from
+# BOTH wrappers, with nothing launched and no turn consumed.
+seed_thread review "docs/plans/x.plan.md" thr_plan 3
+for S in codex-start.sh codex-resume.sh; do
+  rm -f "$CODEX_STUB_LOG".*
+  run env TANDEM_TRANSPORT=mcp bash "$SCRIPTS/$S" review "docs/plans/x.plan.md" "$SANDBOX/p.tpl"
+  assert_rc 64 "$S with a plan-path review target"
+  assert_file_contains "$ERR" "supports review targets"
+  assert_file_contains "$ERR" "plan reviews stay on exec"
+  assert_file_contains "$ERR" "M21"
+  assert_no_file "$CODEX_STUB_LOG.n"
+  assert_no_file "$CODEX_STUB_LOG.mcp.in"
+done
+assert_eq "3" "$(cat "$SD/$(tkey "docs/plans/x.plan.md").turn")" \
+  "plan-review turn counter untouched"
+
+# ORDER: with an unsupported target AND an invalid watchdog at once, the answer
+# is the TARGET's. Which launches exist under this transport is a flow question
+# and is decided before how wide the watchdog is — otherwise the caller would be
+# told to fix a number for a launch that mcp never accepts.
+rm -f "$CODEX_STUB_LOG".*
+run env TANDEM_TRANSPORT=mcp TANDEM_MCP_TIMEOUT_SECONDS= \
+  bash "$SCRIPTS/codex-start.sh" review "docs/plans/x.plan.md" "$SANDBOX/p.tpl"
+assert_rc 64 "an unsupported target and an empty watchdog override at once"
+assert_file_contains "$ERR" "supports review targets"
+assert_not_contains "$ERR" "must be a positive integer of seconds"
+
+# …and the supported targets are untouched by the axis: `ask` keeps free-form
+# topics (section 3 started `topic` over mcp) and the pipeline/range targets of
+# sections 1 and 4 are the positive coverage.
+
+note "mcp transport, review role: pipeline and range parity, hybrid resume, per-role watchdog, role and target gates"

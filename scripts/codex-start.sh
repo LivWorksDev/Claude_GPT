@@ -11,8 +11,9 @@
 #      codex_cwd_validate/codex_pins in _common.sh for the whole policy block.
 #      TANDEM_TRANSPORT  exec (default) | mcp. `mcp` routes the turn through
 #      `codex mcp-server` and is supported for roles `ask` and `review` in this
-#      hop; every artefact, exit code and guard is identical either way
-#      (scripts/_mcp.sh).
+#      hop — `review` only for its pipeline targets (`cr-*`/`range-review-*`;
+#      plan reviews stay on exec, M21); every artefact, exit code and guard is
+#      identical either way (scripts/_mcp.sh).
 #      TANDEM_MCP_TIMEOUT_SECONDS  per-turn watchdog for the mcp transport; it
 #      overrides a default that is resolved PER ROLE (review gets a wide one —
 #      its turns run in the background and legitimately exceed ten minutes).
@@ -36,7 +37,7 @@ codex_cwd_validate
 # and without advancing the turn counter. Same call, same order, in
 # codex-resume.sh — a resume that fell back to exec on a bogus value would break
 # the fail-closed rule exactly where it matters most.
-transport_resolve "$ROLE_ARG" start
+transport_resolve "$ROLE_ARG" start "$TARGET"
 need_codex
 need_jq
 resolve_role "$ROLE_ARG"
