@@ -36,7 +36,7 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
 | M17 | Status: resolución multi-raíz con reconciliación o contradicción explícita | UX | P2 | M | hecha (v0.25.0) |
 | M18 | Doctor: parser de versión estricto en el gate crítico | Diagnóstico | P2 | S | hecha (v0.24.0) |
 | M19 | Fase 2: probes de comportamiento del transporte MCP | Transporte | P2 | M | hecha (v0.26.0) |
-| M20 | Fase 2: `TANDEM_TRANSPORT=mcp` en los wrappers | Transporte | P2 | L | en curso — M20a `ask` (v0.27.0), M20b `review` (v0.28.0) y M20c `implement`+`image` (v0.30.0) hechas; el CIERRE está bloqueado sobre los canarios reales de implement e image (post-merge); swarm fuera por diseño |
+| M20 | Fase 2: `TANDEM_TRANSPORT=mcp` en los wrappers | Transporte | P2 | L | hecha (v0.30.0) — M20a `ask` (v0.27.0), M20b `review` (v0.28.0), M20c `implement`+`image` (v0.30.0); canarios reales de los 4 roles en verde (evidencia en docs/audits/fase2-mcp-parity.md); swarm sigue exec por diseño |
 | M21 | Plan reviews bajo `mcp`: cerrar el gate o completar el contrato | Transporte | P2 | S | hecha (v0.29.0) — vía (a): gate por target |
 
 ## Orden de ataque recomendado

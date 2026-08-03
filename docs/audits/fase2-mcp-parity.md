@@ -183,3 +183,34 @@ real. M20b (`review`) y M20c (`implement`/swarm) pueden construir sobre esta bas
   semántica range se respetó: el hallazgo ES el entregable, cero fix loop.
 - **Conclusión:** segundo rol migrado con run real en verde. El transporte no falló en
   nada; el hallazgo es de superficie de gate, no del mecanismo.
+
+## Runs reales de M20c (2026-08-03) — los canarios que cierran la Fase 2 (wrappers)
+
+**Canario implement (workspace-write real por MCP):** turno Sol high real vía
+`codex-start.sh implement canary-m20c` con `TANDEM_TRANSPORT=mcp`, workspace y estado
+anclados a un repo git de scratch. Evidencia: narración
+`transport=mcp (…, watchdog 3600s)` — el default WIDE del rol armado; el turno ESCRIBIÓ
+de verdad (`canary-m20c.txt` con el codeword único `M20C-IMPLEMENT-CANARY-lumbre-9427`,
+y nada más tocado en el árbol); paridad completa de artefactos
+(t1.prompt/reply/events/usage/meta + lateral .mcp.raw + thread + turn); meta
+`{"role":"implement","effort":"high","sandbox":"workspace-write",
+"transport_requested":"mcp","transport_effective":"mcp"}`; sentinel
+IMPLEMENTATION_COMPLETE; USAGE in 14709 · out 108; rollout realojado al store real
+(thread 019fc853-1bba-7a71-8463-40326d509ab0).
+
+**Canario image (1 asset real por MCP, foreground por contrato):** turno Sol high real
+vía `codex-start.sh image canary-icon` con mcp, en foreground — el contrato del rol
+(watchdog default 540s por rol, bajo el cap de Bash; sin override). El turno generó un
+PNG REAL con gpt-image-2 (128×128 RGB, redimensionado con `sips` DENTRO del sandbox
+workspace-write) en `assets/canary-icon.png`; `IMAGE_READY` como cierre; meta
+`{"role":"image","effort":"high","sandbox":"workspace-write","transport_requested":
+"mcp","transport_effective":"mcp"}`; USAGE in 28313 · out 77; rollout realojado
+(thread 019fc853-bf68-72b2-8edb-366ada850e93).
+
+**Conclusión — FASE 2 (wrappers) COMPLETA:** los CUATRO roles tienen run real en verde
+sobre el transporte MCP (ask y su resume híbrido en M20a; review range xhigh en M20b;
+implement escribiendo e image generando en M20c). La matriz de watchdog por rol se
+observó armada en ambos perfiles (3600 background / 540 foreground). El swarm de ultra
+sigue `exec` POR DISEÑO (decisión en ARCHITECTURE, no omisión). Los límites declarados
+persisten: un servidor por turno (persistente = v2), sin correlación de IDs del
+procesador oficial.
