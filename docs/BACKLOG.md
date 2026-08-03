@@ -38,6 +38,8 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
 | M19 | Fase 2: probes de comportamiento del transporte MCP | Transporte | P2 | M | hecha (v0.26.0) |
 | M20 | Fase 2: `TANDEM_TRANSPORT=mcp` en los wrappers | Transporte | P2 | L | hecha (v0.30.0) — M20a `ask` (v0.27.0), M20b `review` (v0.28.0), M20c `implement`+`image` (v0.30.0); canarios reales de los 4 roles en verde (evidencia en docs/audits/fase2-mcp-parity.md); swarm sigue exec por diseño |
 | M21 | Plan reviews bajo `mcp`: cerrar el gate o completar el contrato | Transporte | P2 | S | hecha (v0.29.0) — vía (a): gate por target |
+| M22 | Transporte v2: servidor MCP persistente entre invocaciones | Transporte | P3 | L | pendiente — prioridad BAJA deliberada (complejidad alta, aporte marginal) |
+| M23 | Swarm de ultra sobre el transporte MCP | Ultra | P3 | L | pendiente — prioridad BAJA deliberada (complejidad alta, aporte marginal) |
 
 ## Orden de ataque recomendado
 
@@ -425,3 +427,50 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
 - **Aceptación:** con `TANDEM_TRANSPORT=mcp` exportado, una plan review foreground o bien
   es imposible (64 del gate) o bien está oficialmente soportada con su regla de
   background anclada; el contrato ejecutable cubre la vía elegida.
+
+## M22 — Transporte v2: servidor MCP persistente entre invocaciones
+
+- **Severidad/Esfuerzo:** P3 / L · **Slug sugerido:** `mcp-persistent-server`
+- **Prioridad BAJA deliberada (decisión 2026-08-03, cierre de la Fase 2):** la
+  complejidad es demasiado alta para lo poco que aporta. El valor real de la migración
+  MCP — pins por llamada, errores tipados de hilo, watchdog inescapable, aislamiento
+  del CODEX_HOME — ya se cobra entero con el servidor-por-turno de v1. Lo único que v2
+  añade es `codex-reply` nativo en las continuaciones (hoy cubiertas por el híbrido
+  `exec resume`, probado real en los cuatro roles) y ahorrarse un arranque de servidor
+  por turno.
+- **Problema (lo que costaría):** los wrappers son procesos bash efímeros; hablar con
+  UN servidor vivo exige un puente fifo/socket con un problema duro conocido: los
+  frames JSON-RPC con diffs inline superan `PIPE_BUF`, así que dos clientes
+  concurrentes pueden entrelazar bytes a mitad de frame. Resolverlo bien = multiplexor
+  real (demonio con framing propio, locking, ciclo de vida — quién arranca/para el
+  servidor, crashes, hilos huérfanos — y seguridad del socket).
+- **Evidencia:** docs/audits/fase2-mcp-parity.md (forma decidida y límites declarados);
+  plan de M20a (alternativa v2 analizada y descartada para v1).
+- **Disparadores que justificarían retomarla:** que las continuaciones por híbrido se
+  vuelvan un cuello real (frecuencia o latencia), o que upstream añada resume de hilos
+  al propio mcp-server (eliminaría el puente como problema).
+- **Aceptación (si se hace):** continuaciones por `codex-reply` sobre un servidor
+  compartido sin corrupción de frames bajo concurrencia, con la paridad de artefactos y
+  la contabilidad intactas; el híbrido queda como fallback.
+
+## M23 — Swarm de ultra sobre el transporte MCP
+
+- **Severidad/Esfuerzo:** P3 / L · **Slug sugerido:** `mcp-swarm`
+- **Prioridad BAJA deliberada (decisión 2026-08-03, cierre de la Fase 2):** misma razón
+  que M22 — el swarm sigue `exec` POR DISEÑO (documentado en ARCHITECTURE). Sus seats
+  son turnos one-shot read-only: no tienen continuaciones (el valor del hilo se
+  pierde), ni el hazard de approvals de los roles de escritura, así que las ganancias
+  del transporte apenas les aplican.
+- **Problema (lo que costaría):** `codex-swarm.sh` no comparte el camino de los
+  wrappers (sin `transport_resolve`, sin superficie `TANDEM_TRANSPORT`). Migrarlo no es
+  abrir un gate sino diseño nuevo: N servidores MCP efímeros concurrentes, cada uno con
+  su CODEX_HOME + copia de credencial + realojo de rollout, coordinados bajo el
+  semáforo de M13.
+- **Evidencia:** `scripts/codex-swarm.sh` (cero menciones de transporte);
+  docs/ARCHITECTURE.md (decisión "sigue exec por diseño").
+- **Disparadores que justificarían retomarla:** que los seats necesiten las garantías
+  específicas del transporte (p.ej. errores tipados de hilo en swarms con re-consulta,
+  o un watchdog por seat que el semáforo no cubra), o que M22 se haga y abarate el
+  camino.
+- **Aceptación (si se hace):** un run ultra completo por MCP con el semáforo
+  respetado, cero corrupción entre seats concurrentes y el run report idéntico.
