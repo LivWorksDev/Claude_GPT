@@ -140,3 +140,25 @@ aislamiento del config del usuario se logra con un CODEX_HOME propiedad de tande
 MCP-tool bajo `never` cuelga el turno **sin timeout y sin que el cliente pueda
 resolverlo** (el runner descarta el `ElicitationRequest`). El transporte de producción
 necesita su propio watchdog por turno — no basta con `approval-policy: never`.
+
+
+---
+
+# Resultados M20a — run real del transporte (2026-08-03)
+
+Primer uso REAL del transporte MCP tras el merge de v0.27.0: **2 turnos de cuota**,
+rol `ask`, hilo `019fc768-e43a-7dd0-acb6-59fb055993fd`.
+
+| Comprobación | Resultado |
+| --- | --- |
+| Turno 1 vía `codex mcp-server` | **OK** — el modelo respondió y cerró con su marcador |
+| Eventos adaptados | **OK** — `thread.started` → `turn.started` → `item.completed` → `turn.completed`, la forma exacta de `codex exec --json` |
+| Línea `USAGE:` y ledger | **OK** — los cuatro campos públicos (in 14 046 · out 36), sin `total_tokens` |
+| Meta del turno | **OK** — `transport_requested: "mcp"`, `transport_effective: "mcp"` |
+| Rollout realojado | **OK** — `~/.codex/sessions/2026/08/03/rollout-…-019fc768….jsonl`, modo 600, en el store REAL del usuario |
+| Turno 2 por híbrido `exec resume` | **OK** — sobre el MISMO hilo, citó verbatim el marcador del turno 1 (`MCP-REAL-OK`): memoria real, no un hilo nuevo educado |
+| Meta del turno 2 | **OK** — `transport_effective: "exec-resume"`, la auditoría no miente sobre quién habló |
+
+**Conclusión:** la forma decidida en la auditoría (wrapper-cliente, un servidor por turno,
+continuaciones por el híbrido, rollout realojado) funciona de punta a punta con cuota
+real. M20b (`review`) y M20c (`implement`/swarm) pueden construir sobre esta base.
