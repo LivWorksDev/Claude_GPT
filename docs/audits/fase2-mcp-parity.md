@@ -162,3 +162,24 @@ rol `ask`, hilo `019fc768-e43a-7dd0-acb6-59fb055993fd`.
 **Conclusión:** la forma decidida en la auditoría (wrapper-cliente, un servidor por turno,
 continuaciones por el híbrido, rollout realojado) funciona de punta a punta con cuota
 real. M20b (`review`) y M20c (`implement`/swarm) pueden construir sobre esta base.
+
+## Run real de M20b (2026-08-03) — rol `review` por MCP, modo range
+
+- **Forma:** range review real `range-review-m20b` sobre `01b7ca4..e0c493f` (el propio
+  commit de M20b), lanzada con `TANDEM_TRANSPORT=mcp` en background — la regla que ese
+  mismo commit institucionaliza, aplicada en su primer uso.
+- **Narración:** `transport=mcp (codex mcp-server, one server per turn, watchdog 3600s)`
+  — el watchdog POR ROL armado con el default de review, no el de ask.
+- **Turno end-to-end:** thread `019fc7ab-f44f-7120-a51e-f5c01f156e95`; decenas de
+  comandos read-only del revisor sobre el commit anclado; `USAGE:` presente
+  (in 148191 · cached 146176 · out 315); verdict entregado y turno cerrado sin
+  intervención del watchdog.
+- **Meta del turno:** `transport_requested: "mcp"` y `transport_effective: "mcp"`, con
+  role review / effort xhigh / sandbox read-only — paridad de artefactos verificada
+  sobre un turno real del rol migrado.
+- **Veredicto:** REQUEST_CHANGES con 1 Major legítimo — el gate autoriza el ROL completo
+  y la plan review de skills/plan/SKILL.md (mismo rol, fuera del alcance declarado de
+  M20b) hereda mcp sin su regla de background: registrado como **M21** en el backlog. La
+  semántica range se respetó: el hallazgo ES el entregable, cero fix loop.
+- **Conclusión:** segundo rol migrado con run real en verde. El transporte no falló en
+  nada; el hallazgo es de superficie de gate, no del mecanismo.

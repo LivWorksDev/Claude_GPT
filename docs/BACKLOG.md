@@ -37,6 +37,7 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
 | M18 | Doctor: parser de versión estricto en el gate crítico | Diagnóstico | P2 | S | hecha (v0.24.0) |
 | M19 | Fase 2: probes de comportamiento del transporte MCP | Transporte | P2 | M | hecha (v0.26.0) |
 | M20 | Fase 2: `TANDEM_TRANSPORT=mcp` en los wrappers | Transporte | P2 | L | en curso — M20a `ask` hecha (v0.27.0); M20b `review` hecha (v0.28.0); M20c implement pendiente |
+| M21 | Plan reviews bajo `mcp`: cerrar el gate o completar el contrato | Transporte | P2 | S | pendiente |
 
 ## Orden de ataque recomendado
 
@@ -400,3 +401,27 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
   MCP-tool bajo `never` cuelga el turno sin timeout y el cliente MCP NO puede resolverla
   (el runner descarta el `ElicitationRequest`). El transporte de producción necesita su
   propio watchdog por turno; `approval-policy: never` no basta.
+
+## M21 — Plan reviews bajo `mcp`: cerrar el gate o completar el contrato
+
+- **Severidad/Esfuerzo:** P2 / S · **Slug sugerido:** `mcp-plan-gate`
+- **Problema:** hallazgo Major del run real de M20b (range review `m20b`, ejecutada por
+  el propio transporte MCP). El gate de `transport_resolve` autoriza el ROL `review`
+  completo, pero `skills/plan/SKILL.md` también lanza ese rol (la plan review) y conserva
+  legítimamente su excepción foreground para planes pequeños; el contrato ejecutable
+  excluye a plan de la regla mcp (`want_mcp=0` — decisión consciente de M20b: el fichero
+  estaba fuera de Files to touch). Un `TANDEM_TRANSPORT=mcp` heredado del entorno enruta
+  una plan review foreground por MCP con watchdog 3600s: el cap de Bash (600s) la mata
+  antes de que el watchdog clasifique — exactamente la pérdida que la regla de background
+  existe para impedir.
+- **Evidencia:** `.tandem/log/ranges/m20b.md` (round 1, 2026-08-03);
+  `scripts/_mcp.sh:95` (gate por rol); `skills/plan/SKILL.md:35` (foreground para planes
+  pequeños); `tests/skill-review-background-contract.test.sh:254` (`want_mcp=0` de plan).
+- **Propuesta:** decidir UNA de las dos vías del revisor: (a) restringir el gate mcp del
+  rol review a los targets del pipeline (`cr-*`/`range-review-*`), fail-closed para el
+  resto — más pequeña y conserva el alcance declarado de M20b; o (b) soportar
+  oficialmente la plan review bajo mcp — `want_mcp=1` para plan/SKILL.md, nota de opt-in
+  equivalente y cobertura — más útil. Decidir en el plan.
+- **Aceptación:** con `TANDEM_TRANSPORT=mcp` exportado, una plan review foreground o bien
+  es imposible (64 del gate) o bien está oficialmente soportada con su regla de
+  background anclada; el contrato ejecutable cubre la vía elegida.
