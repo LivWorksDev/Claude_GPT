@@ -424,3 +424,31 @@ assert_eq "0" "$CRED_HITS" "auth.json under .tandem/"
 # …and no ephemeral home was left behind there either.
 HOME_HITS="$(find "$CLAUDE_PROJECT_DIR/.tandem" -type d -name 'tandem-mcp-turn.*' 2>/dev/null | wc -l | tr -d ' ')"
 assert_eq "0" "$HOME_HITS" "ephemeral homes under .tandem/"
+
+# =============================================================================
+# 10. TANDEM_WEB_SEARCH=off reaches BOTH MCP policy representations
+# =============================================================================
+rm -f "$CODEX_STUB_LOG".*
+run env TANDEM_TRANSPORT=mcp TANDEM_WEB_SEARCH=off \
+  CODEX_STUB_MCP_THREAD_ID=thr_mcp_web_search \
+  CODEX_STUB_THREAD_ID=thr_mcp_web_search \
+  bash "$SCRIPTS/codex-start.sh" ask web-search-mcp "$SANDBOX/p.tpl"
+assert_rc 0 "mcp start with web search off"
+
+WEB_CALL="$SANDBOX/web-search-call.json"
+jq -Rc 'fromjson? | objects
+  | select((.method? // "") == "tools/call" and (.params.name? // "") == "codex")' \
+  "$CODEX_STUB_LOG.mcp.in" | head -n 1 >"$WEB_CALL"
+[ -s "$WEB_CALL" ] || fail "the web-search case never issued a codex tools/call"
+# The WHOLE object is the contract: a missing pin or an accidental extra pin
+# fails the same comparison.
+assert_json "$WEB_CALL" '.params.arguments.config == {
+  "sandbox_mode":"read-only",
+  "sandbox_workspace_write.network_access":false,
+  "sandbox_workspace_write.writable_roots":[],
+  "approval_policy":"never",
+  "approvals_reviewer":"user",
+  "web_search":"disabled",
+  "model_reasoning_effort":"xhigh"
+}'
+assert_file_contains "$CODEX_STUB_LOG.mcp.cfg.1" 'web_search = "disabled"'

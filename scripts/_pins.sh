@@ -48,12 +48,14 @@ codex_pins() {
   # web_search is the NATIVE search tool and is NOT governed by network_access.
   # It is pinned off exactly where a turn can write (implement, image), because
   # implement.tpl promises the model that no network is available. Read-only
-  # seats keep it: a seat that cannot write keeps a useful capability, and with
-  # --ignore-user-config that behaviour is the CLI default — deterministic
-  # instead of whatever the user configured. (The doctor's --smoke seat is
+  # seats keep it unless TANDEM_WEB_SEARCH=off asks otherwise: a seat that
+  # cannot write keeps a useful capability by default, while confidential repos
+  # can close the extra channel explicitly. The value is validated by every
+  # turn-spending executable in _common.sh; this read stays tolerant because
+  # the doctor sources _pins.sh without die(). (The doctor's --smoke seat is
   # read-only and still pins it off explicitly: an ephemeral diagnostic turn
   # that only has to answer "OK" needs no capability at all.)
-  if [ "$CODEX_SANDBOX" = "workspace-write" ]; then
+  if [ "$CODEX_SANDBOX" = "workspace-write" ] || [ "${TANDEM_WEB_SEARCH:-}" = "off" ]; then
     CODEX_PINS+=(-c web_search=disabled)
   fi
   case "${TANDEM_CODEX_CWD+set}" in

@@ -82,6 +82,28 @@ codex_cwd_validate() {
     || die "TANDEM_CODEX_CWD is not an existing directory: $TANDEM_CODEX_CWD" 64
 }
 
+# web_search_validate — TANDEM_WEB_SEARCH is a confidentiality switch for the
+# native web_search tool. When DEFINED it belongs to the closed set off | on;
+# set-but-empty is invalid, never another spelling of "unset". This validator
+# is deliberately separate from the tolerant read in codex_pins(): _pins.sh is
+# also sourced by the doctor, whose contract is to report bad env without dying.
+#
+# Called BEFORE need_codex on purpose in every executable that spends turns: a
+# bad value is a usage error even when the toolchain is missing, and no state
+# may move before it is rejected.
+web_search_validate() {
+  case "${TANDEM_WEB_SEARCH+set}" in
+    set) : ;;
+    *) return 0 ;;
+  esac
+  case "$TANDEM_WEB_SEARCH" in
+    off | on) : ;;
+    *)
+      die "TANDEM_WEB_SEARCH is not a valid value: '$TANDEM_WEB_SEARCH' (expected: off or on)" 64
+      ;;
+  esac
+}
+
 # codex_pins lives in _pins.sh, NOT here: scripts/codex-doctor.sh needs the very
 # same policy block for its --smoke turns and cannot source this file (the
 # `set -euo pipefail` above would abort a diagnosis that must report every

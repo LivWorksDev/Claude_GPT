@@ -24,6 +24,7 @@ assert_file_contains "$OUT" "ok    jq available:"
 assert_file_contains "$OUT" "ok    git available"
 assert_file_contains "$OUT" "implementer: opus"
 assert_file_contains "$OUT" "TANDEM_CRITICAL=0"
+assert_file_contains "$OUT" "web_search:  write seats=off (pinned always) · read-only seats=on (default; TANDEM_WEB_SEARCH=off closes them)"
 assert_file_contains "$OUT" "tandem doctor: all good."
 assert_not_contains "$OUT" "FAIL"
 
@@ -370,3 +371,20 @@ assert_file_contains "$OUT" "concurrency=8 slot_timeout=9s"
 # The status line integration is informational — absent must never be a FAIL.
 assert_file_contains "$OUT" "not installed — /tandem:statusline"
 assert_file_contains "$OUT" "tandem doctor: all good."
+
+# --- the web-search confidentiality switch: effective state + bad env -------
+doctor -u TANDEM_IMPLEMENTER TANDEM_WEB_SEARCH=off
+assert_rc 0 "web search explicitly off"
+assert_file_contains "$OUT" "web_search:  write seats=off (pinned always) · read-only seats=off (TANDEM_WEB_SEARCH=off)"
+
+doctor -u TANDEM_IMPLEMENTER TANDEM_WEB_SEARCH=on
+assert_rc 0 "web search explicitly on for read-only seats"
+assert_file_contains "$OUT" "web_search:  write seats=off (pinned always) · read-only seats=on (TANDEM_WEB_SEARCH=on)"
+
+doctor -u TANDEM_IMPLEMENTER TANDEM_WEB_SEARCH=
+assert_rc 1 "web search set but empty"
+assert_file_contains "$OUT" "FAIL  TANDEM_WEB_SEARCH='' is invalid — every wrapper would exit 64 (expected: off or on)"
+
+doctor -u TANDEM_IMPLEMENTER TANDEM_WEB_SEARCH=bogus
+assert_rc 1 "web search unknown value"
+assert_file_contains "$OUT" "FAIL  TANDEM_WEB_SEARCH='bogus' is invalid — every wrapper would exit 64 (expected: off or on)"

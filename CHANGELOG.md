@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.31.0 — 2026-08-29
+
+- **Interruptor de confidencialidad para la búsqueda web nativa** (M26, hallazgo A3 +
+  enmienda E-A3 del informe de campo 2026-08-21): `TANDEM_WEB_SEARCH=off` pinea
+  `web_search=disabled` en TODOS los asientos — start, resume, swarm y transporte MCP —
+  cerrando el canal que `network_access` no gobierna. `on` es el no-op explícito y
+  nunca re-habilita la búsqueda en los roles de escritura: el interruptor cierra,
+  jamás abre. El default no cambia: sin la variable, ningún argv se mueve un byte
+  (la suite existente pasa sin editar una sola aserción).
+- **Fail-closed como el resto de la familia `TANDEM_*`:** conjunto cerrado `off|on`
+  con disciplina `${VAR+set}` — definida-pero-vacía o valor desconocido responde 64
+  nombrando la variable, antes de dependencias y de mover un byte de estado, en los
+  CUATRO ejecutables que gastan turnos (`codex-start.sh`, `codex-resume.sh`,
+  `codex-swarm.sh` y `mcp-probe.sh`). El validador vive en `_common.sh`; la lectura
+  en `codex_pins()` queda tolerante a propósito (el doctor sourcea `_pins.sh` sin
+  `die()` y denuncia el valor inválido por su propio canal).
+- **El transporte MCP lo hereda por construcción, y un test lo demuestra:**
+  `config.toml` efímero y map `config` del tool call derivan ambos de `CODEX_PINS`,
+  así que `_mcp.sh` no cambia; la paridad se fija con la comparación de OBJETO
+  ENTERO del call frame (un pin perdido O SOBRANTE falla) más la clave TOML.
+- **Estado efectivo observable** (E-A3): el banner de cada seat de swarm gana el
+  campo final `web_search=on|off` — único cambio de salida del default, deliberado y
+  fijado por test —; start/resume narran una línea extra solo bajo el interruptor; y
+  `tandem:doctor` muestra la política efectiva por clase de asiento (write siempre
+  off; read-only según el mando) y marca FAIL el valor inválido.
+- El pin viaja en la MISMA posición del argv que el pin de escritura existente y
+  aparece exactamente UNA vez aunque ambas condiciones sean ciertas — congelado byte
+  a byte por `tests/web-search-switch.test.sh`, con la validación 64×3 probada bajo
+  PATH mínimo (usage error gana a «missing dependency») y el contador de turno
+  intacto tras el rechazo.
+
 ## 0.30.0 — 2026-08-03
 
 - **Tercer y último salto de la Fase 2 en los wrappers: `TANDEM_TRANSPORT=mcp` para los

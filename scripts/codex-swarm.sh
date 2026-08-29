@@ -34,6 +34,9 @@
 #     pipeline (implement), with its clean-tree and dedicated-branch rules.
 #
 # env: TANDEM_CODEX_CWD           optional working root for the seat (`--cd`)
+#      TANDEM_WEB_SEARCH           off | on; `off` pins the native web_search
+#                                  tool off on every seat, `on` keeps the
+#                                  read-only default. Empty/unknown exits 64.
 #      TANDEM_ULTRA_CONCURRENCY   max simultaneous codex turns of ONE run
 #                                 (default 4). Enforced HERE, by a per-run
 #                                 semaphore under .tandem/state/ultra/<run>/
@@ -86,6 +89,7 @@ done
 TIER="$1" RUN_ID="$2" SEAT="$3" PROMPT_FILE="$4"
 
 codex_cwd_validate
+web_search_validate
 
 # --- the semaphore's dials, validated BEFORE the toolchain -------------------
 # Same placement rule as codex_cwd_validate: a bad argument must fail as a usage
@@ -267,8 +271,12 @@ else
 fi
 rm -f "$MSG_FILE"
 
-printf 'tandem: swarm seat — tier=%s model=%s effort=%s sandbox=%s run=%s seat=%s concurrency=%s\n' \
-  "$TIER" "$CODEX_MODEL" "$CODEX_EFFORT" "$CODEX_SANDBOX" "$RUN_ID" "$SEAT" "$ULTRA_CONC" >&2
+WEB_SEARCH_STATE=on
+if [ "${TANDEM_WEB_SEARCH:-}" = "off" ]; then
+  WEB_SEARCH_STATE=off
+fi
+printf 'tandem: swarm seat — tier=%s model=%s effort=%s sandbox=%s run=%s seat=%s concurrency=%s web_search=%s\n' \
+  "$TIER" "$CODEX_MODEL" "$CODEX_EFFORT" "$CODEX_SANDBOX" "$RUN_ID" "$SEAT" "$ULTRA_CONC" "$WEB_SEARCH_STATE" >&2
 
 # Last boundary before spending quota: a signal recorded while the prompt was
 # being staged stops the seat here, with no turn started.

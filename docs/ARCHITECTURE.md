@@ -69,11 +69,11 @@ Los tres wrappers (`codex-start.sh`, `codex-resume.sh`, `codex-swarm.sh`) llevan
 | `-c sandbox_workspace_write.network_access=false` | Los comandos del sandbox se quedan sin red |
 | `-c sandbox_workspace_write.writable_roots=[]` | `--cd` aporta la raíz primaria, pero los roots configurados se AÑADEN: sin este pin, un `writable_roots` heredado mantiene escribible el checkout principal desde un turno anclado al worktree |
 | `-c approval_policy=never -c approvals_reviewer=user` | Con `approvals_reviewer=auto_review` en el config del usuario, un turno headless deja de forzar `never` y las peticiones de escape de sandbox o de red pasan a ser auto-aprobables |
-| `-c web_search=disabled` (solo roles de escritura) | `network_access` gobierna la red de los comandos, no la herramienta nativa de búsqueda; sin el pin, `implement.tpl` prometería "sin red" en falso |
+| `-c web_search=disabled` (roles de escritura; todos con `TANDEM_WEB_SEARCH=off`) | `network_access` gobierna la red de los comandos, no la herramienta nativa de búsqueda; sin el pin, `implement.tpl` prometería "sin red" en falso. El interruptor dedicado permite cerrar el mismo canal en los asientos read-only |
 
 Los `-c` **siguen aplicándose y validándose** con `--ignore-user-config` puesto: flag y pins son complementarios, y los pins explícitos quedan como defensa en profundidad y declaración de intención verificable. Coste aceptado y deliberado: la personalización legítima del usuario (modelo por defecto, MCP propios) no llega a los turnos de tandem.
 
-Los roles read-only (`review`, `ask`, y todos los asientos `ultra`) conservan la búsqueda web **sin pin**, por decisión de gate humano: un asiento que no puede escribir conserva capacidad útil y, con el config del usuario ignorado, su comportamiento pasa a ser el default determinista de la CLI. Residual documentado: un asiento read-only con búsqueda activa podría transmitir contenido del repo en una query.
+Los roles read-only (`review`, `ask`, y todos los asientos `ultra`) conservan la búsqueda web **sin pin por defecto**, por decisión de gate humano: un asiento que no puede escribir conserva capacidad útil y, con el config del usuario ignorado, su comportamiento pasa a ser el default determinista de la CLI. Residual documentado: un asiento read-only con búsqueda activa podría transmitir contenido del repo en una query; `TANDEM_WEB_SEARCH=off` ofrece el mando para cerrar ese canal en todos los asientos sin cambiar el default.
 
 Los temp roots (`/tmp`, `$TMPDIR`) siguen escribibles a propósito (`exclude_*` en su default `false`): las herramientas los necesitan y no son el árbol del proyecto. Lo que prohíbe escribir fuera de la raíz de trabajo es el lenguaje del prompt, no el sandbox.
 

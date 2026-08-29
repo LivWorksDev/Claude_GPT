@@ -9,6 +9,9 @@
 # env: TANDEM_CODEX_CWD  optional working root for the turn (`--cd`); the thread
 #      state and the heartbeat stay where CLAUDE_PROJECT_DIR points — see
 #      codex_cwd_validate/codex_pins in _common.sh for the whole policy block.
+#      TANDEM_WEB_SEARCH  off | on; `off` pins the native web_search tool off on
+#      every seat, while `on` explicitly keeps the read-only default. Empty or
+#      any other value is a usage error before dependencies or state.
 #      TANDEM_TRANSPORT  exec (default) | mcp. `mcp` routes the turn through
 #      `codex mcp-server` and is supported for the four roles above — `review`
 #      only for its pipeline targets (`cr-*`/`range-review-*`; plan reviews stay
@@ -35,6 +38,7 @@ SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROLE_ARG="$1" TARGET="$2" TPL="$3" EXTRA_FILE="${4:-}" NOTES_FILE="${5:-}"
 
 codex_cwd_validate
+web_search_validate
 # The transport is validated BEFORE any dependency check and before a single
 # byte of state moves: an invalid value must answer 64 without launching codex
 # and without advancing the turn counter. Same call, same order, in
@@ -113,6 +117,9 @@ fi
 
 printf 'tandem: starting codex thread — role=%s model=%s effort=%s sandbox=%s target=%s\n' \
   "$ROLE" "$CODEX_MODEL" "$CODEX_EFFORT" "$CODEX_SANDBOX" "$TARGET" >&2
+if [ "${TANDEM_WEB_SEARCH:-}" = "off" ]; then
+  printf 'tandem: web_search pinned off on every seat (TANDEM_WEB_SEARCH=off)\n' >&2
+fi
 if [ "$TRANSPORT" = "mcp" ]; then
   printf 'tandem: transport=mcp (codex mcp-server, one server per turn, watchdog %ss)\n' \
     "$MCP_TIMEOUT" >&2

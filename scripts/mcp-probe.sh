@@ -17,6 +17,9 @@
 # env: TANDEM_MCP_PROBE_TIMEOUT_SECONDS  per-turn watchdog, seconds (default
 #      240; a positive integer, anything else is a usage error). It governs the
 #      free preflight too, so it is validated on every invocation.
+#      TANDEM_WEB_SEARCH  off | on; `off` pins web_search off in every paid
+#      probe turn. Empty or unknown values are usage error 64 before state or
+#      any codex/server invocation.
 #
 # exit codes: 0 everything that ran is PASS/STATIC (or only the preflight ran)
 #             1 any FAIL or INDETERMINABLE, or broken machinery
@@ -161,6 +164,7 @@ if [ "$PROBE_TIMEOUT_BAD" -eq 1 ]; then
 fi
 PROBE_TIMEOUT="$((10#$PROBE_TIMEOUT))"
 
+web_search_validate
 need_codex
 need_jq
 

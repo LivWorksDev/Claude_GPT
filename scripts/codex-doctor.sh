@@ -294,6 +294,24 @@ case "$implementer" in
     ;;
 esac
 info "image:       model=${TANDEM_IMAGE_MODEL:-gpt-5.6-sol} effort=${TANDEM_IMAGE_EFFORT:-high} sandbox=workspace-write (pinned)"
+case "${TANDEM_WEB_SEARCH+set}" in
+  set)
+    case "$TANDEM_WEB_SEARCH" in
+      off)
+        info "web_search:  write seats=off (pinned always) · read-only seats=off (TANDEM_WEB_SEARCH=off)"
+        ;;
+      on)
+        info "web_search:  write seats=off (pinned always) · read-only seats=on (TANDEM_WEB_SEARCH=on)"
+        ;;
+      *)
+        bad "TANDEM_WEB_SEARCH='$TANDEM_WEB_SEARCH' is invalid — every wrapper would exit 64 (expected: off or on)"
+        ;;
+    esac
+    ;;
+  *)
+    info "web_search:  write seats=off (pinned always) · read-only seats=on (default; TANDEM_WEB_SEARCH=off closes them)"
+    ;;
+esac
 # The swarm semaphore's dials are VALIDATED here, not merely displayed: a bad
 # value makes EVERY seat of a run die with a usage error, and discovering that
 # one seat at a time is exactly what a preflight exists to prevent. Same rules
@@ -415,6 +433,9 @@ smoke_run_one() {
   : >"$SMOKE_ERR"
   # Job control only around the fork, so the turn leads its OWN process group
   # and the watchdog cannot take this script down with it.
+  # With TANDEM_WEB_SEARCH=off CODEX_PINS already carries the same literal as
+  # the explicit pin below; the duplicate is harmless (last wins, identical
+  # value) and keeps every smoke seat capability-free in every environment.
   set -m
   codex exec \
     --skip-git-repo-check --color never \

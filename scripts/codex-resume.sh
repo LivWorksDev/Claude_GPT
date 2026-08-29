@@ -9,6 +9,9 @@
 #
 # usage: codex-resume.sh <role> <target> <prompt-template.tpl> [extra-file] [notes-file]
 # env:   TANDEM_CODEX_CWD   optional working root for the turn (`--cd`)
+#        TANDEM_WEB_SEARCH   off | on; `off` pins the native web_search tool off
+#                            on every seat, while `on` explicitly keeps the
+#                            read-only default. Empty/unknown is usage error 64.
 #        TANDEM_TURN_EFFORT optional per-invocation effort override, read ONLY
 #                           here (codex-start.sh and codex-swarm.sh ignore it on
 #                           purpose — a first turn or a swarm seat is never a
@@ -43,6 +46,7 @@ SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROLE_ARG="$1" TARGET="$2" TPL="$3" EXTRA_FILE="${4:-}" NOTES_FILE="${5:-}"
 
 codex_cwd_validate
+web_search_validate
 # The SHARED validator, in the same position as in codex-start.sh: before any
 # dependency check and before a single byte of state moves. A resume that
 # silently fell back to exec on a bogus TANDEM_TRANSPORT would be exactly the
@@ -143,6 +147,9 @@ fi
 
 printf 'tandem: resuming codex thread %s — role=%s model=%s effort=%s sandbox=%s turn=%s\n' \
   "$THREAD_ID" "$ROLE" "$CODEX_MODEL" "$CODEX_EFFORT" "$CODEX_SANDBOX" "$TURN" >&2
+if [ "${TANDEM_WEB_SEARCH:-}" = "off" ]; then
+  printf 'tandem: web_search pinned off on every seat (TANDEM_WEB_SEARCH=off)\n' >&2
+fi
 if [ "$TRANSPORT_EFFECTIVE" = "exec-resume" ]; then
   printf 'tandem: transport=mcp requested — the continuation is the hybrid exec-resume (codex-reply cannot cross invocations)\n' >&2
 fi

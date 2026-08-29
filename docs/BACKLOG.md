@@ -45,7 +45,7 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
 | M23 | Swarm de ultra sobre el transporte MCP | Ultra | P3 | L | pendiente — prioridad BAJA deliberada (complejidad alta, aporte marginal) |
 | M24 | Watchdog de turno para el transporte exec (start, swarm y resume) | Transporte | P2 | M | pendiente |
 | M25 | Auditoría de escrituras en implement + hook anti-install para Opus | Seguridad | P1 | M | pendiente |
-| M26 | Interruptor de confidencialidad para `web_search` | Seguridad | P2 | S | pendiente |
+| M26 | Interruptor de confidencialidad para `web_search` | Seguridad | P2 | S | hecha (v0.31.0) |
 | M27 | Vista de runs ultra en `tandem:status` | UX | P2 | M | pendiente |
 | M28 | Rollup de tokens entre runs (`--tokens [--since]`) | Observabilidad | P2 | S | pendiente |
 | M29 | Salvage de contrato JSON en asientos de enjambre | Ultra | P2 | S | pendiente |

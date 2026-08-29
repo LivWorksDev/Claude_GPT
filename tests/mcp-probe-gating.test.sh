@@ -99,6 +99,21 @@ run env TANDEM_MCP_PROBE_TIMEOUT_SECONDS=0 bash "$PROBE" --spend
 assert_rc 64 "zero is not a positive integer"
 assert_no_file "$CODEX_STUB_LOG.mcp.calls"
 
+# The confidentiality switch is validated in the same usage-error window:
+# before need_codex, before the free server handshake, and before probe state.
+PROBE_SD="$(state_dir mcp-probe)"
+for WEB_VALUE in "" bogus; do
+  reset_stub
+  rm -rf "$PROBE_SD"
+  run env TANDEM_WEB_SEARCH="$WEB_VALUE" bash "$PROBE" --spend
+  assert_rc 64 "invalid TANDEM_WEB_SEARCH '$WEB_VALUE'"
+  assert_file_contains "$ERR" "TANDEM_WEB_SEARCH is not a valid value"
+  assert_eq "0" "$(calls)" "tools/call count for invalid TANDEM_WEB_SEARCH"
+  assert_eq "0" "$(turns)" "codex exec count for invalid TANDEM_WEB_SEARCH"
+  assert_no_file "$CODEX_STUB_LOG.mcp.in"
+  assert_no_file "$PROBE_SD"
+done
+
 # --- 4. --only runs the prerequisite CLOSURE, and says so in the budget ------
 reset_stub
 run bash "$PROBE" --only a
@@ -142,3 +157,15 @@ assert_file_contains "$OUT" "ok    handshake: initialize + tools/list"
 assert_file_contains "$OUT" "PROBE d: STATIC"
 assert_no_file "$CODEX_STUB_LOG.mcp.calls"
 assert_file_contains "$CODEX_STUB_LOG.mcp.in" '"method":"tools/list"'
+
+# --- 7. paid probe turns inherit the closed web-search policy ---------------
+reset_stub
+run env TANDEM_WEB_SEARCH=off CODEX_STUB_MCP_ROLLOUT=1 \
+  CODEX_STUB_THREAD_ID=thr_mcp_stub_1 \
+  CODEX_STUB_REPLY_FILE="$CODEX_STUB_LOG.mcp.codeword" \
+  bash "$PROBE" --spend
+assert_rc 0 "paid probes with web search off"
+assert_eq "2" "$(calls)" "mcp tools/call count with --spend"
+assert_eq "1" "$(turns)" "exec resume count with --spend"
+assert_file_contains "$CODEX_STUB_LOG.mcp.in" '"web_search":"disabled"'
+assert_file_contains "$CODEX_STUB_LOG.argv.1" "web_search=disabled"
