@@ -53,6 +53,7 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
 | M31 | `TANDEM_PLANS_DIR` configurable | Workflow | P3 | S | pendiente |
 | M32 | Campos del log derivados de fuente máquina, no transcritos | Observabilidad | P3 | S | pendiente |
 | M33 | Guía de adopción + snippet de CLAUDE.md para repos con políticas previas | Documentación | P3 | S | pendiente |
+| M34 | `doctor --autonomous`: preflight frío del modo desatendido | Diagnóstico | P2 | S | pendiente |
 
 ## Orden de ataque recomendado
 
@@ -70,6 +71,9 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
    M25 es el de más valor absoluto (la clase del incidente que motivó el plugin) pero
    exige diseñar el ciclo de vida del marcador de intento-activo; el resto es
    incremental y sin dependencias entre sí.
+8. **M34** — pulido de diagnóstico sin dependencias; su valor sube con cada usuario
+   nuevo que quiera lanzar su primer run autonomous, así que conviene tenerlo antes de
+   difundir el modo.
 
 ---
 
@@ -725,3 +729,39 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
 - **Aceptación:** el README contiene la sección y el snippet; el snippet menciona
   explícitamente que las garantías son estructurales (pins re-aplicados por turno), para
   que una política previa anti-delegación pueda relajarse con criterio y no por fe.
+
+## M34 — `doctor --autonomous`: preflight frío del modo desatendido
+
+- **Severidad/Esfuerzo:** P2 / S · **Slug sugerido:** `doctor-autonomous`
+- **Origen:** revisión del modo autonomous con el mantenedor (2026-08-29), tras el
+  primer run completo del pipeline sobre M26 y la planificación de M24.
+- **Problema:** el conocimiento para preparar un run desatendido está repartido
+  (README §autonomous, `skills/run/SKILL.md`) y solo se valida al lanzar: no hay forma
+  de preguntar «¿está esta sesión lista para un run autonomous?» en frío, gratis, antes
+  de decidir lanzarlo. Peor: la capa que tandem ni puede ni debe tocar — los permission
+  prompts de la propia sesión de Claude Code — hoy no se avisa proactivamente en ningún
+  sitio ejecutable, y es el único modo de fallo del run desatendido que no es fail-fast:
+  un usuario nuevo lo descubre volviendo horas después y encontrando el run bloqueado a
+  mitad, esperando un prompt que nadie va a responder. Es exactamente la clase de
+  silencio que el diseño fail-closed evita en todas las demás capas.
+- **Evidencia:** `skills/run/SKILL.md:34-37` (el preflight autonomous existe pero solo
+  corre al lanzar: brief + `TANDEM_PROMOTE_REVIEWS` + doctor); `README.md:112` («los
+  permission prompts de la propia sesión de Claude Code son una capa aparte que tandem
+  ni puede ni debe tocar»); `skills/doctor/SKILL.md` (el doctor ya es la casa de los
+  checks gratis, mismo patrón que el gate crítico de M18).
+- **Propuesta:** `codex-doctor.sh --autonomous`, expuesto en la skill: un preflight
+  gratis (cero turnos de modelo, mismo criterio que el doctor base) que agrupe los
+  requisitos verificables del modo — `TANDEM_PROMOTE_REVIEWS` definido (0/1, FAIL
+  nombrando la variable si falta), árbol limpio, y el estado efectivo de los flags que
+  cambian el run (`TANDEM_IMPLEMENTER`, `TANDEM_CRITICAL` con su gate de
+  agente/versión ya existente, `TANDEM_WORKTREE`, `TANDEM_WEB_SEARCH`) — más un WARN
+  informativo SIEMPRE presente sobre la capa de permisos de la sesión, con la
+  instrucción de configurarla: tandem no puede leerla, así que se emite como aviso
+  honesto, nunca como PASS. Fuera de alcance a propósito: la completitud del brief es
+  juicio semántico del orquestador al lanzar y no se pretende scriptar. Duplicación
+  deliberada, como en el gate crítico: el preflight de `tandem:run` sigue validando por
+  su cuenta — el doctor es invocable u omisible.
+- **Aceptación:** con `TANDEM_PROMOTE_REVIEWS` sin definir, `--autonomous` sale FAIL
+  nombrando la variable; con todo definido, emite el resumen con el WARN de permisos
+  siempre presente y sale 0; cero turnos de modelo en ambos casos; test con el stub que
+  pinee la salida de ambos escenarios.
