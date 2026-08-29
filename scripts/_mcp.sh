@@ -425,28 +425,10 @@ mcp_cleanup() {
   return 0
 }
 
-# mcp_kill_group <pid> <group> <grace> — the GROUP is what must die, checked
-# independently of the leader: during a TERM→KILL grace the leader is often
-# already gone while a TERM-resistant descendant keeps the group alive.
+# mcp_kill_group <pid> <group> <grace> — compatibility name for the shared
+# TERM→KILL helper moved to _common.sh. The wrappers source _common.sh first.
 mcp_kill_group() {
-  local pid="${1:-0}" group="${2:-0}" grace="${3:-1}" i=0
-  [ "$pid" -gt 0 ] 2>/dev/null || return 0
-  if [ "$group" = "1" ] && kill -0 -- -"$pid" 2>/dev/null; then
-    kill -TERM -- -"$pid" 2>/dev/null || true
-  elif kill -0 "$pid" 2>/dev/null; then
-    kill -TERM "$pid" 2>/dev/null || true
-  fi
-  while [ "$i" -lt "$grace" ]; do
-    kill -0 "$pid" 2>/dev/null || break
-    sleep 1
-    i=$((i + 1))
-  done
-  if [ "$group" = "1" ] && kill -0 -- -"$pid" 2>/dev/null; then
-    kill -KILL -- -"$pid" 2>/dev/null || true
-  elif kill -0 "$pid" 2>/dev/null; then
-    kill -KILL "$pid" 2>/dev/null || true
-  fi
-  return 0
+  kill_group_term_kill "$@"
 }
 
 # mcp_server_stop <grace> — the mandated stop sequence, in this exact order:

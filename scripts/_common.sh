@@ -104,6 +104,80 @@ web_search_validate() {
   esac
 }
 
+# The exec transport has its OWN watchdog family. These literals deliberately
+# do not alias the MCP defaults: the values coincide today, but either
+# transport can diverge later without changing the public variable that owns
+# it. The matrix follows each role's dominant launch mode, never its sandbox.
+TANDEM_EXEC_TIMEOUT_DEFAULT=540
+TANDEM_EXEC_TIMEOUT_DEFAULT_REVIEW=3600
+TANDEM_EXEC_TIMEOUT_DEFAULT_IMPLEMENT=3600
+TANDEM_EXEC_TIMEOUT_DEFAULT_ULTRA=3600
+
+# kill_group_term_kill <pid> <group> <grace> — send TERM, allow <grace>
+# seconds, then KILL whatever remains. The process GROUP is checked
+# independently of its leader: a TERM-resistant descendant may remain after
+# the leader has already exited.
+kill_group_term_kill() {
+  local pid="${1:-0}" group="${2:-0}" grace="${3:-1}" i=0
+  [ "$pid" -gt 0 ] 2>/dev/null || return 0
+  if [ "$group" = "1" ] && kill -0 -- -"$pid" 2>/dev/null; then
+    kill -TERM -- -"$pid" 2>/dev/null || true
+  elif kill -0 "$pid" 2>/dev/null; then
+    kill -TERM "$pid" 2>/dev/null || true
+  fi
+  while [ "$i" -lt "$grace" ]; do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 1
+    i=$((i + 1))
+  done
+  if [ "$group" = "1" ] && kill -0 -- -"$pid" 2>/dev/null; then
+    kill -KILL -- -"$pid" 2>/dev/null || true
+  elif kill -0 "$pid" 2>/dev/null; then
+    kill -KILL "$pid" 2>/dev/null || true
+  fi
+  return 0
+}
+
+# exec_timeout_validate <profile> — resolve the per-turn exec watchdog and
+# validate the explicit override before dependencies or state can move.
+exec_timeout_validate() {
+  local profile="${1:-}"
+  case "$profile" in
+    review) EXEC_TIMEOUT="$TANDEM_EXEC_TIMEOUT_DEFAULT_REVIEW" ;;
+    implement) EXEC_TIMEOUT="$TANDEM_EXEC_TIMEOUT_DEFAULT_IMPLEMENT" ;;
+    ultra) EXEC_TIMEOUT="$TANDEM_EXEC_TIMEOUT_DEFAULT_ULTRA" ;;
+    *) EXEC_TIMEOUT="$TANDEM_EXEC_TIMEOUT_DEFAULT" ;;
+  esac
+  case "${TANDEM_EXEC_TIMEOUT_SECONDS+set}" in
+    set) EXEC_TIMEOUT="$TANDEM_EXEC_TIMEOUT_SECONDS" ;;
+  esac
+  case "$EXEC_TIMEOUT" in
+    '' | *[!0-9]*)
+      die "TANDEM_EXEC_TIMEOUT_SECONDS must be a positive integer of seconds (got: '$EXEC_TIMEOUT')" 64
+      ;;
+  esac
+  [ "$((10#$EXEC_TIMEOUT))" -gt 0 ] \
+    || die "TANDEM_EXEC_TIMEOUT_SECONDS must be a positive integer of seconds (got: '$EXEC_TIMEOUT')" 64
+  EXEC_TIMEOUT="$((10#$EXEC_TIMEOUT))"
+  return 0
+}
+
+# exec_deadline_wait <job-pid> <group> <seconds> <timeout-marker> — the parent
+# itself is the watchdog. A bounded counter, not wall-clock arithmetic, means a
+# broken `date` cannot turn this deadline into an infinite wait.
+exec_deadline_wait() {
+  local pid="$1" group="$2" secs="$3" marker="$4" i=0
+  while [ "$i" -lt "$secs" ]; do
+    kill -0 "$pid" 2>/dev/null || return 0
+    sleep 1
+    i=$((i + 1))
+  done
+  kill -0 "$pid" 2>/dev/null || return 0
+  : >"$marker"
+  kill_group_term_kill "$pid" "$group" 1
+  return 0
+}
+
 # codex_pins lives in _pins.sh, NOT here: scripts/codex-doctor.sh needs the very
 # same policy block for its --smoke turns and cannot source this file (the
 # `set -euo pipefail` above would abort a diagnosis that must report every

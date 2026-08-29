@@ -8,7 +8,9 @@
 # shellcheck source=lib.sh
 . "$TESTS_DIR/lib.sh"
 
-# check_skill <skill-file> <needs-worktree-pin: 0|1> <role+target pattern>…
+# check_skill <skill-file> <needs-worktree-pin: 0|1>
+#             <foreground-real-overrides> <nudge-needs-exec-timeout: 0|1>
+#             <role+target pattern>…
 # Only FENCED blocks are scanned — that is where the commands the skill really
 # runs live, and prose naming a script is not a launch. The unit judged is one
 # logical command (backslash continuations accumulated), never a whole block: a
@@ -20,9 +22,10 @@
 # a brand-new turn, not a reminder — and every pattern must be named by at least
 # one nudge, so a mode whose nudge branch disappeared is not a pass.
 check_skill() {
-  local f="$1" want_cwd="$2"
-  shift 2
-  local nudges=0 real=0 line stripped cmd="" cont=0 fence=0
+  local f="$1" want_cwd="$2" want_foreground="$3" nudge_timeout="$4"
+  shift 4
+  local nudges=0 real=0 foreground=0 background_real=0
+  local line stripped cmd="" cont=0 fence=0
   local role_pats seen="" p hit
   role_pats="$(printf '%s\n' "$@")"
   [ -f "$f" ] || fail "skill not found: $f"
@@ -43,6 +46,12 @@ check_skill() {
           *TANDEM_TURN_EFFORT=low*) : ;;
           *) fail "$f: this nudge does not carry TANDEM_TURN_EFFORT=low: $1" ;;
         esac
+        if [ "$nudge_timeout" = "1" ]; then
+          case "$1" in
+            *TANDEM_EXEC_TIMEOUT_SECONDS=540*) : ;;
+            *) fail "$f: this foreground nudge has no TANDEM_EXEC_TIMEOUT_SECONDS=540: $1" ;;
+          esac
+        fi
         # Concrete and per role AND per mode: a nudge that resumed another
         # thread would be a brand-new turn, not a reminder.
         hit=""
@@ -77,6 +86,13 @@ EOF
           *TANDEM_TURN_EFFORT*)
             fail "$f: this REAL codex launch carries TANDEM_TURN_EFFORT: $1"
             ;;
+        esac
+        case "$1" in
+          *TANDEM_EXEC_TIMEOUT_SECONDS=540*) foreground=$((foreground + 1)) ;;
+          *TANDEM_EXEC_TIMEOUT_SECONDS*)
+            fail "$f: this foreground launch does not pin TANDEM_EXEC_TIMEOUT_SECONDS=540: $1"
+            ;;
+          *) background_real=$((background_real + 1)) ;;
         esac
         ;;
     esac
@@ -115,6 +131,10 @@ EOF
   # real launches, is a different bug — not a pass.
   [ "$nudges" -ge 1 ] || fail "$f: expected at least one nudge launch, found $nudges"
   [ "$real" -ge 1 ] || fail "$f: expected at least one real codex launch, found $real"
+  assert_eq "$want_foreground" "$foreground" \
+    "$f foreground real launches pinned to TANDEM_EXEC_TIMEOUT_SECONDS=540"
+  [ "$background_real" -ge 1 ] \
+    || fail "$f: expected at least one background real launch without the foreground override"
   # …and every mode declared above really has one.
   while IFS= read -r p; do
     [ -n "$p" ] || continue
@@ -125,13 +145,14 @@ EOF
   done <<EOF
 $role_pats
 EOF
-  note "$(basename "$(dirname "$f")")/SKILL.md — $nudges nudge(s), $real real launch(es)"
+  note "$(basename "$(dirname "$f")")/SKILL.md — $nudges nudge(s), $real real launch(es), $foreground foreground override(s)"
 }
 
-check_skill "$REPO_ROOT/skills/plan/SKILL.md" 0 "review docs/plans/<slug>.plan.md"
-check_skill "$REPO_ROOT/skills/review/SKILL.md" 1 "review cr-<slug>" "review range-review-<label>"
-check_skill "$REPO_ROOT/skills/implement/SKILL.md" 1 "implement docs/plans/<slug>.plan.md"
-check_skill "$REPO_ROOT/skills/image/SKILL.md" 0 "image <asset-label>"
+check_skill "$REPO_ROOT/skills/plan/SKILL.md" 0 2 1 "review docs/plans/<slug>.plan.md"
+check_skill "$REPO_ROOT/skills/review/SKILL.md" 1 4 1 \
+  "review cr-<slug>" "review range-review-<label>"
+check_skill "$REPO_ROOT/skills/implement/SKILL.md" 1 2 1 "implement docs/plans/<slug>.plan.md"
+check_skill "$REPO_ROOT/skills/image/SKILL.md" 0 0 0 "image <asset-label>"
 
 # --- the templates the four branches point at --------------------------------
 PLAN_TPL="$REPO_ROOT/skills/plan/prompts/nudge.tpl"

@@ -63,6 +63,12 @@ Durante una implementación Opus esa línea la ocupa el intento, leído del esta
 
 Además, los turnos lanzados en background narran su progreso en el panel **Shell details** de Claude Code — cada comando que Codex ejecuta (`» exec …` → `✓ ok`/`✗ exit N`), cada fichero que toca (`» edit …`) y los tokens del turno, en tiempo real.
 
+Cada turno `exec` tiene además un watchdog propio: un timeout mata por
+TERM→KILL el grupo completo del turno, contabiliza cualquier `turn.completed`
+que ya hubiera aterrizado y termina con fallo visible. En start/resume el
+heartbeat queda en `failed`; en ultra no hay heartbeat compartido por diseño y
+el observable equivalente es el mensaje de timeout más el slot liberado.
+
 **Instalación: `/tandem:statusline`** (o `bash scripts/statusline-install.sh`). Claude Code no permite que un plugin aporte la status line principal (el `settings.json` de un plugin solo admite `agent` y `subagentStatusLine`), así que la skill la instala con tu consentimiento: escribe un shim en `~/.claude/tandem-statusline.sh` que re-resuelve el `statusline.sh` del plugin en cada render — sobrevive a las actualizaciones del plugin (cuya ruta de caché cambia por versión) y degrada a una línea mínima si tandem desaparece — y añade la entrada `statusLine` a tu `settings.json` (escritura atómica, backup en `settings.json.tandem-backup`, y nunca pisa una statusLine ajena sin `--force`). `refreshInterval: 2` mantiene vivo el cronómetro mientras un `codex exec` bloquea. `/tandem:statusline uninstall` lo deshace; `/tandem:doctor` comprueba si está instalada.
 
 ## Política de modelos y permisos
@@ -95,6 +101,20 @@ La frontera Opus es una allowlist aplicada por Claude Code: elimina herramientas
 Por encima de `xhigh` existen `max` y `ultra`; para una revisión final especialmente delicada puedes usar `TANDEM_REVIEW_EFFORT=ultra` puntualmente.
 
 Overrides por entorno: `TANDEM_IMPLEMENTER` (`opus` default / `sol`; cualquier otro valor falla), `TANDEM_REVIEW_MODEL`, `TANDEM_REVIEW_EFFORT`, `TANDEM_IMPLEMENT_MODEL`, `TANDEM_IMPLEMENT_EFFORT` (estos dos últimos solo afectan al transporte Sol), `TANDEM_IMAGE_MODEL`, `TANDEM_IMAGE_EFFORT`, `TANDEM_PLAN_ROUNDS`, `TANDEM_CR_ROUNDS`, `TANDEM_IMPL_ROUNDS`, `TANDEM_WORKTREE` (**plan-approval + implement/review**: desde 0.12 decide también dónde aterriza el commit de aprobación del plan — checkout principal o `.worktrees/<slug>` — y debe llevar el mismo valor en todas las fases de un run; `ask` e `image` nunca se anclan a un worktree), `TANDEM_CODEX_CWD` (raíz de trabajo del turno; se reenvía literal como `codex exec --cd` y debe nombrar un directorio existente — vacío o inexistente falla con 64. Las skills la resuelven con `scripts/worktree-root.sh <slug>`, que falla cerrado en vez de caer al checkout principal), `TANDEM_TURN_EFFORT` (effort **efímero, por invocación**, leído SOLO por `codex-resume.sh`: las skills lo prefijan a los turnos-recordatorio — la reanudación que solo pide la línea `VERDICT:`/sentinel que faltó, con su `prompts/nudge.tpl` — para que re-emitir lo ya razonado no pague el effort caro del rol; valores válidos `minimal`, `low`, `medium`, `high`, `xhigh`, `max` y `ultra`, cualquier otro (vacío incluido) falla con 64 nombrando la variable y antes incluso de comprobar dependencias. `codex-start.sh` y `codex-swarm.sh` la ignoran a propósito, y el sandbox del rol nunca se ve afectado: esto solo toca effort), `TANDEM_WEB_SEARCH` (`off` cierra la búsqueda nativa en **todos** los asientos; `on` declara explícitamente el default read-only y nunca abre los roles de escritura; cualquier otro valor, vacío incluido, falla cerrado con 64 antes de dependencias o estado), `TANDEM_AUTONOMOUS`, `TANDEM_PROMOTE_REVIEWS` (`1` siempre / `0` nunca / sin definir: se ofrece en el gate), y para los enjambres `TANDEM_ULTRA_{JUDGE,WORKER,SCOUT}_MODEL`/`_EFFORT`, `TANDEM_ULTRA_CONCURRENCY` (default 4) y `TANDEM_ULTRA_SLOT_TIMEOUT` (segundos que un seat espera slot libre antes de fallar con 75 sin haber arrancado su turno; default 1800). Estas dos últimas las aplica el propio `codex-swarm.sh` con un semáforo por run: enteros positivos, y vacío o ≤ 0 falla con 64 nombrando la variable, antes incluso de comprobar dependencias. Los sandboxes Codex no se pueden sobreescribir y `danger-full-access`/`--yolo` no se usan nunca.
+
+`TANDEM_EXEC_TIMEOUT_SECONDS` sobreescribe el watchdog de `codex exec` en
+start, resume y ultra. Sin override, la matriz por modo de lanzamiento dominante
+es 540 s para `ask`/`image` (foreground) y 3600 s para
+`review`/`implement`/`ultra` (background), nunca por sandbox. El literal
+foreground queda por debajo del cap de 600 s del tool Bash para que el wrapper
+clasifique, reapee y contabilice antes de que muera la invocación exterior; por
+eso las excepciones foreground documentadas de review/implement prefijan
+`TANDEM_EXEC_TIMEOUT_SECONDS=540`. Vacío, texto o cero falla cerrado con 64 antes
+de dependencias o estado. Es un mando independiente de
+`TANDEM_MCP_TIMEOUT_SECONDS`: con `TANDEM_TRANSPORT=mcp`, el start obedece el
+watchdog MCP y las continuaciones híbridas `exec resume` obedecen el exec; si se
+amplía uno para un caso extremo, hay que ampliar también el que corresponda a
+los otros turnos del hilo.
 
 ## Modo autonomous
 

@@ -40,20 +40,31 @@ milestones() (
 )
 
 # =============================================================================
-# 1. the exec branch did not move
+# 1. the exec branch keeps the reviewed job + rc-file + deadline shape
 # =============================================================================
 # The behavioural anchor (start-argv-exact-order.test.sh) pins the argv the stub
 # receives; this pins the SOURCE that produces it, so an mcp branch that
 # reordered or reindented the exec block fails here instead of surviving until a
-# real turn. Indentation is normalised away on purpose: the block now lives
+# real turn. Indentation is normalised away on purpose: start's block lives
 # inside an `if`, and its bytes are the tokens, not the leading spaces.
 exec_block() {
-  LC_ALL=C sed -n '/codex exec \\$/,/rc="\${PIPESTATUS/p' "$1" \
+  LC_ALL=C awk '
+    /RC_FILE="\$STATE_ROOT\/tmp\/exec-/ { keep=1 }
+    keep { print }
+    keep && /^[[:space:]]*TURN_JOB=0$/ { exit }
+  ' "$1" \
     | LC_ALL=C sed -e 's|^[[:space:]]*||'
 }
 
 # Quoted delimiter: not one byte of the frozen block is expanded here.
 cat >"$SANDBOX/start-block.want" <<'START_BLOCK'
+RC_FILE="$STATE_ROOT/tmp/exec-$ROLE-$KEY.t$TURN.$$.rc"
+TIMEOUT_MARK="$RC_FILE.timeout"
+rm -f "$RC_FILE" "$TIMEOUT_MARK"
+trap 'TURN_PENDING_SIG=130' INT
+trap 'TURN_PENDING_SIG=143' TERM
+set -m
+(
 codex exec \
 --json --skip-git-repo-check --color never \
 --model "$CODEX_MODEL" \
@@ -63,7 +74,17 @@ codex exec \
 --output-last-message "$MSG_FILE" \
 - <"$PROMPT_FILE" 2>"$EVENTS_FILE.stderr" \
 | tee "$EVENTS_FILE" | stream_milestones
-rc="${PIPESTATUS[0]}"
+printf '%s' "${PIPESTATUS[0]}" >"$RC_FILE"
+) &
+TURN_JOB=$!
+set +m
+if kill -0 -- -"$TURN_JOB" 2>/dev/null; then TURN_GROUP=1; fi
+trap 'exit 130' INT
+trap 'exit 143' TERM
+[ "$TURN_PENDING_SIG" -ne 0 ] && exit "$TURN_PENDING_SIG"
+exec_deadline_wait "$TURN_JOB" "$TURN_GROUP" "$EXEC_TIMEOUT" "$TIMEOUT_MARK"
+wait "$TURN_JOB" 2>/dev/null || true
+TURN_JOB=0
 START_BLOCK
 exec_block "$SCRIPTS/codex-start.sh" >"$SANDBOX/start-block.got"
 cmp -s "$SANDBOX/start-block.want" "$SANDBOX/start-block.got" || {
@@ -73,6 +94,13 @@ cmp -s "$SANDBOX/start-block.want" "$SANDBOX/start-block.got" || {
 }
 
 cat >"$SANDBOX/resume-block.want" <<'RESUME_BLOCK'
+RC_FILE="$STATE_ROOT/tmp/exec-$ROLE-$KEY.t$TURN.$$.rc"
+TIMEOUT_MARK="$RC_FILE.timeout"
+rm -f "$RC_FILE" "$TIMEOUT_MARK"
+trap 'TURN_PENDING_SIG=130' INT
+trap 'TURN_PENDING_SIG=143' TERM
+set -m
+(
 codex exec \
 --json --skip-git-repo-check --color never \
 --model "$CODEX_MODEL" \
@@ -82,7 +110,17 @@ codex exec \
 --output-last-message "$MSG_FILE" \
 resume "$THREAD_ID" - <"$PROMPT_FILE" 2>"$EVENTS_FILE.stderr" \
 | tee "$EVENTS_FILE" | stream_milestones
-rc="${PIPESTATUS[0]}"
+printf '%s' "${PIPESTATUS[0]}" >"$RC_FILE"
+) &
+TURN_JOB=$!
+set +m
+if kill -0 -- -"$TURN_JOB" 2>/dev/null; then TURN_GROUP=1; fi
+trap 'exit 130' INT
+trap 'exit 143' TERM
+[ "$TURN_PENDING_SIG" -ne 0 ] && exit "$TURN_PENDING_SIG"
+exec_deadline_wait "$TURN_JOB" "$TURN_GROUP" "$EXEC_TIMEOUT" "$TIMEOUT_MARK"
+wait "$TURN_JOB" 2>/dev/null || true
+TURN_JOB=0
 RESUME_BLOCK
 exec_block "$SCRIPTS/codex-resume.sh" >"$SANDBOX/resume-block.got"
 cmp -s "$SANDBOX/resume-block.want" "$SANDBOX/resume-block.got" || {

@@ -23,6 +23,8 @@
 #      legitimately exceed ten minutes (wide default), while ask and image are
 #      foreground contracts and keep the default that stays below the Bash
 #      tool's ceiling.
+#      TANDEM_EXEC_TIMEOUT_SECONDS  equivalent per-turn watchdog for the exec
+#      transport (540s foreground; 3600s review/implement by default).
 #
 # exit codes: 0 ok · 1 codex failure · 2 thread already exists (resume instead)
 #             3 missing dependency · 64 usage error
@@ -39,6 +41,7 @@ ROLE_ARG="$1" TARGET="$2" TPL="$3" EXTRA_FILE="${4:-}" NOTES_FILE="${5:-}"
 
 codex_cwd_validate
 web_search_validate
+exec_timeout_validate "$ROLE_ARG"
 # The transport is validated BEFORE any dependency check and before a single
 # byte of state moves: an invalid value must answer 64 without launching codex
 # and without advancing the turn counter. Same call, same order, in
@@ -125,6 +128,25 @@ if [ "$TRANSPORT" = "mcp" ]; then
     "$MCP_TIMEOUT" >&2
 fi
 
+TURN_JOB=0
+TURN_GROUP=0
+TURN_PENDING_SIG=0
+RC_FILE=""
+TIMEOUT_MARK=""
+
+turn_lifecycle_guard() {
+  local rc=$? g
+  if [ "${TURN_JOB:-0}" -gt 0 ] 2>/dev/null; then
+    g="${TURN_GROUP:-0}"
+    kill -0 -- -"$TURN_JOB" 2>/dev/null && g=1
+    kill_group_term_kill "$TURN_JOB" "$g" 1
+    wait "$TURN_JOB" 2>/dev/null || true
+    TURN_JOB=0
+  fi
+  [ "${HB_ACTIVE:-0}" = "1" ] && hb_write failed
+  exit "$rc"
+}
+
 hb_begin
 
 # The mcp branch owns EXIT/INT/TERM from here: traps do not stack and hb_begin
@@ -133,6 +155,8 @@ hb_begin
 if [ "$TRANSPORT" = "mcp" ]; then
   mcp_lifecycle_arm
   mcp_home_build
+else
+  trap 'turn_lifecycle_guard' EXIT
 fi
 
 # Events stream through tee: the full NDJSON is still captured for the
@@ -147,16 +171,33 @@ if [ "$TRANSPORT" = "mcp" ]; then
   mcp_turn_start "$PROMPT_FILE" "$EVENTS_FILE" "$MSG_FILE" "$EVENTS_FILE.stderr"
   rc=$?
 else
-  codex exec \
-    --json --skip-git-repo-check --color never \
-    --model "$CODEX_MODEL" \
-    --sandbox "$CODEX_SANDBOX" \
-    -c model_reasoning_effort="$CODEX_EFFORT" \
-    "${CODEX_PINS[@]}" \
-    --output-last-message "$MSG_FILE" \
-    - <"$PROMPT_FILE" 2>"$EVENTS_FILE.stderr" \
-    | tee "$EVENTS_FILE" | stream_milestones
-  rc="${PIPESTATUS[0]}"
+  RC_FILE="$STATE_ROOT/tmp/exec-$ROLE-$KEY.t$TURN.$$.rc"
+  TIMEOUT_MARK="$RC_FILE.timeout"
+  rm -f "$RC_FILE" "$TIMEOUT_MARK"
+  trap 'TURN_PENDING_SIG=130' INT
+  trap 'TURN_PENDING_SIG=143' TERM
+  set -m
+  (
+    codex exec \
+      --json --skip-git-repo-check --color never \
+      --model "$CODEX_MODEL" \
+      --sandbox "$CODEX_SANDBOX" \
+      -c model_reasoning_effort="$CODEX_EFFORT" \
+      "${CODEX_PINS[@]}" \
+      --output-last-message "$MSG_FILE" \
+      - <"$PROMPT_FILE" 2>"$EVENTS_FILE.stderr" \
+      | tee "$EVENTS_FILE" | stream_milestones
+    printf '%s' "${PIPESTATUS[0]}" >"$RC_FILE"
+  ) &
+  TURN_JOB=$!
+  set +m
+  if kill -0 -- -"$TURN_JOB" 2>/dev/null; then TURN_GROUP=1; fi
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  [ "$TURN_PENDING_SIG" -ne 0 ] && exit "$TURN_PENDING_SIG"
+  exec_deadline_wait "$TURN_JOB" "$TURN_GROUP" "$EXEC_TIMEOUT" "$TIMEOUT_MARK"
+  wait "$TURN_JOB" 2>/dev/null || true
+  TURN_JOB=0
 fi
 set -e
 
@@ -176,6 +217,20 @@ if [ -n "$USAGE_JSON" ]; then
   # exactly where the orchestrator needs it, and copying a line beats
   # recomputing the target_key checksum to find the file.
   printf 'USAGE: %s\n' "$USAGE_JSON" >&2
+fi
+
+if [ "$TRANSPORT" != "mcp" ]; then
+  if [ -f "$TIMEOUT_MARK" ]; then
+    rm -f "$RC_FILE" "$TIMEOUT_MARK"
+    die "no answer within ${EXEC_TIMEOUT}s for exec profile $ROLE — the per-turn watchdog expired and the turn's process group was reaped; adjust TANDEM_EXEC_TIMEOUT_SECONDS if this deadline is too short" 1
+  fi
+  rc="$(cat "$RC_FILE" 2>/dev/null || true)"
+  rm -f "$RC_FILE" "$TIMEOUT_MARK"
+  case "$rc" in
+    '' | *[!0-9]*)
+      die "codex exec did not publish a numeric exit code — see $EVENTS_FILE.stderr" 1
+      ;;
+  esac
 fi
 
 if [ "$rc" -ne 0 ]; then

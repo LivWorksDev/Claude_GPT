@@ -630,7 +630,17 @@ if [ -n "${CODEX_STUB_SLEEP:-}" ]; then
   sleep "$CODEX_STUB_SLEEP"
 fi
 if [ "$SCENARIO" = "hang" ]; then
-  # Long enough that only the runner watchdog can end it.
+  # Long enough that only the caller's watchdog can end it. The resistant
+  # descendant makes the TERM→KILL half of that contract observable.
+  if [ "${CODEX_STUB_HANG_RESISTANT:-0}" = "1" ]; then
+    (
+      trap '' TERM
+      sleep "${CODEX_STUB_HANG_SECONDS:-600}"
+    ) &
+    if [ -n "${CODEX_STUB_HANG_PIDFILE:-}" ]; then
+      printf '%s\n' "$!" >"$CODEX_STUB_HANG_PIDFILE"
+    fi
+  fi
   sleep "${CODEX_STUB_HANG_SECONDS:-600}"
   exit 0
 fi
@@ -708,6 +718,14 @@ reply_text() {
 }
 
 emit_events
+
+# A complete event stream means the quota is already spent even if the
+# process wedges before returning. This knob keeps that accounting path
+# distinct from the pure `hang` scenario, which emits no turn.completed.
+if [ "${CODEX_STUB_HANG_AFTER_EVENTS:-0}" = "1" ]; then
+  sleep "${CODEX_STUB_HANG_SECONDS:-600}"
+  exit 0
+fi
 
 # `empty-reply` and `fail` deliberately do NOT write the last-message file: the
 # callers pre-delete it, so a stale reply from a previous turn can never be

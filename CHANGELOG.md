@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.32.0 — 2026-08-29
+
+- **Watchdog de turno para el transporte exec** (M24, hallazgo A1 + enmienda E-A1
+  del informe de campo 2026-08-21): los tres wrappers — `codex-start.sh` (rama
+  exec), `codex-resume.sh` (SIEMPRE: las continuaciones del transporte mcp viajan
+  por el híbrido `exec resume` y quedaban sin observador) y cada seat de
+  `codex-swarm.sh` — aíslan el pipeline en un grupo de proceso propio y lo acotan
+  con un deadline por perfil: TERM→gracia→KILL sobre el grupo entero, con el helper
+  compartido `kill_group_term_kill` extraído de `_mcp.sh` (una definición para
+  ambos transportes).
+- **Matriz por modo de lanzamiento dominante, familia fail-closed:**
+  `TANDEM_EXEC_TIMEOUT_SECONDS` (vacía/no-numérica/0 → 64 nombrando la variable,
+  antes de dependencias y de estado, en los tres wrappers) sobre literales propios
+  — 540 s foreground (`ask`/`image`, bajo el cap de 600 s del tool Bash, atado
+  estáticamente por test) y 3600 s background (`review`/`implement`/`ultra`). Las
+  excepciones foreground documentadas de las skills (nudges, plan pequeño, diff
+  pequeño) prefijan `TANDEM_EXEC_TIMEOUT_SECONDS=540` explícito, pineado por los
+  skill-contract-tests. Mandos independientes por transporte: un hilo mcp usa la
+  variable mcp en el arranque y la exec en sus continuaciones.
+- **Lifecycle a prueba de señales** (endurecido en 6 rondas de plan review):
+  publicación atómica de la propiedad del turno (sección crítica con señales de
+  solo-registro, el patrón del semáforo de swarm), dueño EXIT que captura el
+  status real ANTES de limpiar, mata, ESPERA y solo entonces publica — un timeout
+  (`die` 1), un fallo codex (1) o un TERM (143) conservan su exit code, un wrapper
+  cancelado nunca deja a codex escribiendo huérfano, y en swarm el trap EXIT
+  reapea el grupo del turno antes de liberar el slot (reduce de rebote la
+  incidencia de M30 y desactiva un disparador declarado de M23). El bucle de
+  deadline es POR CONTADOR: un `date` roto no puede volverlo infinito (probado).
+- **La contabilidad sobrevive al timeout:** `turn_usage` corre antes de cualquier
+  clasificación — un turno que emitió `turn.completed` y colgó después conserva su
+  ledger y su línea `USAGE:` (escenario nuevo del stub, `hang-after-events`); un
+  cuelgue puro no inventa usage. El rc de codex viaja por fichero preservando el
+  contrato «un hipo del filtro nunca se disfraza de fallo de codex».
+- Residual declarado: un SIGKILL directo al wrapper salta los traps y huérfana el
+  grupo del turno — la misma clase que el slot huérfano de M30, con la misma
+  respuesta pendiente (herramienta explícita, no promesa). El source-freeze de
+  `mcp-transport-parity.test.sh` congela la forma nueva del bloque exec en ambos
+  wrappers.
+
 ## 0.31.0 — 2026-08-29
 
 - **Interruptor de confidencialidad para la búsqueda web nativa** (M26, hallazgo A3 +

@@ -47,6 +47,8 @@
 #                                 (default 1800). Both are positive integers;
 #                                 set-but-empty is a usage error, never a
 #                                 silent default.
+#      TANDEM_EXEC_TIMEOUT_SECONDS  per-seat watchdog (default 3600 for the
+#                                 background ultra profile).
 #
 # exit codes: 0 ok · 1 codex failure · 3 missing dependency · 64 usage error ·
 #             75 no free slot within the timeout (EX_TEMPFAIL — the turn never
@@ -122,6 +124,8 @@ ULTRA_TIMEOUT="${TANDEM_ULTRA_SLOT_TIMEOUT-1800}"
 ultra_int_validate TANDEM_ULTRA_SLOT_TIMEOUT "$ULTRA_TIMEOUT"
 ULTRA_TIMEOUT=$((10#$ULTRA_TIMEOUT))
 
+exec_timeout_validate ultra
+
 need_codex
 need_jq
 
@@ -181,6 +185,8 @@ STAGED_PROMPT="$STATE_DIR/$SEAT_KEY.prompt.txt"
 SLOT_DIR=""
 SLOT_HELD=0
 PENDING_SIG=0
+TURN_JOB=0
+TURN_GROUP=0
 
 # A signal handler NEVER exits. It records the code and returns, so a signal
 # delivered mid-turn cannot skip the token accounting of a turn that already
@@ -195,6 +201,14 @@ trap 'PENDING_SIG=143' TERM
 # usage error, a cancelled wait) leaves every other seat's slot untouched.
 # Always returns 0: an EXIT trap must preserve the script's own exit code.
 slot_release() {
+  local rc=$? g
+  if [ "${TURN_JOB:-0}" -gt 0 ] 2>/dev/null; then
+    g="${TURN_GROUP:-0}"
+    kill -0 -- -"$TURN_JOB" 2>/dev/null && g=1
+    kill_group_term_kill "$TURN_JOB" "$g" 1
+    wait "$TURN_JOB" 2>/dev/null || true
+    TURN_JOB=0
+  fi
   if [ "$SLOT_HELD" -eq 1 ] && [ -n "$SLOT_DIR" ]; then
     SLOT_HELD=0
     rm -rf "$SLOT_DIR" 2>/dev/null || true
@@ -286,16 +300,29 @@ sig_honor
 # record, stream_milestones narrates the shell panel, PIPESTATUS[0] keeps
 # codex's own exit code.
 set +e
-codex exec \
-  --json --skip-git-repo-check --color never \
-  --model "$CODEX_MODEL" \
-  --sandbox "$CODEX_SANDBOX" \
-  -c model_reasoning_effort="$CODEX_EFFORT" \
-  "${CODEX_PINS[@]}" \
-  --output-last-message "$MSG_FILE" \
-  - <"$STAGED_PROMPT" 2>"$EVENTS_FILE.stderr" \
-  | tee "$EVENTS_FILE" | stream_milestones
-rc="${PIPESTATUS[0]}"
+RC_FILE="$STATE_ROOT/tmp/exec-ultra-$RUN_KEY-$SEAT_KEY.$$.rc"
+TIMEOUT_MARK="$RC_FILE.timeout"
+rm -f "$RC_FILE" "$TIMEOUT_MARK"
+set -m
+(
+  codex exec \
+    --json --skip-git-repo-check --color never \
+    --model "$CODEX_MODEL" \
+    --sandbox "$CODEX_SANDBOX" \
+    -c model_reasoning_effort="$CODEX_EFFORT" \
+    "${CODEX_PINS[@]}" \
+    --output-last-message "$MSG_FILE" \
+    - <"$STAGED_PROMPT" 2>"$EVENTS_FILE.stderr" \
+    | tee "$EVENTS_FILE" | stream_milestones
+  printf '%s' "${PIPESTATUS[0]}" >"$RC_FILE"
+) &
+TURN_JOB=$!
+set +m
+if kill -0 -- -"$TURN_JOB" 2>/dev/null; then TURN_GROUP=1; fi
+sig_honor
+exec_deadline_wait "$TURN_JOB" "$TURN_GROUP" "$EXEC_TIMEOUT" "$TIMEOUT_MARK"
+wait "$TURN_JOB" 2>/dev/null || true
+TURN_JOB=0
 set -e
 
 # Token accounting, BEFORE any check (same rule as codex-start.sh: a seat that
@@ -327,6 +354,18 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 sig_honor
+
+if [ -f "$TIMEOUT_MARK" ]; then
+  rm -f "$RC_FILE" "$TIMEOUT_MARK"
+  die "no answer within ${EXEC_TIMEOUT}s for exec profile ultra (tier=$TIER) — the per-turn watchdog expired and the turn's process group was reaped; adjust TANDEM_EXEC_TIMEOUT_SECONDS if this deadline is too short" 1
+fi
+rc="$(cat "$RC_FILE" 2>/dev/null || true)"
+rm -f "$RC_FILE" "$TIMEOUT_MARK"
+case "$rc" in
+  '' | *[!0-9]*)
+    die "codex exec did not publish a numeric exit code — see $EVENTS_FILE.stderr" 1
+    ;;
+esac
 
 if [ "$rc" -ne 0 ]; then
   printf 'tandem: codex exec failed (exit %s). Last stderr lines:\n' "$rc" >&2

@@ -43,6 +43,14 @@ bash "$SCRIPTS/codex-start.sh" review docs/plans/<slug>.plan.md \
 
 **The task-completion notification of that Bash run is a hard synchronization barrier.** Nothing happens before it arrives: you do not read the `VERDICT:` line, you do not copy the `USAGE:` line into the log — never a premature `tokens: n/a` out of impatience, the line is simply not there yet — and you launch no resume and no nudge. The thread is not even persisted before that point, and a concurrent resume over a live turn is exactly the class of corruption this barrier exists to forbid.
 
+For the small-plan foreground exception, use the same launch with the exec
+watchdog explicitly below the Bash ceiling:
+
+```bash
+TANDEM_EXEC_TIMEOUT_SECONDS=540 bash "$SCRIPTS/codex-start.sh" review docs/plans/<slug>.plan.md \
+  "${CLAUDE_SKILL_DIR}/prompts/start.tpl"
+```
+
 Exit 2 means a thread already exists for this plan: resume it if you are continuing the same work, or `codex-reset.sh review docs/plans/<slug>.plan.md` if this is a fresh plan under a reused name.
 
 **Token accounting — every round, unconditionally, before reading the `VERDICT:` line.** Every Codex turn prints exactly one `USAGE: {…}` line on stderr, absent only when the stream carried no `turn.completed` (the turn never completed at all). Copy it into that round's line of `.tandem/log/<slug>.md` — `## Round <n> — Sol · tokens: in <input_tokens> · out <output_tokens>`, or `tokens: n/a` when the line is absent — **before** you branch on the verdict. A round that comes back APPROVED at the first attempt, or NEEDS_REWORK, burned exactly as much ChatGPT quota as a REVISE round; until now only the REVISE branch ever wrote to the log, and that is precisely the accounting hole this step closes.
@@ -52,7 +60,7 @@ Exit 2 means a thread already exists for this plan: resume it if you are continu
 - No `VERDICT:` line at all → resume the SAME thread asking only for the missing verdict line, with the dedicated nudge template and a cheap effort for that single invocation; this counts as a round. If it happens twice, treat the reply as REVISE and note the anomaly in the log.
 
 ```bash
-TANDEM_TURN_EFFORT=low bash "$SCRIPTS/codex-resume.sh" review docs/plans/<slug>.plan.md \
+TANDEM_EXEC_TIMEOUT_SECONDS=540 TANDEM_TURN_EFFORT=low bash "$SCRIPTS/codex-resume.sh" review docs/plans/<slug>.plan.md \
   "${CLAUDE_SKILL_DIR}/prompts/nudge.tpl"
 ```
 
@@ -72,6 +80,14 @@ bash "$SCRIPTS/codex-resume.sh" review docs/plans/<slug>.plan.md \
 ```
 
 - Round cap reached without APPROVED → **deadlock is a legitimate outcome**: present the unresolved disagreements and both positions to the user. Never fake convergence.
+
+For the small-plan foreground exception on a re-review, use:
+
+```bash
+TANDEM_EXEC_TIMEOUT_SECONDS=540 bash "$SCRIPTS/codex-resume.sh" review docs/plans/<slug>.plan.md \
+  "${CLAUDE_SKILL_DIR}/prompts/resume.tpl" \
+  "" .tandem/tmp/<slug>-dispositions.md
+```
 
 ## Resolution — human gate
 

@@ -179,6 +179,13 @@ TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-start.sh" implement docs/plan
 
 Run it with Bash `run_in_background: true` by default for any real feature: an implementation at `high`/`xhigh` regularly exceeds the 10-minute foreground cap, which is a hard ceiling of the Bash tool and not a parameter you can raise, so a foreground turn dies mid-flight with the quota already spent and nothing to show for it. Use foreground with `timeout: 600000` only for small plans. When a background run finishes, announce it clearly before doing anything else.
 
+For the small-plan foreground exception under the default exec transport, use the same launch with the exec watchdog explicitly below the Bash ceiling:
+
+```bash
+TANDEM_EXEC_TIMEOUT_SECONDS=540 TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-start.sh" implement docs/plans/<slug>.plan.md \
+  "${CLAUDE_SKILL_DIR}/prompts/implement.tpl"
+```
+
 **Transport (opt-in) — `TANDEM_TRANSPORT=mcp`.** The default is `codex exec` and nothing about the command above changes. With the variable set, this START turn is routed through `codex mcp-server`, with identical artefacts, `USAGE:` line, heartbeat, exit codes and guards — the workspace-write pins included (sandbox `workspace-write`, no network, no extra writable roots, approvals `never`): they travel as parameters of the tool call instead of argv. The transport serves every role — `review` only for its pipeline targets `cr-*`/`range-review-*` — and any other value, or an unknown role, is a usage error (64). Under `mcp` this launch is `run_in_background: true` ALWAYS — the small-plan exception above does not apply: the implement watchdog defaults to 3600s, well over the foreground cap, so a foreground start would be killed by the Bash tool before the watchdog could classify the hang, reap the server group and account the turn, and the turn would be lost with its quota already spent. If you insist on the foreground, lower `TANDEM_MCP_TIMEOUT_SECONDS` below that cap first. The continuations of Step 2 are unaffected: a continuation always runs through `codex exec resume` (a thread does not survive the server that created it), so it keeps the criterion stated there, and the nudge keeps running in the foreground.
 
 **The task-completion notification of that Bash run is a hard synchronization barrier.** Nothing happens before it arrives: you do not read the `IMPLEMENTATION_` sentinel, you do not copy the `USAGE:` line into the log — never a premature `tokens: n/a` out of impatience, the line is simply not there yet — and you launch no resume and no nudge. The thread is not even persisted before that point, and a concurrent resume over a live turn is exactly the class of corruption this barrier exists to forbid.
@@ -197,7 +204,7 @@ The reply ends with `IMPLEMENTATION_COMPLETE` or `IMPLEMENTATION_PARTIAL`.
 - Neither sentinel present → continue the SAME implementer asking only for the missing status line plus the final report; if it happens twice, treat it as PARTIAL and log the anomaly. Under `sol` that reminder is a dedicated turn with its own template and a cheap effort for that single invocation:
 
 ```bash
-TANDEM_TURN_EFFORT=low TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-resume.sh" implement docs/plans/<slug>.plan.md \
+TANDEM_EXEC_TIMEOUT_SECONDS=540 TANDEM_TURN_EFFORT=low TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-resume.sh" implement docs/plans/<slug>.plan.md \
   "${CLAUDE_SKILL_DIR}/prompts/nudge.tpl"
 ```
 
@@ -220,6 +227,14 @@ TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-resume.sh" implement docs/pla
 (the 4th arg fills `{{EXTRA}}` with your fix/scope list)
 
 Same rules as the launch: Bash `run_in_background: true` by default for any real feature, foreground with `timeout: 600000` only for small plans. **The task-completion notification of that Bash run is the same hard synchronization barrier**: before it arrives you do not read the `IMPLEMENTATION_` sentinel, you do not copy the `USAGE:` line into the log, and you launch no further resume and no nudge; when the background run finishes, announce it clearly before doing anything else. A continuation is a plain `codex exec resume` turn under either transport, so this criterion holds unchanged when the start ran over `mcp`.
+
+For the small-plan foreground exception, use:
+
+```bash
+TANDEM_EXEC_TIMEOUT_SECONDS=540 TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-resume.sh" implement docs/plans/<slug>.plan.md \
+  "${CLAUDE_SKILL_DIR}/prompts/continue.tpl" \
+  .tandem/tmp/<slug>-continue.md
+```
 
 ## Step 3 — Your verification (never delegated)
 

@@ -113,10 +113,18 @@ el arranque MCP realoja al store real del usuario es todo lo que necesita, y el 
 registra honesto (`transport_effective: "exec-resume"`). Un CODEX_HOME efímero propiedad
 de tandem (config.toml solo con los pins; model y effort viajan como params del call)
 aporta el aislamiento que el servidor no ofrece: no existe `--ignore-user-config` en
-mcp-server. Watchdog por turno OBLIGATORIO y por ROL (la matriz de arriba; bajo mcp los
-starts de review e implement van SIEMPRE en background por contrato ejecutable): una
-aprobación de MCP-tool bajo `never` cuelga sin timeout y el cliente MCP no puede
-resolverla. Los canarios reales de los cuatro roles pasaron (2026-08-03): implement
+mcp-server. El watchdog por turno ya no es exclusivo de MCP: los tres wrappers exec
+(start, resume híbrido incluido, y cada seat de swarm) aíslan el pipeline en un grupo
+propio, esperan con un contador acotado independiente de `date` y aplican TERM→KILL
+antes de publicar heartbeat `failed` o liberar el slot. La matriz exec por modo de
+lanzamiento dominante es 540 s para ask/image y 3600 s para
+review/implement/ultra; sus excepciones foreground documentadas prefijan 540 s para
+quedar bajo el cap exterior de Bash. MCP conserva su watchdog obligatorio por rol para
+el start: una aprobación de MCP-tool bajo `never` cuelga sin timeout y el cliente MCP
+no puede resolverla. `TANDEM_EXEC_TIMEOUT_SECONDS` y
+`TANDEM_MCP_TIMEOUT_SECONDS` son mandos independientes: un hilo arrancado por MCP usa
+el primero en sus continuaciones `exec resume` y el segundo en el arranque. Los
+canarios reales de los cuatro roles pasaron (2026-08-03): implement
 escribió de verdad bajo workspace-write e image generó un PNG real con gpt-image-2 —
 la Fase 2 (wrappers) queda COMPLETA; el roadmap restante del transporte es v2 (servidor
 persistente) y, solo si se demanda, el swarm.

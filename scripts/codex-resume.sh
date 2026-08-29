@@ -32,6 +32,8 @@
 #                           (probe (a) of M19). The turn records
 #                           transport_effective "exec-resume", never a bare
 #                           "mcp" that would falsify the audit trail.
+#        TANDEM_EXEC_TIMEOUT_SECONDS  per-turn watchdog for every resume
+#                           (540s foreground; 3600s review/implement default).
 # exit codes: 0 ok · 1 codex failure · 2 no thread yet (start instead)
 #             3 missing dependency · 64 usage error
 
@@ -47,6 +49,7 @@ ROLE_ARG="$1" TARGET="$2" TPL="$3" EXTRA_FILE="${4:-}" NOTES_FILE="${5:-}"
 
 codex_cwd_validate
 web_search_validate
+exec_timeout_validate "$ROLE_ARG"
 # The SHARED validator, in the same position as in codex-start.sh: before any
 # dependency check and before a single byte of state moves. A resume that
 # silently fell back to exec on a bogus TANDEM_TRANSPORT would be exactly the
@@ -154,23 +157,60 @@ if [ "$TRANSPORT_EFFECTIVE" = "exec-resume" ]; then
   printf 'tandem: transport=mcp requested — the continuation is the hybrid exec-resume (codex-reply cannot cross invocations)\n' >&2
 fi
 
+TURN_JOB=0
+TURN_GROUP=0
+TURN_PENDING_SIG=0
+RC_FILE=""
+TIMEOUT_MARK=""
+
+turn_lifecycle_guard() {
+  local rc=$? g
+  if [ "${TURN_JOB:-0}" -gt 0 ] 2>/dev/null; then
+    g="${TURN_GROUP:-0}"
+    kill -0 -- -"$TURN_JOB" 2>/dev/null && g=1
+    kill_group_term_kill "$TURN_JOB" "$g" 1
+    wait "$TURN_JOB" 2>/dev/null || true
+    TURN_JOB=0
+  fi
+  [ "${HB_ACTIVE:-0}" = "1" ] && hb_write failed
+  exit "$rc"
+}
+
 hb_begin
+trap 'turn_lifecycle_guard' EXIT
 
 # Events stream through tee: full NDJSON still captured for the fallback-id
 # guard and the durable record, while stream_milestones narrates progress on
 # stdout. PIPESTATUS[0] (not $?) keeps codex's own exit code — a filter hiccup
 # must never masquerade as a codex failure.
 set +e
-codex exec \
-  --json --skip-git-repo-check --color never \
-  --model "$CODEX_MODEL" \
-  --sandbox "$CODEX_SANDBOX" \
-  -c model_reasoning_effort="$CODEX_EFFORT" \
-  "${CODEX_PINS[@]}" \
-  --output-last-message "$MSG_FILE" \
-  resume "$THREAD_ID" - <"$PROMPT_FILE" 2>"$EVENTS_FILE.stderr" \
-  | tee "$EVENTS_FILE" | stream_milestones
-rc="${PIPESTATUS[0]}"
+RC_FILE="$STATE_ROOT/tmp/exec-$ROLE-$KEY.t$TURN.$$.rc"
+TIMEOUT_MARK="$RC_FILE.timeout"
+rm -f "$RC_FILE" "$TIMEOUT_MARK"
+trap 'TURN_PENDING_SIG=130' INT
+trap 'TURN_PENDING_SIG=143' TERM
+set -m
+(
+  codex exec \
+    --json --skip-git-repo-check --color never \
+    --model "$CODEX_MODEL" \
+    --sandbox "$CODEX_SANDBOX" \
+    -c model_reasoning_effort="$CODEX_EFFORT" \
+    "${CODEX_PINS[@]}" \
+    --output-last-message "$MSG_FILE" \
+    resume "$THREAD_ID" - <"$PROMPT_FILE" 2>"$EVENTS_FILE.stderr" \
+    | tee "$EVENTS_FILE" | stream_milestones
+  printf '%s' "${PIPESTATUS[0]}" >"$RC_FILE"
+) &
+TURN_JOB=$!
+set +m
+if kill -0 -- -"$TURN_JOB" 2>/dev/null; then TURN_GROUP=1; fi
+trap 'exit 130' INT
+trap 'exit 143' TERM
+[ "$TURN_PENDING_SIG" -ne 0 ] && exit "$TURN_PENDING_SIG"
+exec_deadline_wait "$TURN_JOB" "$TURN_GROUP" "$EXEC_TIMEOUT" "$TIMEOUT_MARK"
+wait "$TURN_JOB" 2>/dev/null || true
+TURN_JOB=0
 set -e
 
 # Token accounting, BEFORE any check on purpose: a turn that produced a
@@ -190,6 +230,18 @@ if [ -n "$USAGE_JSON" ]; then
   # recomputing the target_key checksum to find the file.
   printf 'USAGE: %s\n' "$USAGE_JSON" >&2
 fi
+
+if [ -f "$TIMEOUT_MARK" ]; then
+  rm -f "$RC_FILE" "$TIMEOUT_MARK"
+  die "no answer within ${EXEC_TIMEOUT}s for exec profile $ROLE — the per-turn watchdog expired and the turn's process group was reaped; adjust TANDEM_EXEC_TIMEOUT_SECONDS if this deadline is too short" 1
+fi
+rc="$(cat "$RC_FILE" 2>/dev/null || true)"
+rm -f "$RC_FILE" "$TIMEOUT_MARK"
+case "$rc" in
+  '' | *[!0-9]*)
+    die "codex exec resume did not publish a numeric exit code — see $EVENTS_FILE.stderr" 1
+    ;;
+esac
 
 if [ "$rc" -ne 0 ]; then
   printf 'tandem: codex exec resume failed (exit %s). Last stderr lines:\n' "$rc" >&2

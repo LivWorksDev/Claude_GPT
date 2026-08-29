@@ -43,7 +43,7 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
 | M21 | Plan reviews bajo `mcp`: cerrar el gate o completar el contrato | Transporte | P2 | S | hecha (v0.29.0) — vía (a): gate por target |
 | M22 | Transporte v2: servidor MCP persistente entre invocaciones | Transporte | P3 | L | pendiente — prioridad BAJA deliberada (complejidad alta, aporte marginal) |
 | M23 | Swarm de ultra sobre el transporte MCP | Ultra | P3 | L | pendiente — prioridad BAJA deliberada (complejidad alta, aporte marginal) |
-| M24 | Watchdog de turno para el transporte exec (start, swarm y resume) | Transporte | P2 | M | pendiente |
+| M24 | Watchdog de turno para el transporte exec (start, swarm y resume) | Transporte | P2 | M | hecha (v0.32.0) |
 | M25 | Auditoría de escrituras en implement + hook anti-install para Opus | Seguridad | P1 | M | pendiente |
 | M26 | Interruptor de confidencialidad para `web_search` | Seguridad | P2 | S | hecha (v0.31.0) |
 | M27 | Vista de runs ultra en `tandem:status` | UX | P2 | M | pendiente |
@@ -491,12 +491,15 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
   específicas del transporte (p.ej. errores tipados de hilo en swarms con re-consulta,
   o un watchdog por seat que el semáforo no cubra), o que M22 se haga y abarate el
   camino.
+- **Nota M24:** el disparador «watchdog por seat que el semáforo no cubra» quedó
+  desactivado por el watchdog exec ya implementado, a coste M sin migrar el swarm a MCP.
 - **Aceptación (si se hace):** un run ultra completo por MCP con el semáforo
   respetado, cero corrupción entre seats concurrentes y el run report idéntico.
 
 ## M24 — Watchdog de turno para el transporte exec (start, swarm y resume)
 
 - **Severidad/Esfuerzo:** P2 / M · **Slug sugerido:** `exec-watchdog`
+- **Estado:** hecha (v0.32.0).
 - **Origen:** informe de campo 2026-08-21, hallazgo A1 + enmienda E-A1
   (`docs/audits/informe-campo-2026-08-21.md`).
 - **Problema:** `codex exec` se lanza sin deadline en `codex-start.sh`, `codex-swarm.sh`
@@ -658,8 +661,8 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
 - **Propuesta:** `codex-swarm.sh --reap <run>` explícito: recorre los slots del run,
   comprueba la vida del pid del `holder`, elimina solo los muertos y reporta lo hecho;
   el mensaje de error de `:246` pasa a nombrarlo. Mismo control humano, mejor
-  herramienta. Nota: M24 reduce la incidencia por sí solo (TERM del watchdog → trap
-  EXIT → slot liberado).
+  herramienta. Nota: M24 ya reduce la incidencia por sí solo (TERM del watchdog →
+  trap EXIT → slot liberado).
 - **Aceptación:** tras un SIGKILL simulado, `--reap <run>` libera el slot huérfano y
   deja intactos los slots con holder vivo; el mensaje de «no free ultra slot» nombra el
   comando.

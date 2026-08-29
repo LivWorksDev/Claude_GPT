@@ -43,9 +43,11 @@ split_launches() {
   local f="$1" pfx="$2"
   local line stripped cmd="" cont=0 fence=0 n=0 i=0 k=0 nl=0
   local blk_start=0 blk_real=0 blk_nudge=0 blk_cmd=""
+  local fgmode fgscript
   local best=0 bestd=0 d=0
 
   [ -f "$f" ] || fail "skill not found: $f"
+  : >"$pfx.foregrounds"
 
   LINES=()
   BSTART=()
@@ -60,11 +62,20 @@ split_launches() {
       *codex-start.sh* | *codex-resume.sh*) : ;;
       *) return 0 ;;
     esac
-    blk_cmd="$1"
     case "$1" in
       *prompts/nudge.tpl*) blk_nudge=$((blk_nudge + 1)) ;;
+      *TANDEM_EXEC_TIMEOUT_SECONDS=540*)
+        case "$1" in *range-review-*) fgmode=range ;; *) fgmode=pipeline ;; esac
+        case "$1" in *codex-start.sh*) fgscript=start ;; *) fgscript=resume ;; esac
+        printf '%s %s\n' "$fgmode" "$fgscript" >>"$pfx.foregrounds"
+        return 0
+        ;;
+      *TANDEM_EXEC_TIMEOUT_SECONDS*)
+        fail "$f: a foreground real launch does not pin TANDEM_EXEC_TIMEOUT_SECONDS=540: $1"
+        ;;
       *) blk_real=$((blk_real + 1)) ;;
     esac
+    blk_cmd="$1"
   }
 
   while IFS= read -r line || [ -n "$line" ]; do
@@ -169,9 +180,10 @@ split_launches() {
 }
 
 # check_skill <skill-file> <prefix> <small-input-noun>
-#             <pipeline-real> <pipeline-nudges> <range-real> <range-nudges>
+#             <pipeline-background> <pipeline-foreground> <pipeline-nudges>
+#             <range-background> <range-foreground> <range-nudges>
 #             <mcp-start-rule>
-# The four counts are EXACT and per group: the launches this contract knows how
+# The six counts are EXACT and per group: the launches this contract knows how
 # to reason about, in the mode they belong to. A lost pipeline launch, a nudge
 # that became a fourth launch, or a range branch that quietly disappeared are
 # all different bugs — and none of them may be absorbed by another group's count.
@@ -182,8 +194,10 @@ split_launches() {
 # they are `codex exec resume` turns, with no MCP watchdog to outlive.
 check_skill() {
   local f="$1" pfx="$2" noun="$3"
-  local want_pr="$4" want_pn="$5" want_rr="$6" want_rn="$7" want_mcp="${8:-0}"
-  local kind mode script sec real=0 nudges=0 rreal=0 rnudges=0
+  local want_pr="$4" want_pf="$5" want_pn="$6"
+  local want_rr="$7" want_rf="$8" want_rn="$9" want_mcp="${10:-0}"
+  local kind mode script sec real=0 foreground=0 nudges=0
+  local rreal=0 rforeground=0 rnudges=0
   # Single quotes: the phrase carries backticks and must never be re-evaluated.
   local exception='foreground with `timeout: 600000` only for small '"$noun"
 
@@ -234,31 +248,47 @@ check_skill() {
         # promoted to background by a careless sweep of the file.
         assert_file_contains "$sec" 'in the foreground'
         assert_not_contains "$sec" 'run_in_background'
+        assert_file_contains "$sec" 'TANDEM_EXEC_TIMEOUT_SECONDS=540'
         ;;
       *) fail "$f: unknown launch kind [$kind]" ;;
     esac
   done <"$pfx.launches"
 
+  while read -r mode script; do
+    [ -n "$mode" ] || continue
+    case "$mode" in
+      pipeline) foreground=$((foreground + 1)) ;;
+      range) rforeground=$((rforeground + 1)) ;;
+      *) fail "$f: unknown foreground launch mode [$mode]" ;;
+    esac
+    case "$script" in
+      start | resume) : ;;
+      *) fail "$f: a foreground launch runs neither codex-start.sh nor codex-resume.sh [$script]" ;;
+    esac
+  done <"$pfx.foregrounds"
+
   assert_eq "$want_pr" "$real" "$f: pipeline real review launches"
+  assert_eq "$want_pf" "$foreground" "$f: pipeline foreground review launches"
   assert_eq "$want_pn" "$nudges" "$f: pipeline nudge launches"
   assert_eq "$want_rr" "$rreal" "$f: range real review launches"
+  assert_eq "$want_rf" "$rforeground" "$f: range foreground review launches"
   assert_eq "$want_rn" "$rnudges" "$f: range nudge launches"
 
   # The legacy foreground default is GONE from the file, not merely supplemented.
   assert_not_contains "$f" 'Bash timeout: 600000'
-  note "$(basename "$(dirname "$f")")/SKILL.md — pipeline: $real real + $nudges nudge · range: $rreal real + $rnudges nudge"
+  note "$(basename "$(dirname "$f")")/SKILL.md — pipeline: $real background + $foreground foreground + $nudges nudge · range: $rreal background + $rforeground foreground + $rnudges nudge"
 }
 
 # plan launches the `review` ROLE too, but there is no mcp rule to anchor in it:
 # M21 gave the gate a TARGET axis, and a plan path is refused with 64 under
 # `mcp` (docs/plans/mcp-plan-gate.plan.md). Its launches are exec-only by
 # decision, so the mcp start rule does not apply here: 0.
-check_skill "$REPO_ROOT/skills/plan/SKILL.md" "$SANDBOX/plan" "plans" 2 1 0 0 0
+check_skill "$REPO_ROOT/skills/plan/SKILL.md" "$SANDBOX/plan" "plans" 2 2 1 0 0 0 0
 # review carries both modes: the pipeline review (start + resume + nudge) and
 # the out-of-pipeline range review (start-range + resume-range + nudge), each
 # with the same background/barrier guarantees — and, in both modes, the mcp rule
 # on the START launch alone.
-check_skill "$REPO_ROOT/skills/review/SKILL.md" "$SANDBOX/review" "diffs" 2 1 2 1 1
+check_skill "$REPO_ROOT/skills/review/SKILL.md" "$SANDBOX/review" "diffs" 2 2 1 2 2 1 1
 # implement's `sol` launches: the start, the continuation and the nudge, with no
 # range mode. Its role joined the transport in M20c and its start arms the
 # 3600 s implement watchdog, so it carries the mcp rule exactly like review's —
@@ -271,7 +301,7 @@ check_skill "$REPO_ROOT/skills/review/SKILL.md" "$SANDBOX/review" "diffs" 2 1 2 
 # demand a new profile in order to anchor a background rule that does not exist
 # for that role. Its mcp note is anchored statically by
 # tests/mcp-transport-parity.test.sh instead.
-check_skill "$REPO_ROOT/skills/implement/SKILL.md" "$SANDBOX/implement" "plans" 2 1 0 0 1
+check_skill "$REPO_ROOT/skills/implement/SKILL.md" "$SANDBOX/implement" "plans" 2 2 1 0 0 0 1
 
 # --- the barrier language itself, once per skill -----------------------------
 # Markdown wraps, so the prose anchors are judged on a flattened copy.

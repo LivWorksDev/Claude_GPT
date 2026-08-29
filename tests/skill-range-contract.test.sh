@@ -139,6 +139,8 @@ done <"$SEC"
 
 HELPERS=0
 LAUNCHES=0
+FOREGROUND=0
+BACKGROUND=0
 while IFS= read -r c; do
   [ -n "$c" ] || continue
   case "$c" in
@@ -147,6 +149,13 @@ while IFS= read -r c; do
   case "$c" in
     *codex-start.sh* | *codex-resume.sh*)
       LAUNCHES=$((LAUNCHES + 1))
+      case "$c" in
+        *TANDEM_EXEC_TIMEOUT_SECONDS=540*) FOREGROUND=$((FOREGROUND + 1)) ;;
+        *TANDEM_EXEC_TIMEOUT_SECONDS*)
+          fail "$SKILL: a foreground range launch does not pin TANDEM_EXEC_TIMEOUT_SECONDS=540: $c"
+          ;;
+        *) BACKGROUND=$((BACKGROUND + 1)) ;;
+      esac
       case "$c" in
         *'TANDEM_CODEX_CWD="$WORK_ROOT"'*) : ;;
         *) fail "$SKILL: a range launch is not pinned to \$WORK_ROOT: $c" ;;
@@ -167,10 +176,13 @@ while IFS= read -r c; do
   esac
 done <"$CMDS"
 
-# The helper twice (the review and its re-review), and the three turns of the
-# mode: the launch, the nudge and the re-review resume.
+# The helper twice; the three original turns remain, and the two real launches
+# each have a separately executable small-diff foreground variant. Exactly
+# those two variants plus the nudge carry the 540 s foreground override.
 [ "$HELPERS" -ge 2 ] || fail "$SKILL: expected the helper in at least 2 blocks, found $HELPERS"
-[ "$LAUNCHES" -eq 3 ] || fail "$SKILL: expected exactly 3 range launches, found $LAUNCHES"
+[ "$LAUNCHES" -eq 5 ] || fail "$SKILL: expected exactly 5 range launches, found $LAUNCHES"
+assert_eq "3" "$FOREGROUND" "$SKILL: foreground range launches"
+assert_eq "2" "$BACKGROUND" "$SKILL: background range launches"
 # The negative that really bites: not one EXECUTABLE line of this mode stages or
 # commits anything, whatever `git -C …` shape it might be dressed in.
 assert_not_contains "$CMDS" "commit"
@@ -178,7 +190,7 @@ assert_not_contains "$CMDS" "git add"
 assert_file_contains "$CMDS" "prompts/start-range.tpl"
 assert_file_contains "$CMDS" "prompts/resume-range.tpl"
 assert_file_contains "$CMDS" "prompts/nudge.tpl"
-note "review/SKILL.md — range section: $HELPERS helper block(s), $LAUNCHES anchored launches"
+note "review/SKILL.md — range section: $HELPERS helper block(s), $LAUNCHES anchored launches ($FOREGROUND foreground)"
 
 # --- the templates the section points at -------------------------------------
 assert_file "$START_TPL"

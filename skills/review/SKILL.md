@@ -58,6 +58,14 @@ Run it with Bash `run_in_background: true` by default for any real diff: a revie
 
 **The task-completion notification of that Bash run is a hard synchronization barrier.** Nothing happens before it arrives: you do not read the `VERDICT:` line, you do not copy the `USAGE:` line into the log — never a premature `tokens: n/a` out of impatience, the line is simply not there yet — and you launch no resume and no nudge. The thread is not even persisted before that point, and a concurrent resume over a live turn is exactly the class of corruption this barrier exists to forbid.
 
+For the small-diff foreground exception under the default exec transport, use:
+
+```bash
+TANDEM_EXEC_TIMEOUT_SECONDS=540 TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-start.sh" review cr-<slug> \
+  "${CLAUDE_SKILL_DIR}/prompts/start.tpl" \
+  .tandem/tmp/<slug>-cr-context.md
+```
+
 `TANDEM_CODEX_CWD` starts the reviewer inside `$WORK_ROOT`, so the diff it reads is the one you are reviewing. If Codex's sandbox cannot run `git diff`, re-run passing the diff inline: append `git -C "$WORK_ROOT" diff` to the context file under a `DIFF:` heading.
 
 ## Step 3 — Loop (max $TANDEM_CR_ROUNDS or 3)
@@ -69,7 +77,7 @@ Read the final `VERDICT:` line:
 - No `VERDICT:` line at all → resume the SAME thread asking only for the missing verdict line, with the dedicated nudge template and a cheap effort for that single invocation; this counts as a round. If it happens twice, treat the reply as REQUEST_CHANGES and note the anomaly in the log.
 
 ```bash
-TANDEM_TURN_EFFORT=low TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-resume.sh" review cr-<slug> \
+TANDEM_EXEC_TIMEOUT_SECONDS=540 TANDEM_TURN_EFFORT=low TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-resume.sh" review cr-<slug> \
   "${CLAUDE_SKILL_DIR}/prompts/nudge.tpl"
 ```
 
@@ -82,6 +90,14 @@ Run this one in the foreground — a one-line turn at `low` effort returns in se
 
 ```bash
 TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-resume.sh" review cr-<slug> \
+  "${CLAUDE_SKILL_DIR}/prompts/resume.tpl" \
+  "" .tandem/tmp/<slug>-cr-dispositions.md
+```
+
+For the small-diff foreground exception, use:
+
+```bash
+TANDEM_EXEC_TIMEOUT_SECONDS=540 TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-resume.sh" review cr-<slug> \
   "${CLAUDE_SKILL_DIR}/prompts/resume.tpl" \
   "" .tandem/tmp/<slug>-cr-dispositions.md
 ```
@@ -130,6 +146,14 @@ CLAUDE_PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$WORK_ROOT}" TANDEM_CODEX_CWD="$WORK_R
 
 The launch mechanics are the pipeline's, reused verbatim. The `CLAUDE_PROJECT_DIR` pin is range-specific and NOT optional: the wrappers anchor the thread state to that variable, falling back to the shell's own working directory, while the helper anchored the context and the log to `WORK_ROOT` — from a subdirectory or a linked worktree, an unpinned launch would split the thread from its context and log, and a later invocation could start a FRESH thread for the same label, silently breaking the lineage rule below. Every launch of this mode carries it, the nudge included. Run it with Bash `run_in_background: true` by default for any real diff: a review at `xhigh` effort regularly exceeds the 10-minute foreground cap, which is a hard ceiling of the Bash tool and not a parameter you can raise, so a foreground turn dies mid-flight with the quota already spent. Use foreground with `timeout: 600000` only for small diffs. When a background run finishes, announce it clearly before doing anything else. **The task-completion notification of that Bash run is the same hard synchronization barrier**: before it arrives you do not read the `VERDICT:` line, you do not copy the `USAGE:` line into the log, and you launch no resume and no nudge.
 
+For the small-diff foreground exception under the default exec transport, use:
+
+```bash
+CLAUDE_PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$WORK_ROOT}" TANDEM_EXEC_TIMEOUT_SECONDS=540 TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-start.sh" review range-review-<label> \
+  "${CLAUDE_SKILL_DIR}/prompts/start-range.tpl" \
+  <CONTEXT_FILE>
+```
+
 **Transport (opt-in) — `TANDEM_TRANSPORT=mcp`.** The default is `codex exec` and nothing about the command above changes. With the variable set, this START turn is routed through `codex mcp-server`, with identical artefacts, `USAGE:` line, heartbeat, exit codes and guards; the transport serves every role — `review` only for its pipeline targets `cr-*`/`range-review-*` — and any other value, or an unknown role, is a usage error (64). Under `mcp` this launch is `run_in_background: true` ALWAYS — the small-diff exception above does not apply: the review watchdog defaults to 3600s, well over the foreground cap, so a foreground start would be killed by the Bash tool before the watchdog could classify the hang, reap the server group and account the turn, and the turn would be lost with its quota already spent. If you insist on the foreground, lower `TANDEM_MCP_TIMEOUT_SECONDS` below that cap first. The resume of Range step 4 is unaffected: a continuation always runs through `codex exec resume` (a thread does not survive the server that created it), so it keeps the criterion stated there.
 
 **Token accounting — every turn of this mode, unconditionally, before reading the `VERDICT:` line.** Each turn here (this launch, each re-review resume, the nudge) prints exactly one `USAGE: {…}` line on stderr. Copy it into that turn's line of the range log — `## Round <n> — range review · tokens: in <input_tokens> · out <output_tokens>`, or `tokens: n/a` when the line is absent — **before** you branch on the verdict. An APPROVED-at-the-first-attempt range review costs quota exactly like a REQUEST_CHANGES one.
@@ -146,7 +170,7 @@ This is the part that is NOT the pipeline's. Read the final `VERDICT:` line and 
 | The nudge also comes back with no `VERDICT:` | The invocation ends as REQUEST_CHANGES with the anomaly recorded in the range log, and the `USAGE:` lines of BOTH turns accounted. Never a second nudge, never an ending without a terminal state. |
 
 ```bash
-CLAUDE_PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$WORK_ROOT}" TANDEM_TURN_EFFORT=low TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-resume.sh" review range-review-<label> \
+CLAUDE_PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$WORK_ROOT}" TANDEM_EXEC_TIMEOUT_SECONDS=540 TANDEM_TURN_EFFORT=low TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-resume.sh" review range-review-<label> \
   "${CLAUDE_SKILL_DIR}/prompts/nudge.tpl"
 ```
 
@@ -164,6 +188,14 @@ bash "$SCRIPTS/review-range.sh" <label> "A..B-updated"
 
 ```bash
 CLAUDE_PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$WORK_ROOT}" TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-resume.sh" review range-review-<label> \
+  "${CLAUDE_SKILL_DIR}/prompts/resume-range.tpl" \
+  "" <CONTEXT_FILE>
+```
+
+For the small-diff foreground exception, use:
+
+```bash
+CLAUDE_PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$WORK_ROOT}" TANDEM_EXEC_TIMEOUT_SECONDS=540 TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-resume.sh" review range-review-<label> \
   "${CLAUDE_SKILL_DIR}/prompts/resume-range.tpl" \
   "" <CONTEXT_FILE>
 ```
