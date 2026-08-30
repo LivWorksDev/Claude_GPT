@@ -49,6 +49,28 @@ Nunca "discutid hasta acordar". Cada ronda es: crítica estructurada (P1/P2 o Cr
 
 El implementador default usa un subagente Claude `model: opus` con allowlist de harness (`Read, Edit, Write, Glob, Grep, Bash`), sin MCP, web ni Agent anidado. Esa frontera no es un sandbox OS: Bash conserva capacidad residual para ejecutar comandos que la sesión permita. El system prompt y el template prohíben commit/push/cambios de rama o remoto y fijan una única ruta absoluta; Fable compara después rama, `HEAD` y remotos antes del gate. Con `TANDEM_WORKTREE=1`, prompt, verificación y testing gate quedan anclados al cwd absoluto del worktree. Agent no expone effort por llamada, pero el frontmatter del agent type sí (Claude Code ≥ 2.1.111): desde v0.21, `TANDEM_CRITICAL=1` bajo opus selecciona `tandem:implementer-critical` (copia byte a byte del implementer con `effort: xhigh` — paridad fijada por test) con el tipo EFECTIVO persistido en el attempt state (`agent_type`, enum cerrado, recovery mismo-modo, mismatch → consent/FAILED). La review sigue siendo obligatoria; los efforts mostrados son siempre los EFECTIVOS (los overrides `TANDEM_IMPLEMENT_EFFORT` y `CLAUDE_CODE_EFFORT_LEVEL` tienen precedencia y el doctor lo refleja).
 
+### Barreras mecánicas de escritura durante implement
+
+Un intento fresco de `tandem:implement`, en ambos transportes, ejecuta
+`scripts/implement-audit.sh snapshot` antes de lanzar. El script guarda bajo
+`.tandem/state/implement-audit/` la identidad inmutable del plan commiteado y del
+`HEAD`, un censo acotado de directorios `node_modules` y sus nombres de primer nivel,
+y publica el guard de vida del intento. `check`, antes del testing gate, compara las
+escrituras Git (index y worktree, untracked completos) y el censo contra una deny-list;
+un toque no declarado en **Files to touch** del blob commiteado convierte el intento en
+PARTIAL. `close` retira el guard solo después de gate y auditoría verdes. El reset borra
+censo → estado del intento → guard último; un crash o reset interrumpido conserva el
+bloqueo sin caducidad hasta un reset explícito.
+
+El primer hook del plugin, `PreToolUse` sobre `Bash`, usa ese guard para bloquear con
+exit 2 los mutadores de npm/pnpm/yarn durante la vida del intento. El match por segmentos
+ocurre antes de consultar disco, así que Bash no relacionado no paga la búsqueda de
+guards. Son barreras contra bucles accidentales, no defensa adversarial: Opus sin sandbox
+de SO todavía podría borrar guard/censo o escribir a mano. También quedan fuera de la
+visibilidad las ediciones deny-listed que Git ignore y la mutación de contenido **dentro**
+de una entrada de primer nivel ya existente en `node_modules`; el censo detecta cambios
+del conjunto de nombres, no un snapshot profundo.
+
 **Fase 1 (esta)**: Sol sigue usando `codex exec` vía scripts endurecidos para plan/review/ask y para implementación cuando `TANDEM_IMPLEMENTER=sol`. Verificado contra el código fuente de la CLI (2026-07):
 
 - `codex exec resume` NO define `--sandbox`/`--model` propios; las opciones compartidas van en el padre: `codex exec --sandbox read-only … resume <id> …`. Los scripts además fuerzan `-c sandbox_mode=…` como cinturón y tirantes. Así ninguna reanudación hereda el default del `config.toml` del usuario (el fallo principal de TRIP-workflow).

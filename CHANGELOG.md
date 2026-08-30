@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.33.0 — 2026-08-30
+
+- **Auditoría mecánica de escrituras en `tandem:implement`** (M25, hallazgo A2 +
+  enmienda E-A2 del informe de campo 2026-08-21): nuevo
+  `scripts/implement-audit.sh` con ciclo de vida `snapshot`/`check`/`close`. Todo
+  intento FRESCO, en ambos transportes, publica antes del lanzamiento un censo
+  durable (identidad `plan_hash`/`base_head`/`work_root` + conjuntos de directorios
+  `node_modules` y sus nombres de primer nivel) y un guard de vida-de-intento;
+  `check`, antes del testing gate, enumera las escrituras
+  (`--porcelain=v1 -z -uall --no-renames`, index incluido) contra la deny-list —
+  lockfiles JS y multi-ecosistema, `.npmrc`, `patches/`, claves de dependencias de
+  `package.json` vía jq (fail-closed sin jq), set-diff de `node_modules` — con la
+  válvula «declarado en Files to touch del PLAN COMMITEADO gana». Exit 20 → el
+  intento es `IMPLEMENTATION_PARTIAL` a efectos del pipeline aunque el implementador
+  emitiera COMPLETE, con cada `VIOLATION:` nombrada; nunca aceptación silenciosa.
+- **Primer hook del plugin — guard anti-install para el transporte Opus**
+  (`hooks/hooks.json` + `scripts/hook-implement-guard.sh`, `PreToolUse` sobre
+  `Bash`): mientras exista el guard de un intento, los mutadores de dependencias de
+  npm/pnpm/yarn (`install|i|ci|add|remove|rm|uninstall|un|update|up|upgrade`, `yarn`
+  a secas, opciones globales interpuestas incluidas) se bloquean con exit 2 por
+  gramática de segmentos — patrón-primero, el disco solo se toca si hay match.
+  Post-crash fail-closed sin caducidad: la única salida es el reset exacto.
+- **Ciclo de vida a prueba de interrupciones** (endurecido en 5 rondas de plan
+  review): los estados parciales del par censo+guard están definidos y testeados
+  (censo-sin-guard se recupera hacia el lado protegido si la identidad coincide, 65
+  si es ajena; guard-sin-censo se conserva bloqueando), y AMBOS resets borran en
+  orden censo → estado del intento → guard-último — verificado sobre el reset real
+  con un shim de `rm` que registra el orden. `codex-reset.sh` mapea explícitamente
+  el slug desde targets `docs/plans/<slug>.plan.md`; otros targets de implement no
+  tocan la auditoría y lo dicen.
+- **Step 3 de la skill con dos vistas de diff** (`git diff --cached` + `git diff`):
+  el estado staged+copia-restaurada ya no es invisible para la revisión humana.
+- Residual declarado (README + ARCHITECTURE): no es defensa adversarial — Opus sin
+  sandbox de SO puede borrar guard/censo; ficheros deny-listed gitignored y la
+  mutación de contenido dentro de entradas existentes de `node_modules` quedan
+  fuera de la visibilidad del censo.
+- Tests: `implement-audit.test.sh`, `hook-implement-guard.test.sh` (forma del
+  hooks.json, bit ejecutable y ejecución vía el entry-point configurado) y
+  `skill-implement-audit-contract.test.sh`; suite completa 88 passed.
+
 ## 0.32.0 — 2026-08-29
 
 - **Watchdog de turno para el transporte exec** (M24, hallazgo A1 + enmienda E-A1

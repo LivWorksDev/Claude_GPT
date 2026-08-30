@@ -18,7 +18,28 @@ state_init
 KEY="$(target_key "$TARGET")"
 [ -n "$KEY" ] || die "target produced an empty state key: '$TARGET'" 64
 
-# The trailing dot keeps 'auth.' from matching 'auth-v2.*'.
+AUDIT_SLUG=""
+if [ "$ROLE" = "implement" ]; then
+  case "$TARGET" in
+    docs/plans/*.plan.md)
+      AUDIT_SLUG="${TARGET#docs/plans/}"
+      case "$AUDIT_SLUG" in
+        '' | */*) AUDIT_SLUG="" ;;
+        *) AUDIT_SLUG="${AUDIT_SLUG%.plan.md}" ;;
+      esac
+      ;;
+  esac
+fi
+
+# Reset order is a safety contract: census first, resumable attempt state next,
+# and the guard last. If reset is interrupted, dependency installs remain
+# blocked; it must never leave resumable state behind after disarming the hook.
+if [ -n "$AUDIT_SLUG" ]; then
+  rm -f "$STATE_ROOT/state/implement-audit/$AUDIT_SLUG.census"
+fi
+
+# The trailing dot keeps 'auth.' from matching 'auth-v2.*'. This remains keyed
+# by target_key; audit artifacts deliberately use the plan slug instead.
 rm -f "$STATE_DIR/$KEY."*
 
 # Drop the status-line heartbeat too, but only if it describes the target being
@@ -28,6 +49,12 @@ if [ -f "$HB" ] \
   && [ "$(jq -r '.role // ""' "$HB" 2>/dev/null)" = "$ROLE" ] \
   && [ "$(jq -r '.target // ""' "$HB" 2>/dev/null)" = "$TARGET" ]; then
   rm -f "$HB"
+fi
+
+if [ -n "$AUDIT_SLUG" ]; then
+  rm -f "$STATE_ROOT/state/implement-audit/$AUDIT_SLUG.guard"
+elif [ "$ROLE" = "implement" ]; then
+  printf 'tandem: implement audit state unchanged; target is not docs/plans/<slug>.plan.md.\n'
 fi
 
 printf 'tandem: state reset for "%s" (role %s).\n' "$TARGET" "$ROLE"

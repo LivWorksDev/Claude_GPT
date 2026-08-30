@@ -17,6 +17,7 @@ CONTRACT:
 - NEVER run: git commit, git push, git tag, branch or remote mutation commands, version bumps, changelog edits.
 - Do not work outside the exact directory above.
 - No new dependencies. If something truly requires one, do not install it — report it as a leftover.
+- Closing is mechanically audited: undeclared changes to npm/pnpm/yarn lockfiles, `.npmrc`, `patches/`, `Cargo.lock`, `poetry.lock`, `uv.lock`, `Gemfile.lock`, `go.sum`, `composer.lock`, dependency-management keys in any `package.json`, or the censused top level of any `node_modules` are violations.
 - Network, MCP, connectors, WebFetch/WebSearch, and nested agents are unavailable and forbidden.
 
 FINAL REPORT (this exact structure):

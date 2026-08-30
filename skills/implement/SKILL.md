@@ -106,6 +106,18 @@ Read `prompts/implement-claude.tpl` directly and replace its placeholders yourse
 - `{{TARGET}}` → the absolute working directory (the checkout, or the absolute `.worktrees/<slug>` path).
 - `{{EXTRA}}` → a `PLAN PATH: docs/plans/<slug>.plan.md` line followed by the complete approved plan text. On recovery, append the recovery context described below after the complete plan.
 
+On a **FRESH Opus attempt only**, publish the mechanical write census and active-attempt
+guard as the last action immediately before the launch:
+
+```bash
+bash "$SCRIPTS/implement-audit.sh" snapshot <slug> "$WORK_ROOT"
+```
+
+This command must exit 0 before launching. Never invoke `snapshot` on a resume,
+recovery, or continuation: an older attempt without a census must keep the explicit
+legacy warning instead of manufacturing a post-write baseline. A legitimate resumed
+attempt keeps the guard published by its original fresh launch.
+
 Launch the effective agent type with the rendered prompt using the Agent tool and `run_in_background: true` for any real feature. Keep the returned agent name/id. The prompt contains the complete plan, exact work directory, required acceptance tests, report contract, model self-attestation, and final `IMPLEMENTATION_COMPLETE` / `IMPLEMENTATION_PARTIAL` sentinel.
 
 Under `opus`, `TANDEM_CRITICAL=1` therefore has a real effect: the critical agent type asks the harness for reasoning effort `xhigh` through its frontmatter (`max` exists as a manual escalation for whoever edits the definition; it is not the default). It still means that the mandatory review phase may never be omitted. What it is not is an unconditional promise: `CLAUDE_CODE_EFFORT_LEVEL` takes precedence over the frontmatter and a Claude Code older than 2.1.111 ignores the value `xhigh` — gate 3 STOPS on both, and `tandem:doctor` reports the effective effort. Under `sol` the flag retains its full behavior below.
@@ -162,22 +174,40 @@ Before launch, if state already exists:
 
 - Matching identity → resume that attempt, or perform a deliberate reset only if the user explicitly wants to start over. In autonomous mode, resume.
 - Mismatched identity → never resume it. The only choices are discard/reset or STOP.
-- Exact reset means removing only `<slug>.json` and that slug's `<slug>.t*.report.md`.
+- Exact reset for Opus means removing, in this safety order, first
+  `.tandem/state/implement-audit/<slug>.census`, then the attempt state
+  `.tandem/state/implement-claude/<slug>.json` and that slug's
+  `<slug>.t*.report.md`, and finally
+  `.tandem/state/implement-audit/<slug>.guard` **as the last deletion**. For Sol,
+  `bash "$SCRIPTS/codex-reset.sh" implement docs/plans/<slug>.plan.md` applies the
+  same census → target-key thread state → guard-last order; its thread files keep
+  the existing `target_key` rather than using the slug. Never hand-delete the guard
+  first. An implement target outside the exact `docs/plans/<slug>.plan.md` form does
+  not delete audit artifacts.
 
 Before **any** reset, run the observational liveness guard, keyed on the **recorded `task_id`** — background Agent runs are tracked as background tasks, which is a different namespace from structured task-list entries, so the task id persisted in the JSON is the only reliable key. In order of preference: (1) the JSON already says `status: "terminal"` — the attempt's last turn finished; (2) observe the background task for the recorded `task_id` (its completion notification or output stream) without interacting with the agent; (3) the recorded task/agent belongs to a previous session — subagents and their background tasks do not survive their creating session, so a foreign-session record whose turn result was persisted is inactive. Never use `SendMessage` as a probe: messaging a completed agent starts new background work. Missing or unreadable state is **ambiguous, never "inactive"**. If a worktree is recorded, also require `git -C <worktree> status --porcelain` to be empty. If inactivity cannot be established, do not reset: interactive mode explains the ambiguity and asks; autonomous mode terminates as `FAILED` with state preserved. Autonomous auto-reset is allowed only for mismatch + verified inactive agent + clean recorded worktree, and must be logged. Never launch a second implementer against the same live attempt.
 
 ### Transport `sol`
 
-This is the existing Codex CLI flow, unchanged. For critical work (auth, migrations, concurrency, payments, tenant isolation) prefix the command with `TANDEM_CRITICAL=1` to raise Sol's reasoning effort from high to xhigh — unless `TANDEM_IMPLEMENT_EFFORT` is set, which takes precedence over CRITICAL's xhigh (the doctor shows the EFFECTIVE effort; trust that line, not this sentence).
+The Codex CLI transport itself remains unchanged. For critical work (auth, migrations, concurrency, payments, tenant isolation) prefix the command with `TANDEM_CRITICAL=1` to raise Sol's reasoning effort from high to xhigh — unless `TANDEM_IMPLEMENT_EFFORT` is set, which takes precedence over CRITICAL's xhigh (the doctor shows the EFFECTIVE effort; trust that line, not this sentence).
 
 ```bash
+bash "$SCRIPTS/implement-audit.sh" snapshot <slug> "$WORK_ROOT"   # FRESH only; never on resume
 TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-start.sh" implement docs/plans/<slug>.plan.md \
   "${CLAUDE_SKILL_DIR}/prompts/implement.tpl"
 ```
 
+The `snapshot` line is the last action before either Sol start transport launches
+(default exec or MCP) and must exit 0. Resumes and continuations skip it exactly as
+Opus resumes do, including legacy attempts whose missing census remains visible.
+
 `TANDEM_CODEX_CWD` is what makes the turn run inside the worktree (`codex exec --cd`). It deliberately does **not** move `CLAUDE_PROJECT_DIR`: the thread state and the heartbeat stay under the main checkout, so `codex-show`/`codex-reset` keep working from there and deleting the worktree never destroys the thread. Without `TANDEM_WORKTREE`, `WORK_ROOT` is the main checkout and the command is what it always was.
 
 Run it with Bash `run_in_background: true` by default for any real feature: an implementation at `high`/`xhigh` regularly exceeds the 10-minute foreground cap, which is a hard ceiling of the Bash tool and not a parameter you can raise, so a foreground turn dies mid-flight with the quota already spent and nothing to show for it. Use foreground with `timeout: 600000` only for small plans. When a background run finishes, announce it clearly before doing anything else.
+
+**Transport (opt-in) — `TANDEM_TRANSPORT=mcp`.** The default is `codex exec` and nothing about the command above changes. With the variable set, this START turn is routed through `codex mcp-server`, with identical artefacts, `USAGE:` line, heartbeat, exit codes and guards — the workspace-write pins included (sandbox `workspace-write`, no network, no extra writable roots, approvals `never`): they travel as parameters of the tool call instead of argv. The transport serves every role — `review` only for its pipeline targets `cr-*`/`range-review-*` — and any other value, or an unknown role, is a usage error (64). Under `mcp` this launch is `run_in_background: true` ALWAYS — the small-plan exception below does not apply: the implement watchdog defaults to 3600s, well over the foreground cap, so a foreground start would be killed by the Bash tool before the watchdog could classify the hang, reap the server group and account the turn, and the turn would be lost with its quota already spent. If you insist on the foreground, lower `TANDEM_MCP_TIMEOUT_SECONDS` below that cap first. The continuations of Step 2 are unaffected: a continuation always runs through `codex exec resume` (a thread does not survive the server that created it), so it keeps the criterion stated there, and the nudge keeps running in the foreground.
+
+**The task-completion notification of that Bash run is a hard synchronization barrier.** Nothing happens before it arrives: you do not read the `IMPLEMENTATION_` sentinel, you do not copy the `USAGE:` line into the log — never a premature `tokens: n/a` out of impatience, the line is simply not there yet — and you launch no resume and no nudge. The thread is not even persisted before that point, and a concurrent resume over a live turn is exactly the class of corruption this barrier exists to forbid.
 
 For the small-plan foreground exception under the default exec transport, use the same launch with the exec watchdog explicitly below the Bash ceiling:
 
@@ -185,10 +215,6 @@ For the small-plan foreground exception under the default exec transport, use th
 TANDEM_EXEC_TIMEOUT_SECONDS=540 TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/codex-start.sh" implement docs/plans/<slug>.plan.md \
   "${CLAUDE_SKILL_DIR}/prompts/implement.tpl"
 ```
-
-**Transport (opt-in) — `TANDEM_TRANSPORT=mcp`.** The default is `codex exec` and nothing about the command above changes. With the variable set, this START turn is routed through `codex mcp-server`, with identical artefacts, `USAGE:` line, heartbeat, exit codes and guards — the workspace-write pins included (sandbox `workspace-write`, no network, no extra writable roots, approvals `never`): they travel as parameters of the tool call instead of argv. The transport serves every role — `review` only for its pipeline targets `cr-*`/`range-review-*` — and any other value, or an unknown role, is a usage error (64). Under `mcp` this launch is `run_in_background: true` ALWAYS — the small-plan exception above does not apply: the implement watchdog defaults to 3600s, well over the foreground cap, so a foreground start would be killed by the Bash tool before the watchdog could classify the hang, reap the server group and account the turn, and the turn would be lost with its quota already spent. If you insist on the foreground, lower `TANDEM_MCP_TIMEOUT_SECONDS` below that cap first. The continuations of Step 2 are unaffected: a continuation always runs through `codex exec resume` (a thread does not survive the server that created it), so it keeps the criterion stated there, and the nudge keeps running in the foreground.
-
-**The task-completion notification of that Bash run is a hard synchronization barrier.** Nothing happens before it arrives: you do not read the `IMPLEMENTATION_` sentinel, you do not copy the `USAGE:` line into the log — never a premature `tokens: n/a` out of impatience, the line is simply not there yet — and you launch no resume and no nudge. The thread is not even persisted before that point, and a concurrent resume over a live turn is exactly the class of corruption this barrier exists to forbid.
 
 Exit 2 → a thread already exists for this plan: resume with `continue.tpl` (new scope) or reset first if starting the implementation over.
 
@@ -238,10 +264,30 @@ TANDEM_EXEC_TIMEOUT_SECONDS=540 TANDEM_CODEX_CWD="$WORK_ROOT" bash "$SCRIPTS/cod
 
 ## Step 3 — Your verification (never delegated)
 
-1. `git -C "$WORK_ROOT" status -s` and read the **full diff** (`git -C "$WORK_ROOT" diff`), like reviewing a contributor's PR: fidelity to the plan, unplanned deviations, plan checkboxes actually done. `git diff` does not show untracked files — Read every `??` entry in full, by absolute `$WORK_ROOT/...` path; new files are usually the bulk of the change.
+1. `git -C "$WORK_ROOT" status -s` and read BOTH complete tracked views:
+   `git -C "$WORK_ROOT" diff --cached` (HEAD↔index) plus
+   `git -C "$WORK_ROOT" diff` (index↔worktree), like reviewing a contributor's PR:
+   fidelity to the plan, unplanned deviations, plan checkboxes actually done. Neither
+   diff shows untracked contents — Read every `??` entry in full, by absolute
+   `$WORK_ROOT/...` path; new files are usually the bulk of the change. Never replace
+   these two views with `git diff HEAD`: staged B plus a worktree restored to A can make
+   that single view empty even though committing would record B.
 2. Compare the current branch, `HEAD`, and `git -C "$WORK_ROOT" remote -v` with the attempt's baseline — under `opus`, the durable `base_head`/`remote_snapshot` from the JSON (never conversation memory, so this works after recovery too); under `sol`, the pre-launch snapshot. Any implementer commit, branch change, or remote mutation is a hard safety failure; stop and surface it. This check mitigates the Opus transport's unsandboxed Bash and applies identically to Sol.
-3. Fix small issues DIRECTLY yourself — ping-ponging trivia through delegation burns more than it saves. Large deviations → one continuation of the selected transport, then take over if still wrong.
-4. Append to the log: transport, files changed, deviations, your assessment, and the phase's token total (the sum of the per-turn `tokens:` lines; `n/a (transporte opus)` under the default transport). Under Opus the status line's second row reads the durable JSON: `⚒ opus implement · running · <slug>` while the attempt is open, the coloured sentinel for 15 minutes once it closes, and `⚠ sin señal` after two hours with no close. That is presence and outcome — the file only changes at launch and at close, so live activity stays explicitly v2 and Claude Code's native subagent progress remains the moment-to-moment display.
+3. Before the testing gate, run the machine verdict:
+
+   ```bash
+   bash "$SCRIPTS/implement-audit.sh" check <slug> "$WORK_ROOT"
+   ```
+
+   Exit 20 means the attempt **is `IMPLEMENTATION_PARTIAL` for pipeline purposes,
+   regardless of an implementer's `IMPLEMENTATION_COMPLETE` sentinel**. Copy every
+   `VIOLATION:` line verbatim to the log and use Step 2's continuation path to request
+   reversion of the undeclared writes. Under `TANDEM_AUTONOMOUS=1`, the existing
+   PARTIAL rules apply: never advance to review with open violations and never accept
+   them silently. Exit 65 blocks progress fail-closed and is reported, never bypassed.
+   After any remediation, re-run `check`; exit 0 is mandatory before the testing gate.
+4. Fix small issues DIRECTLY yourself — ping-ponging trivia through delegation burns more than it saves. Large deviations → one continuation of the selected transport, then take over if still wrong.
+5. Append to the log: transport, files changed, deviations, your assessment, the phase's token total (the sum of the per-turn `tokens:` lines; `n/a (transporte opus)` under the default transport), and the audit field. A clean result is exactly `audit — escrituras: OK`; a non-clean result is the verbatim list of `VIOLATION:` lines. Under Opus the status line's second row reads the durable JSON: `⚒ opus implement · running · <slug>` while the attempt is open, the coloured sentinel for 15 minutes once it closes, and `⚠ sin señal` after two hours with no close. That is presence and outcome — the file only changes at launch and at close, so live activity stays explicitly v2 and Claude Code's native subagent progress remains the moment-to-moment display.
 
 ## Step 4 — Testing gate (blocking)
 
@@ -253,5 +299,15 @@ Run yourself, every command anchored (`cd "$WORK_ROOT" && …` in the same comma
 All green → write the gate summary line to the log: `gate — lint: OK · typecheck: OK · tests: N passed, M added · proof: OK`. Anything red → fix (yourself or Step 2) and re-run. The gate must pass before review.
 
 ## Step 5 — Handoff
+
+Only after the testing gate is green **and** the latest write audit exited 0, close the
+active-attempt guard before review:
+
+```bash
+bash "$SCRIPTS/implement-audit.sh" close <slug>
+```
+
+`close` removes only the guard; the census remains as the attempt record. Never close
+on a PARTIAL, violation, audit precondition error, or red testing gate.
 
 Do NOT commit. Tell the user the implementation is verified and continue to `/tandem:review <slug>` (mandatory in the full pipeline; the user may explicitly skip it only for low-risk work with `TANDEM_CRITICAL!=1` — in autonomous mode the review phase is never skippable).
