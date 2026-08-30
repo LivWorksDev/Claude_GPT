@@ -53,7 +53,7 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
 | M31 | `TANDEM_PLANS_DIR` configurable | Workflow | P3 | S | pendiente |
 | M32 | Campos del log derivados de fuente máquina, no transcritos | Observabilidad | P3 | S | pendiente |
 | M33 | Guía de adopción + snippet de CLAUDE.md para repos con políticas previas | Documentación | P3 | S | pendiente |
-| M34 | `doctor --autonomous`: preflight frío del modo desatendido | Diagnóstico | P2 | S | pendiente |
+| M34 | `doctor --autonomous`: preflight frío del modo desatendido | Diagnóstico | P2 | S | hecha (v0.34.0) |
 
 ## Orden de ataque recomendado
 

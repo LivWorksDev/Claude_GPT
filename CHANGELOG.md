@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.34.0 — 2026-08-30
+
+- **`codex-doctor.sh --autonomous` — preflight frío del modo desatendido** (M34):
+  responde gratis (cero turnos de modelo) a «¿está esta sesión lista para un run
+  autonomous?» ANTES de decidir lanzarlo. Comprueba: `TANDEM_PROMOTE_REVIEWS`
+  estricto (`{0,1}`, FAIL nombrando la variable si falta o es inválida); repo con
+  HEAD y árbol limpio anclados a `${CLAUDE_PROJECT_DIR:-$PWD}` (un unborn no
+  certifica — `plan-approve.sh` exigirá HEAD tras gastar la fase de plan); y el
+  estado efectivo de los flags que cambian o matan el run: implementer, critical,
+  worktree (`{unset,1}` estricto), web_search, `TANDEM_TRANSPORT` (`{unset,exec}`
+  — un `mcp` heredado respondería 64 en el primer lanzamiento de la plan review),
+  `TANDEM_AUTONOMOUS` tri-estado (`unset/0` = listo-no-activado, `1` = activo,
+  otro = FAIL), `TANDEM_EXEC_TIMEOUT_SECONDS` (entero positivo),
+  `TANDEM_TURN_EFFORT` (debe estar UNSET: es efímera por diseño — un export
+  global VÁLIDO degradaría en silencio las rondas sustantivas 2+, y uno inválido
+  las mataría con 64) y `TANDEM_CODEX_CWD` (unset, o resolviendo físicamente —
+  `pwd -P` en ambos lados — al project root: un directorio ajeno haría que el
+  revisor inspeccionara otro repositorio).
+- **El WARN de permisos, siempre presente y nunca PASS:** los permission prompts
+  de la sesión de Claude Code son la única capa no fail-fast del modo desatendido
+  y tandem no puede leerla — el preflight la emite como aviso honesto con la
+  instrucción de configurar el allowlist de la sesión antes de lanzar, jamás como
+  check verde.
+- Combinable con `--smoke` (solo esa mitad gasta sus turnos de contrato); el
+  default sin flags no gana la sección ni el WARN; expuesto en
+  `skills/doctor/SKILL.md`, nombrado en el preflight de `skills/run/SKILL.md`
+  (vía `CLAUDE_SKILL_DIR`, pineado por contrato) y en el README §autonomous.
+- Tests: `tests/doctor-autonomous.test.sh` — matriz completa con medición de
+  turnos del stub en cada caso; suite completa 89 passed.
+
 ## 0.33.0 — 2026-08-30
 
 - **Auditoría mecánica de escrituras en `tandem:implement`** (M25, hallazgo A2 +

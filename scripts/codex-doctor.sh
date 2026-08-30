@@ -2,12 +2,14 @@
 # tandem — diagnose the toolchain. Reports every problem found (does not stop
 # at the first one) and exits non-zero if anything is broken.
 #
-# usage: codex-doctor.sh [--smoke]
+# usage: codex-doctor.sh [--smoke] [--autonomous]
 #   --smoke  ALSO spend one REAL codex turn per UNIQUE configured model (two
 #            with the default policy) to prove the model names still resolve —
 #            a deprecation found here costs a one-line turn instead of half a
 #            long run. It NEVER runs without the flag: a diagnostic must not
 #            spend the user's quota unasked.
+#   --autonomous  ALSO run the free, cold preflight for an unattended run. It
+#                 spends no model turns and may be combined with --smoke.
 #
 # env: TANDEM_DOCTOR_SMOKE_TIMEOUT_SECONDS  per-model watchdog for --smoke
 #      (default 120; a positive integer of seconds, anything else is a usage
@@ -28,14 +30,16 @@ SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/_pins.sh"
 
 # --- arguments ---------------------------------------------------------------
-# With no arguments the output is exactly what it has always been, byte for
-# byte; anything unknown is a usage error before a single line is printed.
-usage() { printf 'usage: codex-doctor.sh [--smoke]\n' >&2; }
+# With no arguments the autonomous section is absent, preserving the default
+# diagnosis; anything unknown is a usage error before a single line is printed.
+usage() { printf 'usage: codex-doctor.sh [--smoke] [--autonomous]\n' >&2; }
 
 SMOKE=0
+AUTONOMOUS=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --smoke) SMOKE=1 ;;
+    --autonomous) AUTONOMOUS=1 ;;
     *)
       printf 'tandem: unknown argument: %s\n' "$1" >&2
       usage
@@ -65,6 +69,7 @@ fi
 fail=0
 ok()   { printf '  ok    %s\n' "$1"; }
 bad()  { printf '  FAIL  %s\n' "$1"; fail=1; }
+warn() { printf '  WARN  %s\n' "$1"; }
 info() { printf '        %s\n' "$1"; }
 
 # --- Claude Code version, for the critical agent type's `effort: xhigh` -------
@@ -341,6 +346,176 @@ info "ultra seats: judge=${TANDEM_ULTRA_JUDGE_MODEL:-gpt-5.6-sol}/${TANDEM_ULTRA
 info "TANDEM_AUTONOMOUS=${TANDEM_AUTONOMOUS:-0} (1 replaces human gates with APPROVED+green-gate policy; commits stay on the tandem branch, never push/merge)"
 if [ "${TANDEM_AUTONOMOUS:-0}" = "1" ] && [ -z "${TANDEM_PROMOTE_REVIEWS:-}" ]; then
   bad "TANDEM_AUTONOMOUS=1 but TANDEM_PROMOTE_REVIEWS is unset — autonomous runs must not ask mid-run; set it to 0 or 1"
+fi
+
+# --- autonomous preflight (--autonomous only) --------------------------------
+# Deliberately independent from tandem:run's own fail-fast checks: this is a
+# cold, optional answer to "is this session ready?", not a replacement gate.
+if [ "$AUTONOMOUS" -eq 1 ]; then
+  printf '\nautonomous preflight (--autonomous):\n'
+
+  # The global check above is intentionally left at its existing contract
+  # (active autonomous + unset only). The cold preflight is the strict check:
+  # it applies before TANDEM_AUTONOMOUS is enabled and accepts only {0,1}.
+  case "${TANDEM_PROMOTE_REVIEWS+set}" in
+    set)
+      case "$TANDEM_PROMOTE_REVIEWS" in
+        1) ok "TANDEM_PROMOTE_REVIEWS=1 — review record always written" ;;
+        0) ok "TANDEM_PROMOTE_REVIEWS=0 — review record never written" ;;
+        *) bad "TANDEM_PROMOTE_REVIEWS='$TANDEM_PROMOTE_REVIEWS' is invalid — autonomous runs must not ask mid-run; set it to 0 or 1" ;;
+      esac
+      ;;
+    *)
+      bad "TANDEM_PROMOTE_REVIEWS is unset — autonomous runs must not ask mid-run; set it to 0 or 1"
+      ;;
+  esac
+
+  autonomous_root="${CLAUDE_PROJECT_DIR:-$PWD}"
+  autonomous_root_physical=""
+  if [ -d "$autonomous_root" ]; then
+    autonomous_root_physical="$(CDPATH='' cd -- "$autonomous_root" 2>/dev/null && pwd -P)" || autonomous_root_physical=""
+  fi
+
+  # A clean status without HEAD is vacuous: plan-approve.sh will require HEAD
+  # after the plan phase has already spent its turns. Certify both conditions,
+  # anchored to the project the run will use rather than the caller's cwd.
+  if ! command -v git >/dev/null 2>&1; then
+    bad "autonomous tree: git is not available — cannot verify HEAD or cleanliness"
+  elif [ -z "$autonomous_root_physical" ]; then
+    bad "autonomous tree: project directory '$autonomous_root' does not exist or cannot be resolved"
+  elif autonomous_inside="$(git -C "$autonomous_root" rev-parse --is-inside-work-tree 2>/dev/null)" \
+    && [ "$autonomous_inside" = "true" ]; then
+    autonomous_has_head=0
+    if git -C "$autonomous_root" rev-parse --verify HEAD >/dev/null 2>&1; then
+      autonomous_has_head=1
+    else
+      bad "autonomous tree: HEAD is missing in '$autonomous_root' — an unborn repository cannot launch the run"
+    fi
+
+    autonomous_status=""
+    if autonomous_status="$(git -C "$autonomous_root" status --porcelain 2>/dev/null)"; then
+      if [ -n "$autonomous_status" ]; then
+        autonomous_dirty_count=0
+        while IFS= read -r autonomous_entry; do
+          [ -n "$autonomous_entry" ] || continue
+          autonomous_dirty_count=$((autonomous_dirty_count + 1))
+        done <<<"$autonomous_status"
+        bad "autonomous tree: $autonomous_dirty_count uncommitted entr$( [ "$autonomous_dirty_count" -eq 1 ] && printf 'y' || printf 'ies' ) in '$autonomous_root' — commit or stash before launching"
+      elif [ "$autonomous_has_head" -eq 1 ]; then
+        ok "autonomous tree=clean — HEAD present in $autonomous_root"
+      fi
+    else
+      bad "autonomous tree: git status failed in '$autonomous_root' — cleanliness cannot be verified"
+    fi
+  else
+    bad "autonomous tree: '$autonomous_root' is not a git repository"
+  fi
+
+  case "$implementer" in
+    opus | sol) ok "implementer=$implementer" ;;
+    *) bad "implementer=$implementer — invalid (expected opus or sol; see model policy above)" ;;
+  esac
+  if [ "${TANDEM_CRITICAL:-0}" = "1" ]; then
+    ok "critical=1"
+  else
+    ok "critical=0"
+  fi
+
+  case "${TANDEM_WORKTREE+set}" in
+    set)
+      if [ "$TANDEM_WORKTREE" = "1" ]; then
+        ok "worktree=worktree"
+      else
+        bad "TANDEM_WORKTREE='$TANDEM_WORKTREE' is invalid — expected unset (in-place) or 1 (worktree)"
+      fi
+      ;;
+    *) ok "worktree=in-place" ;;
+  esac
+
+  case "${TANDEM_WEB_SEARCH+set}" in
+    set)
+      case "$TANDEM_WEB_SEARCH" in
+        off) ok "web_search=off" ;;
+        on) ok "web_search=on" ;;
+        *) bad "web_search=$TANDEM_WEB_SEARCH — invalid (expected default, off or on; see model policy above)" ;;
+      esac
+      ;;
+    *) ok "web_search=default" ;;
+  esac
+
+  case "${TANDEM_TRANSPORT+set}" in
+    set)
+      if [ "$TANDEM_TRANSPORT" = "exec" ]; then
+        ok "transport=exec"
+      else
+        bad "TANDEM_TRANSPORT='$TANDEM_TRANSPORT' would make the autonomous plan review exit 64 on its first launch — unset it or set it to exec"
+      fi
+      ;;
+    *) ok "transport=exec (default)" ;;
+  esac
+
+  case "${TANDEM_AUTONOMOUS+set}" in
+    set)
+      case "$TANDEM_AUTONOMOUS" in
+        0) ok "autonomous=ready (not enabled — export TANDEM_AUTONOMOUS=1 to launch unattended)" ;;
+        1) ok "autonomous=1 (active — unattended policy enabled)" ;;
+        *) bad "TANDEM_AUTONOMOUS='$TANDEM_AUTONOMOUS' is invalid — expected unset, 0 or 1; another value would launch interactively" ;;
+      esac
+      ;;
+    *) ok "autonomous=ready (not enabled — export TANDEM_AUTONOMOUS=1 to launch unattended)" ;;
+  esac
+
+  case "${TANDEM_EXEC_TIMEOUT_SECONDS+set}" in
+    set)
+      if ultra_dial_ok "$TANDEM_EXEC_TIMEOUT_SECONDS"; then
+        ok "TANDEM_EXEC_TIMEOUT_SECONDS=$TANDEM_EXEC_TIMEOUT_SECONDS"
+      else
+        bad "TANDEM_EXEC_TIMEOUT_SECONDS='$TANDEM_EXEC_TIMEOUT_SECONDS' is invalid — expected a positive decimal integer; the first launch would exit 64"
+      fi
+      ;;
+    *) ok "TANDEM_EXEC_TIMEOUT_SECONDS=role defaults" ;;
+  esac
+
+  case "${TANDEM_TURN_EFFORT+set}" in
+    set)
+      case "$TANDEM_TURN_EFFORT" in
+        minimal | low | medium | high | xhigh | max | ultra)
+          bad "TANDEM_TURN_EFFORT='$TANDEM_TURN_EFFORT' must be unset — valid values are ephemeral per invocation; a global export would degrade substantive round 2+ resumes"
+          ;;
+        *)
+          bad "TANDEM_TURN_EFFORT='$TANDEM_TURN_EFFORT' must be unset — this invalid value would make every round 2+ resume exit 64"
+          ;;
+      esac
+      ;;
+    *) ok "TANDEM_TURN_EFFORT=unset (substantive resumes keep the role effort)" ;;
+  esac
+
+  case "${TANDEM_CODEX_CWD+set}" in
+    set)
+      if [ -z "$TANDEM_CODEX_CWD" ]; then
+        bad "TANDEM_CODEX_CWD='' is invalid — the first wrapper launch would exit 64"
+      elif [ ! -d "$TANDEM_CODEX_CWD" ]; then
+        bad "TANDEM_CODEX_CWD='$TANDEM_CODEX_CWD' is not an existing directory — the first wrapper launch would exit 64"
+      else
+        autonomous_codex_cwd_physical="$(CDPATH='' cd -- "$TANDEM_CODEX_CWD" 2>/dev/null && pwd -P)" || autonomous_codex_cwd_physical=""
+        # This physical equivalence is the autonomous preflight's own rule.
+        # codex_cwd_validate intentionally passes the literal path through and
+        # does not normalize it; string equality here would reject safe symlinks.
+        if [ -n "$autonomous_root_physical" ] \
+          && [ "$autonomous_codex_cwd_physical" = "$autonomous_root_physical" ]; then
+          ok "TANDEM_CODEX_CWD=$TANDEM_CODEX_CWD — resolves to the project root"
+        else
+          bad "TANDEM_CODEX_CWD='$TANDEM_CODEX_CWD' resolves outside the project root — the plan reviewer would inspect a different repository"
+        fi
+      fi
+      ;;
+    *) ok "TANDEM_CODEX_CWD=unset (launch skills pin it inline)" ;;
+  esac
+
+  # Always a WARN, never an ok: this session layer is invisible to tandem.
+  warn "permission prompts for this Claude Code session cannot be inspected or changed by tandem"
+  info "before launching unattended, configure the session permissions for every command the run will use"
+  info "use /permissions or settings to allowlist them so no prompt waits for a human"
 fi
 
 # --- model smoke (--smoke only) ----------------------------------------------

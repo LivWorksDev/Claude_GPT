@@ -34,7 +34,7 @@ End-to-end without mid-run interaction. HITL moves to the edges: a complete brie
 **Preflight (fail fast, BEFORE any model delegation):**
 1. **Brief completeness** — the feature description must let you fill goal, constraints, acceptance and out-of-scope without asking. Too thin → stop and request a complete brief. This is the only permitted interaction, and it happens before the run starts.
 2. **`TANDEM_PROMOTE_REVIEWS` must be set** (`0` or `1`) — nothing may ask mid-run. Unset → stop at preflight.
-3. Doctor + clean tree, as always. Doctor rejects unknown `TANDEM_IMPLEMENTER` values; `tandem:implement` also fails closed before touching anything.
+3. Doctor + clean tree, as always — `bash "${CLAUDE_SKILL_DIR}/../../scripts/codex-doctor.sh" --autonomous` covers both in one pass. The run still validates its own preflight; doctor rejects unknown `TANDEM_IMPLEMENTER` values, and `tandem:implement` also fails closed before touching anything.
 
 **Policy replacing each human gate** (details live in the phase skills):
 - Plan gate → plan auto-committed ONLY on `VERDICT: APPROVED`, and ONLY on `tandem/<slug>` (via `scripts/plan-approve.sh`, which creates that branch at the approval): the user's branch receives no commit at any point of the run.

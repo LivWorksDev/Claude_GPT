@@ -131,7 +131,7 @@ los otros turnos del hilo.
 
 Estados terminales, siempre con informe final (assumptions, veredictos por ronda, diffstat, gate, rama, log): `COMPLETED` · `DEADLOCK` (ningún APPROVED — jamás se aprueba por agotamiento) · `PARTIAL` (implementación incompleta tras los caps) · `FAILED`. Cualquier estado no-COMPLETED se retoma con las skills interactivas normales.
 
-Líneas rojas idénticas al modo interactivo: nunca push, nunca merge, nunca la rama por defecto; sandboxes, modelos y caps intactos. La autonomía recoloca los puntos de aprobación — no compra permisos. Ojo: los permission prompts de la propia sesión de Claude Code son una capa aparte que tandem ni puede ni debe tocar; para un run realmente desatendido configura los permisos de la sesión en consecuencia.
+Líneas rojas idénticas al modo interactivo: nunca push, nunca merge, nunca la rama por defecto; sandboxes, modelos y caps intactos. La autonomía recoloca los puntos de aprobación — no compra permisos. Antes de decidir lanzar, `bash scripts/codex-doctor.sh --autonomous` ejecuta gratis el preflight frío (promoción, HEAD + árbol limpio y flags efectivos) y muestra siempre el WARN de permisos: los permission prompts de la propia sesión de Claude Code son una capa aparte que tandem ni puede ni debe tocar, así que para un run realmente desatendido configura los permisos de la sesión en consecuencia.
 
 ## Modo ultra — enjambres dirigidos por Fable
 

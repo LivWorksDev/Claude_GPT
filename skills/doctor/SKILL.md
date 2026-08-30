@@ -19,8 +19,19 @@ Interpret the output for the user. Common repairs:
 | not logged in | `codex login` (browser) or `codex login --device-auth` (headless) — suggest the user run it via `! codex login` |
 | jq missing | `brew install jq` (macOS) |
 | `CLAUDE_CODE_SUBAGENT_MODEL` is defined and is not exactly `opus` | it takes precedence over the implementer subagent's `model: opus`, so `tandem:implement`'s preflight would stop the run: unset it, set it to `opus`, or run with `TANDEM_IMPLEMENTER=sol` |
+| `TANDEM_PROMOTE_REVIEWS` is unset or outside `{0,1}` | autonomous runs must not ask mid-run: set it explicitly to `1` (always write the review record) or `0` (never write it) |
 
 After a repair, re-run the script to confirm everything is green. If the user wants different models or efforts, explain the env overrides shown in the output (`TANDEM_REVIEW_MODEL`, `TANDEM_REVIEW_EFFORT`, `TANDEM_IMPLEMENT_MODEL`, `TANDEM_IMPLEMENT_EFFORT`, `TANDEM_CRITICAL`) — sandboxes are pinned by design and cannot be overridden.
+
+## Autonomous preflight (`--autonomous`) — free
+
+```bash
+bash "${CLAUDE_SKILL_DIR}/../../scripts/codex-doctor.sh" --autonomous
+```
+
+Use this before deciding to launch an unattended run: it answers whether the session is mechanically ready by checking the strict promote-reviews decision, a repository with HEAD and a clean project tree, and the effective run flags that could otherwise kill or misdirect the first launches. It spends **zero model turns** and may be combined with `--smoke`; only the smoke portion then spends its documented turns.
+
+This does **not** judge whether the brief is complete — that remains the orchestrator's responsibility when the run starts. Its permission message is deliberately always a `WARN`, never a check that can turn green: tandem cannot inspect or change Claude Code session permissions, so the human must configure the command allowlist (for example via `/permissions` or settings) before leaving the run unattended.
 
 ## Model smoke (`--smoke`) — costs real turns
 
