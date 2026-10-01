@@ -6,6 +6,9 @@ hallazgo accionable, autocontenido: se puede abordar sin releer la conversación
 Las entradas M24–M33 proceden de un informe de campo externo del 2026-08-21 sobre
 v0.30.0, verificado cita a cita por el mantenedor y con enmiendas ya incorporadas —
 informe íntegro, verificación y razonamiento en `docs/audits/informe-campo-2026-08-21.md`.
+Las entradas M35–M38 nacen de la revisión del 2026-10-01 sobre v0.34.0: deriva de la CLI de
+Codex a 0.157.1 (con `codex mcp-server` eliminado), la familia de modelos 6, la decisión de no
+reactivar el CI de GitHub y la nueva visión del producto (sección siguiente).
 
 **Cómo se traza:** cada mejora que se aborde entra por el propio pipeline
 (`/tandem:plan <slug sugerido>`); al aprobarse el plan se actualiza aquí el estado a
@@ -15,6 +18,25 @@ mismo principio que el deadlock honesto: las decisiones se muestran, no se borra
 Estados: `pendiente` · `planificada` · `en curso` · `hecha (vX.Y.Z)` · `descartada (razón)`.
 Severidad: `P1` corrección/seguridad · `P2` robustez o valor alto · `P3` pulido.
 Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
+
+## Visión (borrador v1 — 2026-10-01, se formaliza en M38a)
+
+tandem es el **adversario permanente del proyecto**: un juez de otra familia de modelos que
+conoce la visión y el historial de decisiones, se puede retomar en cualquier sesión y
+dictamina si cada plan, diff o decisión es coherente con ellos.
+
+- **Reparto de papeles:** Opus 5.5 orquesta y arbitra (la sesión de Claude Code); Sonnet 5.5
+  implementa (Opus 5.5 en trabajo crítico); Codex GPT-6 Astra ataca y juzga, siempre
+  read-only; GPT-6 Sol implementa cuando se elige el transporte Codex.
+- **La memoria del juez es durable y vive en disco** (visión, decisiones y dictámenes en el
+  repo); el hilo del modelo es una caché que se puede perder sin perder el criterio.
+- **El juez nunca escribe código ni aprueba lo suyo;** sus dictámenes citan principios y
+  decisiones concretas, y un conflicto con la visión se muestra, no se resuelve en silencio.
+- **Verificación local y gratuita primero:** el CI de GitHub no corre (decisión del
+  2026-10-01), así que la deriva de las CLIs de las que dependemos se vigila desde el doctor.
+
+Criterio de priorización: una entrada sube si acerca a esta visión o protege los invariantes
+que la sostienen; el pulido que no la toca, baja.
 
 ## Vista rápida
 
@@ -41,8 +63,8 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
 | M19 | Fase 2: probes de comportamiento del transporte MCP | Transporte | P2 | M | hecha (v0.26.0) |
 | M20 | Fase 2: `TANDEM_TRANSPORT=mcp` en los wrappers | Transporte | P2 | L | hecha (v0.30.0) — M20a `ask` (v0.27.0), M20b `review` (v0.28.0), M20c `implement`+`image` (v0.30.0); canarios reales de los 4 roles en verde (evidencia en docs/audits/fase2-mcp-parity.md); swarm sigue exec por diseño |
 | M21 | Plan reviews bajo `mcp`: cerrar el gate o completar el contrato | Transporte | P2 | S | hecha (v0.29.0) — vía (a): gate por target |
-| M22 | Transporte v2: servidor MCP persistente entre invocaciones | Transporte | P3 | L | pendiente — prioridad BAJA deliberada (complejidad alta, aporte marginal) |
-| M23 | Swarm de ultra sobre el transporte MCP | Ultra | P3 | L | pendiente — prioridad BAJA deliberada (complejidad alta, aporte marginal) |
+| M22 | Transporte v2: servidor MCP persistente entre invocaciones | Transporte | P3 | L | descartada (2026-10-01: la CLI 0.157.1 ya no trae `codex mcp-server`; ver M36) |
+| M23 | Swarm de ultra sobre el transporte MCP | Ultra | P3 | L | descartada (2026-10-01: mismo motivo que M22; ver M36) |
 | M24 | Watchdog de turno para el transporte exec (start, swarm y resume) | Transporte | P2 | M | hecha (v0.32.0) |
 | M25 | Auditoría de escrituras en implement + hook anti-install para Opus | Seguridad | P1 | M | hecha (v0.33.0) |
 | M26 | Interruptor de confidencialidad para `web_search` | Seguridad | P2 | S | hecha (v0.31.0) |
@@ -54,26 +76,32 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
 | M32 | Campos del log derivados de fuente máquina, no transcritos | Observabilidad | P3 | S | pendiente |
 | M33 | Guía de adopción + snippet de CLAUDE.md para repos con políticas previas | Documentación | P3 | S | pendiente |
 | M34 | `doctor --autonomous`: preflight frío del modo desatendido | Diagnóstico | P2 | S | hecha (v0.34.0) |
+| M35a | Política de modelos Codex 6: Astra revisa, Sol implementa, Luna explora | Modelos | P2 | M | pendiente |
+| M35b | Sonnet 5.5 implementa, Opus 5.5 orquesta + deriva de Claude Code | Modelos | P1 | M | pendiente |
+| M36 | Retirar el transporte MCP (`codex mcp-server` ya no existe) | Transporte | P2 | M | pendiente |
+| M37 | Vigilancia de deriva local y gratuita en el doctor (el CI no corre) | Diagnóstico | P1 | M | pendiente |
+| M38 | Juez adversarial de decisiones y visión — épica: a visión + ADR · b `tandem:judge` · c gates | Visión | P2 | L | pendiente |
 
 ## Orden de ataque recomendado
 
-1. **M14** — protege todo lo demás: cada mejora posterior aterriza con red de seguridad.
-2. **M1, M2** — los únicos con riesgo de ejecutar código en el sitio equivocado o con red no prevista.
-3. **M3** — incoherencia de política barata de cerrar (M4 puede ir en el mismo cambio que M2).
-4. **M8, M9, M11** — mejor relación coste/valor en robustez y UX (M9 alimenta a M11).
-5. **M5, M6, M7, M10, M12, M13, M15** — pulido incremental, sin dependencias entre sí.
-6. **M16, M17, M18** — hardening de status/doctor, sin dependencias entre sí; los tres
-   nacieron de la primera range review real (`range-review-cola2`, sobre la Cola 2
-   completa): hallazgos de interacción que las reviews individuales no podían ver.
-7. **Cohorte del informe de campo (M24–M33):** M26 → M24 → M25 → M30 → M28 → M27 →
-   M29 → M31/M32/M33. M26 es el mejor coste/valor (S, cierra un canal de datos); M24
-   elimina el modo de fallo operativo más común y de rebote reduce la incidencia de M30;
-   M25 es el de más valor absoluto (la clase del incidente que motivó el plugin) pero
-   exige diseñar el ciclo de vida del marcador de intento-activo; el resto es
-   incremental y sin dependencias entre sí.
-8. **M34** — pulido de diagnóstico sin dependencias; su valor sube con cada usuario
-   nuevo que quiera lanzar su primer run autonomous, así que conviene tenerlo antes de
-   difundir el modo.
+Revisado el 2026-10-01 contra la visión; solo entradas pendientes. El orden histórico de
+M1–M34 queda en el historial git de este fichero.
+
+1. **M35a → M35b** — la base de todo lo demás: los modelos con los que el pipeline se
+   revisa e implementa a sí mismo. M35a es además el primer run real sobre la CLI 0.157.1 y
+   la familia 6 (smoke previo del 2026-10-01 en verde: start + resume con gpt-6-astra por
+   los wrappers exec, y gpt-6-astra/sol/luna responden).
+2. **M36** — retirar código muerto antes de tocar nada más: reduce la superficie que M37
+   debe vigilar y que M38 debe entender.
+3. **M37** — la alarma que el CI ya no va a dar; sin ella, la siguiente deriva de Codex o
+   de Claude Code se descubre a mitad de un run.
+4. **M38a → M38b → M38c** — la visión: primero el texto que se juzga, luego el juez, luego
+   el juez como gate.
+5. **M32** — sube: el juez lee los logs como evidencia, y un campo transcrito a mano
+   ensucia su entrada.
+6. **M29, M30** — robustez del enjambre ultra, que el juez podrá usar.
+7. **M28, M27** — observabilidad; útiles, pero no acercan a la visión.
+8. **M31, M33** — adopción en otros repos, cuando la visión esté implantada aquí.
 
 ---
 
@@ -454,6 +482,9 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
 ## M22 — Transporte v2: servidor MCP persistente entre invocaciones
 
 - **Severidad/Esfuerzo:** P3 / L · **Slug sugerido:** `mcp-persistent-server`
+- **Descartada (2026-10-01):** la CLI 0.157.1 ya no incluye `codex mcp-server` (no figura en
+  `codex --help`; la palabra se interpreta como prompt de la TUI). La premisa desaparece
+  upstream y el transporte v1 se retira en M36. El razonamiento se conserva como histórico.
 - **Prioridad BAJA deliberada (decisión 2026-08-03, cierre de la Fase 2):** la
   complejidad es demasiado alta para lo poco que aporta. El valor real de la migración
   MCP — pins por llamada, errores tipados de hilo, watchdog inescapable, aislamiento
@@ -479,6 +510,8 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
 ## M23 — Swarm de ultra sobre el transporte MCP
 
 - **Severidad/Esfuerzo:** P3 / L · **Slug sugerido:** `mcp-swarm`
+- **Descartada (2026-10-01):** mismo motivo que M22 — sin `codex mcp-server` upstream no
+  hay transporte al que migrar el enjambre. Se conserva el razonamiento como histórico.
 - **Prioridad BAJA deliberada (decisión 2026-08-03, cierre de la Fase 2):** misma razón
   que M22 — el swarm sigue `exec` POR DISEÑO (documentado en ARCHITECTURE). Sus seats
   son turnos one-shot read-only: no tienen continuaciones (el valor del hilo se
@@ -639,7 +672,8 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
 - **Propuesta:** por orden (E-M3): (1) salvage tolerante en el wrapper — extraer el
   último bloque JSON válido de la respuesta antes de declarar el seat fallido; cero
   tokens, cero cambio de diseño. (2) Solo si datos reales muestran que el salvage no
-  basta, escalar a un resume solo-nudge (`TANDEM_TURN_EFFORT=minimal`) — que exigiría
+  basta, escalar a un resume solo-nudge (`TANDEM_TURN_EFFORT=low`; ningún modelo del
+  catálogo de la CLI 0.157.1 admite `minimal`) — que exigiría
   empezar a persistir thread ids del enjambre, tocando el invariante documentado en la
   cabecera de `codex-swarm.sh` («No thread persistence and no resume … deliberate»).
 - **Aceptación:** un seat cuya respuesta contiene un bloque JSON válido rodeado de
@@ -656,7 +690,7 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
   directorio a mano»). El no-reclaim automático está bien razonado — probar el pid del
   holder para robar el slot en caliente añadiría las carreras rm/mkdir que el semáforo
   existe para eliminar — pero la salida manual merece una herramienta.
-- **Evidencia:** `scripts/codex-swarm.sh:210-218` (no-reclaim documentado), `:246` (el
+- **Evidencia:** `scripts/codex-swarm.sh:232` (no-reclaim documentado), `:264` (el
   mensaje de error que hoy manda a cirugía manual); `tests/hb-term-vs-kill.test.sh:2-6`
   (la asimetría TERM/KILL, pineada). Descartada la variante «reap al arranque del run»
   del informe (E-M4): el semáforo es por-run y cada seat una invocación independiente —
@@ -664,7 +698,7 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
   un «arranque» al que anclar el reap sin volver a depender de prosa.
 - **Propuesta:** `codex-swarm.sh --reap <run>` explícito: recorre los slots del run,
   comprueba la vida del pid del `holder`, elimina solo los muertos y reporta lo hecho;
-  el mensaje de error de `:246` pasa a nombrarlo. Mismo control humano, mejor
+  el mensaje de error de `:264` pasa a nombrarlo. Mismo control humano, mejor
   herramienta. Nota: M24 ya reduce la incidencia por sí solo (TERM del watchdog →
   trap EXIT → slot liberado).
 - **Aceptación:** tras un SIGKILL simulado, `--reap <run>` libera el slot huérfano y
@@ -701,7 +735,7 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
   ensucia el registro que status luego lee. El repo ya enuncia el principio aplicable:
   «machine work, not something a wrapper model should retype verbatim» (comentario del
   preámbulo en `codex-swarm.sh`).
-- **Evidencia:** `skills/review/SKILL.md:65,135` (la copia manual del `USAGE:` como
+- **Evidencia:** `skills/review/SKILL.md:73,159` (la copia manual del `USAGE:` como
   contrato de prosa); ledgers `*.usage.json` y `git rev-parse` como fuentes máquina ya
   existentes.
 - **Propuesta:** derivar esos campos de la fuente máquina al escribir el log (ledger
@@ -765,3 +799,147 @@ Esfuerzo: `S` (< 1 h) · `M` (media jornada) · `L` (> 1 día).
   nombrando la variable; con todo definido, emite el resumen con el WARN de permisos
   siempre presente y sale 0; cero turnos de modelo en ambos casos; test con el stub que
   pinee la salida de ambos escenarios.
+
+## M35a — Política de modelos Codex 6: Astra revisa, Sol implementa, Luna explora
+
+- **Severidad/Esfuerzo:** P2 / M · **Slug sugerido:** `codex-models-v6`
+- **Origen:** revisión del 2026-10-01; decisión del mantenedor: «Astra para review
+  adversarial y Sol para implementar».
+- **Problema:** todos los defaults Codex apuntan a la generación 5.6, que el propio catálogo
+  de la CLI describe ya como «older generation». La familia 6 está disponible:
+  `gpt-6-astra` («frontier intelligence for the most demanding work»), `gpt-6-sol`
+  («workhorse») y `gpt-6-luna` («fast and affordable»), con los mismos niveles de effort
+  que usa tandem (`low`…`xhigh`; Luna sin `ultra`).
+- **Evidencia:** `scripts/_common.sh:37-56` (implement, review/ask e image →
+  `gpt-5.6-sol`); `scripts/codex-swarm.sh:132-145` (tiers judge/worker → `gpt-5.6-sol`,
+  scout → `gpt-5.6-luna`); `scripts/codex-doctor.sh` (política mostrada y `--smoke`); unos
+  30 tests que fijan los literales; `codex debug models` (el catálogo, gratis).
+- **Propuesta:** review/ask (red-team del plan, code review y `ask`) y juez de ultra →
+  `gpt-6-astra` con effort `xhigh` sin cambios; implementador Codex, imagen y worker de
+  ultra → `gpt-6-sol`; scout → `gpt-6-luna`. Los overrides `TANDEM_*_MODEL` siguen ganando.
+  Los fixtures grabados de `tests/fixtures/` no se editan: son capturas reales (se regraban
+  en M37).
+- **Smoke previo (2026-10-01, en verde):** start + resume de `ask` con gpt-6-astra por los
+  wrappers exec sobre la CLI 0.157.1 — hilo, `USAGE:` y las formas imprescindibles del
+  stream intactas; deriva solo aditiva (`usage.cache_write_input_tokens`); `doctor --smoke`
+  con overrides: gpt-6-astra, gpt-6-sol y gpt-6-luna responden.
+- **Aceptación:** sin overrides, cada rol y tier lanza su modelo nuevo (argv exacto pineado
+  por los tests existentes, actualizados); el doctor muestra la política nueva; la suite
+  pasa; el propio run de esta entrada usa Astra como red-team y revisor.
+
+## M35b — Sonnet 5.5 implementa, Opus 5.5 orquesta + deriva de Claude Code
+
+- **Severidad/Esfuerzo:** P1 / M · **Slug sugerido:** `claude-models-v55`
+- **Origen:** revisión del 2026-10-01; decisión del mantenedor: Sonnet 5.5 implementa por
+  defecto (eficiente y fiable en la práctica) y Opus 5.5 orquesta la sesión.
+- **Problema:** (1) los agentes `implementer`/`implementer-critical` fijan `model: opus` y
+  la documentación presenta a Fable como orquestador. (2) **Bug de deriva:** desde Claude
+  Code 2.1.251 el orden de resolución del modelo de un subagente es invocación >
+  frontmatter > `CLAUDE_CODE_SUBAGENT_MODEL` > sesión — la variable ya NO pisa el
+  frontmatter, pero el doctor sigue afirmándolo y da FAIL falso; el riesgo real es ahora
+  `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` (≥ 2.1.257), que hace ignorar el frontmatter, y el
+  parámetro `model` por invocación que pasa el orquestador. (3) Las etiquetas «Opus» de
+  status, statusline y doctor dejan de ser ciertas con Sonnet implementando. (4) Opus 5.5
+  arranca en effort `medium` y NO lee el `effortLevel` de nivel superior del settings de
+  usuario: un orquestador sin `modelSettings` degrada en silencio.
+- **Evidencia:** `agents/implementer.md`, `agents/implementer-critical.md` y
+  `.claude/agents/implementer.md` (`model: opus`); `scripts/codex-doctor.sh:262-273`;
+  documentación oficial `code.claude.com/docs/en/sub-agents.md` (orden de resolución y
+  FORCE) y `/model-config.md` (`opus`/`sonnet` → Opus 5.5/Sonnet 5.5; Opus 5.5 por defecto
+  en `medium`; `modelSettings` por modelo); README, ARCHITECTURE y manifiestos («Fable
+  orquesta»).
+- **Propuesta:** `implementer` → `model: sonnet` (Sonnet 5.5); `implementer-critical` →
+  `model: opus` (Opus 5.5) con `effort: xhigh`. Doctor con el orden real (FAIL solo con
+  FORCE=1 y un modelo distinto; información cuando la variable existe pero no gana; gate de
+  versión). Valor neutral para `TANDEM_IMPLEMENTER` (`claude`, con `opus` como alias
+  compatible — se decide en el plan). Etiquetas neutras («Claude») en status y statusline.
+  Documentación: orquestador Opus 5.5 con el snippet de `settings.json`
+  (`"model": "opus[1m]"` + `modelSettings."claude-opus-5-5".effortLevel`); un plugin no
+  puede fijar el modelo de sesión, así que las skills `run`/`plan` piden al orquestador
+  declarar su modelo y avisar si no es Opus 5.5.
+- **Aceptación:** un implement por defecto corre en Sonnet 5.5, y bajo `TANDEM_CRITICAL=1`
+  en Opus 5.5 xhigh (visible en el estado durable del intento); el doctor no da FAIL por
+  `CLAUDE_CODE_SUBAGENT_MODEL` en Claude Code ≥ 2.1.251 y sí con FORCE=1 + modelo
+  distinto; ninguna etiqueta de UI nombra a Opus como implementador fijo; README y
+  ARCHITECTURE describen el reparto nuevo.
+
+## M36 — Retirar el transporte MCP (`codex mcp-server` ya no existe)
+
+- **Severidad/Esfuerzo:** P2 / M · **Slug sugerido:** `mcp-transport-retire`
+- **Origen:** revisión del 2026-10-01; decisión del mantenedor: retirarlo.
+- **Problema:** la CLI 0.157.1 ya no trae `codex mcp-server` (no figura en `codex --help`;
+  `codex mcp-server` se interpreta como prompt de la TUI y muere con «stdin is not a
+  terminal»). `TANDEM_TRANSPORT=mcp` (M19–M21) está roto con la CLI actual y no tiene
+  sustituto estable: `app-server` y `exec-server` están marcados experimentales. Lo que más
+  valor aportaba — el watchdog por turno — vive en `exec` desde M24.
+- **Evidencia:** `scripts/_mcp.sh` (1.091 líneas) y `scripts/mcp-probe.sh` (1.133); 10
+  ficheros de test `mcp-*`; `tests/fixtures/mcp-0.144.4/`; la superficie
+  `TANDEM_TRANSPORT`/`TANDEM_MCP_*` en wrappers, skills y doctor; los pasos A2/B2 del job
+  `config-drift`.
+- **Propuesta:** eliminar código, tests y fixtures MCP; `TANDEM_TRANSPORT` acepta solo
+  `exec` y `mcp` responde 64 con un mensaje que nombra la retirada; skills, README y
+  ARCHITECTURE pierden la sección; `docs/audits/fase2-mcp-parity.md` se conserva como
+  histórico con una nota de cierre.
+- **Aceptación:** ninguna referencia viva a `codex mcp-server` en `scripts/` ni `skills/`
+  salvo el mensaje de retirada; `TANDEM_TRANSPORT=mcp` → 64 nombrando la retirada, antes de
+  dependencias y de estado; la suite pasa con los tests MCP retirados y anotados.
+
+## M37 — Vigilancia de deriva local y gratuita en el doctor (el CI no corre)
+
+- **Severidad/Esfuerzo:** P1 / M · **Slug sugerido:** `local-drift-watch`
+- **Origen:** revisión del 2026-10-01. El CI de GitHub no ha ejecutado un solo job desde el
+  primer run (2026-07-31: cuenta bloqueada por facturación) y el mantenedor decide no
+  reactivarlo; los runs semanales salían «success» solo por el `continue-on-error` de nivel
+  job. Nada detectó la deriva real (0.144.4 → 0.157.1, `mcp-server` eliminado).
+- **Problema:** las únicas comprobaciones contra la CLI real (`config-drift`,
+  `codex-smoke`) viven en un CI que no corre; en local, `config-probe.sh` existe pero nadie
+  lo llama, y `doctor --smoke` gasta turnos para algo que el catálogo responde gratis.
+- **Evidencia:** `.github/workflows/tests.yml` (jobs `codex-smoke` y `config-drift`);
+  `scripts/config-probe.sh`; `codex debug models` (catálogo JSON con `slug` y
+  `supported_reasoning_levels`); `tests/fixtures/ndjson/check-drift.sh`.
+- **Propuesta:** el doctor por defecto (cero turnos) gana una sección de deriva: (1) los
+  subcomandos que tandem usa existen (`exec`, `exec resume`, `debug prompt-input`,
+  `debug models`, `login status`); (2) cada modelo configurado existe en
+  `codex debug models` y admite el effort configurado — FAIL nombrando el
+  `TANDEM_*_MODEL`/`_EFFORT` que lo fija; (3) `config-probe` integrado (los pins siguen
+  vivos); (4) la versión de Claude Code para los gates que dependen de ella. `--smoke`
+  añade, en su turno real, el `check-drift` del stream contra los fixtures, que se regraban
+  con la CLI actual. README: el CI no es la red de seguridad; la verificación es local.
+- **Aceptación:** con un modelo inexistente o un effort no soportado el doctor da FAIL sin
+  gastar un turno; con un subcomando ausente (stub), FAIL nombrándolo; los pins se
+  verifican en cada doctor; `--smoke` informa la deriva del stream; README actualizado.
+
+## M38 — Juez adversarial de decisiones y visión (épica)
+
+- **Severidad/Esfuerzo:** P2 / L (tres saltos M) · **Slugs sugeridos:** `vision-adr`,
+  `judge-skill`, `judge-gates`
+- **Origen:** dirección de producto del mantenedor (2026-10-01): «un agente adversarial que
+  pueda retomar y tener un juez de las decisiones y la visión que tenemos».
+- **Problema:** tandem ataca planes y diffs, pero no tiene memoria de por qué el proyecto es
+  como es. El red-team juzga la coherencia interna de cada plan, no su encaje con la visión
+  ni con decisiones previas (p. ej. «el swarm sigue exec por diseño», o la retirada de MCP).
+  Esas decisiones viven dispersas en BACKLOG, ARCHITECTURE y logs, y ningún asiento las
+  aplica. Además, el árbitro (Opus 5.5) es de la misma familia que el implementador
+  (Sonnet 5.5): el sesgo de familia que ARCHITECTURE reconoce necesita un contrapeso de
+  otra familia.
+- **Evidencia:** `docs/ARCHITECTURE.md` §«Sesgo del árbitro con Opus»; `docs/BACKLOG.md`
+  (decisiones registradas en prosa); `skills/ask` (hilo persistente por tema: la base
+  técnica de un juez retomable).
+- **Propuesta (tres saltos, cada uno su run):**
+  - **M38a `vision-adr`** — `docs/VISION.md` (principios, no-objetivos y criterios de
+    juicio, partiendo del borrador de este backlog) y registro de decisiones
+    `docs/decisions/NNNN-<slug>.md` (ADR corto: contexto, decisión, alternativas,
+    consecuencias, estado), sembrado con las decisiones ya tomadas.
+  - **M38b `judge-skill`** — `tandem:judge`: asiento Astra read-only con hilo persistente
+    por proyecto que se retoma entre sesiones; si el hilo se pierde, se reconstruye desde
+    disco (visión + ADR + registro de dictámenes) — la memoria es el repo y el hilo es
+    caché. Dictamen parseable `RULING: ALIGNED | CONFLICT | NEEDS_DECISION` que cita un
+    principio o ADR concreto; cada dictamen se registra (append-only, lo escribe el
+    orquestador) y un `NEEDS_DECISION` resuelto por el humano produce un ADR nuevo.
+  - **M38c `judge-gates`** — el red-team de `tandem:plan` recibe visión + ADR relevantes;
+    en `tandem:run` el juez dictamina el plan antes de aprobarlo (`CONFLICT` para el run;
+    `NEEDS_DECISION` para y pregunta, también en autonomous); `tandem:status` muestra los
+    dictámenes.
+- **Aceptación:** un plan que contradice un ADR registrado recibe `CONFLICT` citándolo; una
+  sesión nueva retoma el juez sin re-explicarle nada (todo desde disco); ningún dictamen
+  sin cita; el juez nunca escribe en el repo.
