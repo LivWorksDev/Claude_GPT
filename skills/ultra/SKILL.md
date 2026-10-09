@@ -1,6 +1,6 @@
 ---
 name: ultra
-description: Fable-directed multi-agent swarms (ultracode-style) where every reasoning seat is a Codex model - Sol xhigh in seats that would need a frontier judge, Sol high in standard analysis seats, Luna high in mechanical sweeps; all read-only. Use when the user asks for a swarm, panel, or comprehensive adversarial pass over a plan, diff, codebase or question. NOT for writing code (tandem:implement), NOT a replacement for the pipeline's final review gate (tandem:review), and NOT for a simple second opinion (tandem:ask).
+description: Fable-directed multi-agent swarms (ultracode-style) where every reasoning seat is a Codex model - Astra xhigh in judge seats, Sol high in standard analysis seats, Luna high in mechanical sweeps; all read-only. Use when the user asks for a swarm, panel, or comprehensive adversarial pass over a plan, diff, codebase or question. NOT for writing code (tandem:implement), NOT a replacement for the pipeline's final review gate (tandem:review), and NOT for a simple second opinion (tandem:ask).
 argument-hint: "[task description]"
 ---
 
@@ -25,9 +25,9 @@ Where a native ultracode workflow would seat a Claude model, seat Codex instead:
 
 | Seat purpose | Tier | Model (default) | Effort |
 | --- | --- | --- | --- |
-| Frontier judge: arbitration, adversarial verify, final synthesis | `judge` | `gpt-5.6-sol` | `xhigh` |
-| Standard analysis: per-dimension review, deep reads, design attempts | `worker` | `gpt-5.6-sol` | `high` |
-| Mechanical sweeps: triage, inventories, pattern hunts | `scout` | `gpt-5.6-luna` | `high` |
+| Frontier judge: arbitration, adversarial verify, final synthesis | `judge` | `gpt-6-astra` | `xhigh` |
+| Standard analysis: per-dimension review, deep reads, design attempts | `worker` | `gpt-6-sol` | `high` |
+| Mechanical sweeps: triage, inventories, pattern hunts | `scout` | `gpt-6-luna` | `high` |
 
 Env overrides: `TANDEM_ULTRA_{JUDGE,WORKER,SCOUT}_MODEL` / `_EFFORT`. The sandbox is `read-only` for every tier and is NOT overridable: seats reason and report, they never write. Implementation always goes through the tandem pipeline.
 

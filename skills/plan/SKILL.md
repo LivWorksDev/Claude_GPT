@@ -1,12 +1,12 @@
 ---
 name: plan
-description: Interview the user, write an implementation plan, then have GPT-5.6 Sol (via Codex CLI, read-only, persistent thread) adversarially review it until APPROVED or the round cap. Use at the start of any non-trivial feature, refactor or migration. NOT for trivial edits (a few lines, docs, config tweaks), NOT for reviewing existing code (use tandem:review) and NOT for quick second opinions (use tandem:ask).
+description: Interview the user, write an implementation plan, then have the Codex red-team — GPT-6 Astra by default, read-only, persistent thread — adversarially review it until APPROVED or the round cap. Use at the start of any non-trivial feature, refactor or migration. NOT for trivial edits (a few lines, docs, config tweaks), NOT for reviewing existing code (use tandem:review) and NOT for quick second opinions (use tandem:ask).
 argument-hint: "[feature description]"
 ---
 
 # tandem:plan — plan endurecido por adversario
 
-You are the orchestrator and final arbiter. Codex/Sol is your adversarial reviewer — it critiques, you decide.
+You are the orchestrator and final arbiter. Codex is your adversarial reviewer (the red-team) — it critiques, you decide.
 
 Shared scripts: `SCRIPTS="${CLAUDE_SKILL_DIR}/../../scripts"`.
 Artifacts: plan in `docs/plans/<slug>.plan.md` (versioned), append-only log in `.tandem/log/<slug>.md` (gitignored).
@@ -28,9 +28,9 @@ Artifacts: plan in `docs/plans/<slug>.plan.md` (versioned), append-only log in `
    - **Assumptions** — autonomous mode only (see above).
 4. Initialize `.tandem/log/<slug>.md` with a header: feature, date, plan path, `MAX_ROUNDS`.
 
-## Act 2 — Adversarial review loop (Sol, read-only)
+## Act 2 — Adversarial review loop (Codex, read-only)
 
-`MAX_ROUNDS` = `$TANDEM_PLAN_ROUNDS` or 5. The same thread reviews every round so Sol remembers its findings.
+`MAX_ROUNDS` = `$TANDEM_PLAN_ROUNDS` or 5. The same thread reviews every round so the reviewer remembers its findings.
 
 **Round 1** — run it with Bash `run_in_background: true` by default for any real plan: a review at `xhigh` effort regularly exceeds the 10-minute foreground cap, which is a hard ceiling of the Bash tool and not a parameter you can raise, so a foreground turn dies mid-flight with the quota already spent and nothing to show for it. Use foreground with `timeout: 600000` only for small plans. When a background run finishes, announce it clearly before doing anything else.
 
@@ -53,7 +53,7 @@ TANDEM_EXEC_TIMEOUT_SECONDS=540 bash "$SCRIPTS/codex-start.sh" review docs/plans
 
 Exit 2 means a thread already exists for this plan: resume it if you are continuing the same work, or `codex-reset.sh review docs/plans/<slug>.plan.md` if this is a fresh plan under a reused name.
 
-**Token accounting — every round, unconditionally, before reading the `VERDICT:` line.** Every Codex turn prints exactly one `USAGE: {…}` line on stderr, absent only when the stream carried no `turn.completed` (the turn never completed at all). Copy it into that round's line of `.tandem/log/<slug>.md` — `## Round <n> — Sol · tokens: in <input_tokens> · out <output_tokens>`, or `tokens: n/a` when the line is absent — **before** you branch on the verdict. A round that comes back APPROVED at the first attempt, or NEEDS_REWORK, burned exactly as much ChatGPT quota as a REVISE round; until now only the REVISE branch ever wrote to the log, and that is precisely the accounting hole this step closes.
+**Token accounting — every round, unconditionally, before reading the `VERDICT:` line.** Every Codex turn prints exactly one `USAGE: {…}` line on stderr, absent only when the stream carried no `turn.completed` (the turn never completed at all). Copy it into that round's line of `.tandem/log/<slug>.md` — `## Round <n> — Codex · tokens: in <input_tokens> · out <output_tokens>`, or `tokens: n/a` when the line is absent — **before** you branch on the verdict. A round that comes back APPROVED at the first attempt, or NEEDS_REWORK, burned exactly as much ChatGPT quota as a REVISE round; until now only the REVISE branch ever wrote to the log, and that is precisely the accounting hole this step closes.
 
 **Each round**, read the reply's final `VERDICT:` line:
 
@@ -66,7 +66,7 @@ TANDEM_EXEC_TIMEOUT_SECONDS=540 TANDEM_TURN_EFFORT=low bash "$SCRIPTS/codex-resu
 
 Run this one in the foreground — a one-line turn at `low` effort returns in seconds, so the background criterion above does not apply to it. `TANDEM_TURN_EFFORT` is ephemeral and applies to that one invocation only (only the resume wrapper reads it, nothing is exported, the sandbox is untouched, and the real review turns above keep the role's `xhigh`). Re-emitting a line that was already reasoned out must not be billed as a fresh review.
 - `VERDICT: APPROVED` → break, go to Resolution.
-- `VERDICT: NEEDS_REWORK` → stop the loop and escalate to the user with Sol's reasoning; do not silently rewrite everything. In autonomous mode there is no one to escalate to: this is a terminal DEADLOCK — report and stop.
+- `VERDICT: NEEDS_REWORK` → stop the loop and escalate to the user with the reviewer's reasoning; do not silently rewrite everything. In autonomous mode there is no one to escalate to: this is a terminal DEADLOCK — report and stop.
 - `VERDICT: REVISE` → you arbitrate every finding:
   1. For each finding decide ACCEPTED (revise the plan) or REJECTED (with a reason). Never accept everything blindly; never ignore the critic.
   2. Append to `.tandem/log/<slug>.md`, BENEATH the round heading the accounting step already wrote — never a second `## Round <n>` heading (one token-bearing entry per round is the accounting contract): the full critique and `### Dispositions` (finding → decision → reason/change).
@@ -91,12 +91,12 @@ TANDEM_EXEC_TIMEOUT_SECONDS=540 bash "$SCRIPTS/codex-resume.sh" review docs/plan
 
 ## Resolution — human gate
 
-Present: final plan, 3-bullet summary, Sol's final verdict, rounds used, and the phase's token total — the sum of the per-round `tokens:` lines you wrote in the log, in and out. Ask the user (AskUserQuestion): approve and continue to `/tandem:implement`, revise further, or stop. Do not start implementing without explicit approval.
+Present: final plan, 3-bullet summary, the reviewer's final verdict, rounds used, and the phase's token total — the sum of the per-round `tokens:` lines you wrote in the log, in and out. Ask the user (AskUserQuestion): approve and continue to `/tandem:implement`, revise further, or stop. Do not start implementing without explicit approval.
 
 On approval, run the approval transition — never a bare commit on the user's branch:
 
 ```bash
-bash "$SCRIPTS/plan-approve.sh" <slug> "Plan: <slug> — <one-line summary> (aprobado, N rondas Sol)"
+bash "$SCRIPTS/plan-approve.sh" <slug> "Plan: <slug> — <one-line summary> (aprobado, N rondas Codex)"
 ```
 
 It creates `tandem/<slug>` from the current HEAD and lands the plan commit — ONLY the plan file — inside that branch, so the user's branch (typically main) receives no commit during a tandem run, not even an abandoned one. It is fail-closed and idempotent: exit 0 on a fresh approval or on an identical re-run, exit 65 on anything it must not resolve on its own (a slug whose plan is already tracked on the user's branch, a pre-existing `tandem/<slug>` without a concordant approval state, a divergent plan text, a mode mismatch), and a commit that does not land is rolled back completely with the plan file preserved. Never work around a 65 by committing by hand: read the message, fix the cause (usually: pick another slug) and re-run.

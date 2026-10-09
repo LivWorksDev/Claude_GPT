@@ -23,7 +23,7 @@ assert_file "$SNAP"
 assert_json "$SNAP" '.status == "running"'
 assert_json "$SNAP" '.events == "'"$SD/$KEY.t1.events.ndjson"'"'
 assert_json "$SNAP" '.turn == 1'
-assert_json "$SNAP" '.role == "review" and .model == "gpt-5.6-sol"'
+assert_json "$SNAP" '.role == "review" and .model == "gpt-6-astra"'
 assert_json "$SNAP" '.effort == "xhigh" and .sandbox == "read-only"'
 assert_json "$SNAP" '.target == "demo"'
 assert_json "$SNAP" '.verdict == null'

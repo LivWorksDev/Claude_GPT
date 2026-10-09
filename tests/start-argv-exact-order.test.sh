@@ -24,11 +24,12 @@ check() {
   assert_argv "$N" "exec${US}--json${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}${model}${US}--sandbox${US}${sandbox}${US}-c${US}model_reasoning_effort=${effort}${US}--ignore-user-config${US}--ignore-rules${US}-c${US}sandbox_mode=${sandbox}${US}-c${US}sandbox_workspace_write.network_access=false${US}-c${US}sandbox_workspace_write.writable_roots=[]${US}-c${US}approval_policy=never${US}-c${US}approvals_reviewer=user${search}${US}--output-last-message${US}${msg}${US}-"
 }
 
-# Role -> model / effort / sandbox table (scripts/_common.sh:resolve_role).
-check implement t-implement gpt-5.6-sol high         workspace-write
-check review    t-review    gpt-5.6-sol xhigh        read-only
-check ask       t-ask       gpt-5.6-sol xhigh        read-only
-check image     t-image     gpt-5.6-sol high         workspace-write
+# Role -> model / effort / sandbox table (scripts/_common.sh:resolve_role; the
+# default models themselves are defined in scripts/_models.sh).
+check implement t-implement gpt-6-sol   high         workspace-write
+check review    t-review    gpt-6-astra xhigh        read-only
+check ask       t-ask       gpt-6-astra xhigh        read-only
+check image     t-image     gpt-6-sol   high         workspace-write
 
 # Env overrides move model and effort…
 export TANDEM_IMPLEMENT_MODEL=gpt-5.6-luna
@@ -49,14 +50,14 @@ unset TANDEM_IMAGE_MODEL TANDEM_IMAGE_EFFORT
 
 # …TANDEM_CRITICAL raises implement to xhigh, and only implement.
 export TANDEM_CRITICAL=1
-check implement t-crit gpt-5.6-sol xhigh workspace-write
-check image     t-crit-img gpt-5.6-sol high workspace-write
+check implement t-crit gpt-6-sol xhigh workspace-write
+check image     t-crit-img gpt-6-sol high workspace-write
 unset TANDEM_CRITICAL
 
 # …but nothing moves the sandbox: it is pinned per role on purpose.
 export TANDEM_IMPLEMENT_SANDBOX=danger-full-access
 export CODEX_SANDBOX=danger-full-access
-check implement t-sandbox-pinned gpt-5.6-sol high workspace-write
+check implement t-sandbox-pinned gpt-6-sol high workspace-write
 unset TANDEM_IMPLEMENT_SANDBOX CODEX_SANDBOX
 
 # `-c sandbox_mode=` is no longer resume's alone: start carries the same belt,

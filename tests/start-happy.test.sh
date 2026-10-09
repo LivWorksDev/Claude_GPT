@@ -42,9 +42,9 @@ assert_file_contains "$OUT" "  ✓ ok"
 assert_file_contains "$OUT" "» turn done — tokens in 1234 · out 56"
 
 # The reply and the thread id are printed for the caller.
-assert_file_contains "$OUT" "--- codex reply (gpt-5.6-sol, turn 1) ---"
+assert_file_contains "$OUT" "--- codex reply (gpt-6-astra, turn 1) ---"
 assert_file_contains "$OUT" "THREAD_ID: thr_happy_001"
-assert_file_contains "$ERR" "role=review model=gpt-5.6-sol effort=xhigh sandbox=read-only target=demo"
+assert_file_contains "$ERR" "role=review model=gpt-6-astra effort=xhigh sandbox=read-only target=demo"
 
 # Token accounting: the turn's usage is a durable artefact of the turn, exactly
 # what the stub's turn.completed carried — an equality, not a "contains".
@@ -58,7 +58,7 @@ assert_eq "1" "$(grep -c '^USAGE: ' "$ERR" | tr -d ' ')" "USAGE footer lines"
 # Final heartbeat.
 HB="$CLAUDE_PROJECT_DIR/.tandem/state/current.json"
 assert_json "$HB" '.status == "done"'
-assert_json "$HB" '.role == "review" and .model == "gpt-5.6-sol" and .effort == "xhigh"'
+assert_json "$HB" '.role == "review" and .model == "gpt-6-astra" and .effort == "xhigh"'
 assert_json "$HB" '.sandbox == "read-only" and .target == "demo" and .turn == 1'
 assert_json "$HB" '.events == "'"$SD/$KEY.t1.events.ndjson"'"'
 assert_json "$HB" '.verdict == null'

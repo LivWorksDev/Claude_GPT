@@ -1,6 +1,6 @@
 ---
 name: implement
-description: Delegate implementation of an approved tandem plan to Claude Opus 5 by default, or to Codex GPT-5.6 Sol with TANDEM_IMPLEMENTER=sol, on a dedicated branch; then personally verify the full diff and run the blocking testing gate. Use after a plan was approved via tandem:plan. NOT for trivial changes (implement those directly) and NOT without an approved plan.
+description: Delegate implementation of an approved tandem plan to Claude Opus 5 by default, or to Codex GPT-6 Sol with TANDEM_IMPLEMENTER=sol, on a dedicated branch; then personally verify the full diff and run the blocking testing gate. Use after a plan was approved via tandem:plan. NOT for trivial changes (implement those directly) and NOT without an approved plan.
 argument-hint: "[slug of the approved plan]"
 ---
 

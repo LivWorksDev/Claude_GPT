@@ -59,7 +59,7 @@ FIRST_PROBE_LINE="$(line_no 'PROBE b:')"
 
 # The config was rewritten BETWEEN the two calls: the snapshots the server took
 # at each call are the evidence.
-assert_file_contains "$CODEX_STUB_LOG.mcp.cfg.1" 'model = "gpt-5.6-sol"'
+assert_file_contains "$CODEX_STUB_LOG.mcp.cfg.1" 'model = "gpt-6-astra"'
 assert_file_contains "$CODEX_STUB_LOG.mcp.cfg.2" 'model = "tandem-bogus-model-m19"'
 assert_file_contains "$CODEX_STUB_LOG.mcp.cfg.1" 'model_reasoning_effort = "xhigh"'
 assert_file_contains "$CODEX_STUB_LOG.mcp.cfg.2" 'model_reasoning_effort = "low"'

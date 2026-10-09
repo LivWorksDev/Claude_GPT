@@ -20,7 +20,7 @@ printf 'OLD REPLY\n' >"$SD/$KEY.last.txt"
 run bash "$SCRIPTS/codex-resume.sh" review demo "$SANDBOX/p.tpl"
 assert_rc 0
 
-assert_argv 1 "exec${US}--json${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}gpt-5.6-sol${US}--sandbox${US}read-only${US}-c${US}model_reasoning_effort=xhigh${US}--ignore-user-config${US}--ignore-rules${US}-c${US}sandbox_mode=read-only${US}-c${US}sandbox_workspace_write.network_access=false${US}-c${US}sandbox_workspace_write.writable_roots=[]${US}-c${US}approval_policy=never${US}-c${US}approvals_reviewer=user${US}--output-last-message${US}$SD/$KEY.t2.reply.txt${US}resume${US}thr_resume_1${US}-"
+assert_argv 1 "exec${US}--json${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}gpt-6-astra${US}--sandbox${US}read-only${US}-c${US}model_reasoning_effort=xhigh${US}--ignore-user-config${US}--ignore-rules${US}-c${US}sandbox_mode=read-only${US}-c${US}sandbox_workspace_write.network_access=false${US}-c${US}sandbox_workspace_write.writable_roots=[]${US}-c${US}approval_policy=never${US}-c${US}approvals_reviewer=user${US}--output-last-message${US}$SD/$KEY.t2.reply.txt${US}resume${US}thr_resume_1${US}-"
 
 # read-only seats keep the native search tool on purpose.
 assert_not_contains "$CODEX_STUB_LOG.argv.1" "web_search"
@@ -34,7 +34,7 @@ assert_file_contains "$SD/$KEY.t2.reply.txt" "stub reply for ok"
 assert_file_contains "$SD/$KEY.last.txt" "stub reply for ok"
 assert_file_contains "$(stub_stdin 1)" "continue demo"
 assert_file_contains "$ERR" "resuming codex thread thr_resume_1"
-assert_file_contains "$OUT" "--- codex reply (gpt-5.6-sol, turn 2) ---"
+assert_file_contains "$OUT" "--- codex reply (gpt-6-astra, turn 2) ---"
 assert_file_contains "$OUT" "THREAD_ID: thr_resume_1"
 
 # Token accounting rides on the turn number, like every other per-turn artefact.
@@ -51,7 +51,7 @@ assert_json "$HB" '.tokens_in == 1234 and .tokens_out == 56'
 printf '  thr_resume_1 \n\n' >"$SD/$KEY.thread"
 run bash "$SCRIPTS/codex-resume.sh" review demo "$SANDBOX/p.tpl"
 assert_rc 0 "padded thread file"
-assert_argv 2 "exec${US}--json${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}gpt-5.6-sol${US}--sandbox${US}read-only${US}-c${US}model_reasoning_effort=xhigh${US}--ignore-user-config${US}--ignore-rules${US}-c${US}sandbox_mode=read-only${US}-c${US}sandbox_workspace_write.network_access=false${US}-c${US}sandbox_workspace_write.writable_roots=[]${US}-c${US}approval_policy=never${US}-c${US}approvals_reviewer=user${US}--output-last-message${US}$SD/$KEY.t3.reply.txt${US}resume${US}thr_resume_1${US}-"
+assert_argv 2 "exec${US}--json${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}gpt-6-astra${US}--sandbox${US}read-only${US}-c${US}model_reasoning_effort=xhigh${US}--ignore-user-config${US}--ignore-rules${US}-c${US}sandbox_mode=read-only${US}-c${US}sandbox_workspace_write.network_access=false${US}-c${US}sandbox_workspace_write.writable_roots=[]${US}-c${US}approval_policy=never${US}-c${US}approvals_reviewer=user${US}--output-last-message${US}$SD/$KEY.t3.reply.txt${US}resume${US}thr_resume_1${US}-"
 
 # The implement role re-pins workspace-write the same way.
 export CODEX_STUB_THREAD_ID=thr_impl_1
@@ -59,4 +59,4 @@ seed_thread implement demo thr_impl_1 0
 run bash "$SCRIPTS/codex-resume.sh" implement demo "$SANDBOX/p.tpl"
 assert_rc 0 "implement resume"
 ISD="$(state_dir implement)"
-assert_argv 3 "exec${US}--json${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}gpt-5.6-sol${US}--sandbox${US}workspace-write${US}-c${US}model_reasoning_effort=high${US}--ignore-user-config${US}--ignore-rules${US}-c${US}sandbox_mode=workspace-write${US}-c${US}sandbox_workspace_write.network_access=false${US}-c${US}sandbox_workspace_write.writable_roots=[]${US}-c${US}approval_policy=never${US}-c${US}approvals_reviewer=user${US}-c${US}web_search=disabled${US}--output-last-message${US}$ISD/$KEY.t1.reply.txt${US}resume${US}thr_impl_1${US}-"
+assert_argv 3 "exec${US}--json${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}gpt-6-sol${US}--sandbox${US}workspace-write${US}-c${US}model_reasoning_effort=high${US}--ignore-user-config${US}--ignore-rules${US}-c${US}sandbox_mode=workspace-write${US}-c${US}sandbox_workspace_write.network_access=false${US}-c${US}sandbox_workspace_write.writable_roots=[]${US}-c${US}approval_policy=never${US}-c${US}approvals_reviewer=user${US}-c${US}web_search=disabled${US}--output-last-message${US}$ISD/$KEY.t1.reply.txt${US}resume${US}thr_impl_1${US}-"

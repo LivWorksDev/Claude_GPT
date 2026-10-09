@@ -45,8 +45,8 @@ assert_not_contains "$UD/$BK.reply.txt" "reply from A"
 # Each seat's own stub log recorded exactly one invocation, with its own tier.
 assert_eq "1" "$(cat "$SANDBOX/logs/a.n")" "seat A invocations"
 assert_eq "1" "$(cat "$SANDBOX/logs/b.n")" "seat B invocations"
-assert_file_contains "$SANDBOX/logs/a.argv.1" "gpt-5.6-sol"
-assert_file_contains "$SANDBOX/logs/b.argv.1" "gpt-5.6-luna"
+assert_file_contains "$SANDBOX/logs/a.argv.1" "gpt-6-sol"
+assert_file_contains "$SANDBOX/logs/b.argv.1" "gpt-6-luna"
 assert_file_contains "$SANDBOX/logs/a.stdin.1" "prompt for seat A"
 assert_file_contains "$SANDBOX/logs/b.stdin.1" "prompt for seat B"
 

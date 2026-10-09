@@ -123,7 +123,7 @@ assert_eq "1" "$(grep -c '^USAGE: ' "$ERR" | tr -d ' ')" "USAGE footer lines"
 # with the IMPLEMENT watchdog default, not the foreground one.
 assert_file_contains "$OUT" "» thread thr_mcp_impl"
 assert_file_contains "$OUT" "» turn done — tokens in 1234 · out 56"
-assert_file_contains "$OUT" "--- codex reply (gpt-5.6-sol, turn 1) ---"
+assert_file_contains "$OUT" "--- codex reply (gpt-6-sol, turn 1) ---"
 assert_file_contains "$OUT" "THREAD_ID: thr_mcp_impl"
 assert_file_contains "$ERR" "transport=mcp"
 assert_file_contains "$ERR" "watchdog 3600s"
@@ -132,7 +132,7 @@ assert_not_contains "$ERR" "watchdog 540s"
 # --- the call carried the WRITE parameters, and exactly them -----------------
 CALL="$SANDBOX/call.json"
 call_frame "$CALL"
-assert_json "$CALL" '.params.arguments.model == "gpt-5.6-sol"'
+assert_json "$CALL" '.params.arguments.model == "gpt-6-sol"'
 assert_json "$CALL" '.params.arguments.sandbox == "workspace-write"'
 assert_json "$CALL" '.params.arguments["approval-policy"] == "never"'
 assert_json "$CALL" '.params.arguments.cwd | startswith("/")'
@@ -147,7 +147,7 @@ LC_ALL=C tail -n 1 "$ROLLOUT" | jq -e '.type == "turn_context"' >/dev/null \
 
 # --- the meta and the heartbeat ----------------------------------------------
 assert_json "$SD/$KEY.t1.meta.json" \
-  '.role == "implement" and .model == "gpt-5.6-sol" and .effort == "high" and .sandbox == "workspace-write"'
+  '.role == "implement" and .model == "gpt-6-sol" and .effort == "high" and .sandbox == "workspace-write"'
 assert_json "$SD/$KEY.t1.meta.json" \
   '.transport_requested == "mcp" and .transport_effective == "mcp"'
 assert_json "$HB" '.status == "done" and .role == "implement" and .turn == 1'
@@ -163,7 +163,7 @@ assert_eq "2" "$(cat "$SD/$KEY.turn")" "turn counter after the resume"
 # namespace, which the mcp start left untouched. The policy block travels as
 # argv there, with the write pins in the same order and the same values.
 assert_eq "1" "$(cat "$CODEX_STUB_LOG.n")" "exec invocations after the hybrid resume"
-assert_argv 1 "exec${US}--json${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}gpt-5.6-sol${US}--sandbox${US}workspace-write${US}-c${US}model_reasoning_effort=high${US}--ignore-user-config${US}--ignore-rules${US}-c${US}sandbox_mode=workspace-write${US}-c${US}sandbox_workspace_write.network_access=false${US}-c${US}sandbox_workspace_write.writable_roots=[]${US}-c${US}approval_policy=never${US}-c${US}approvals_reviewer=user${US}-c${US}web_search=disabled${US}--output-last-message${US}${SD}/${KEY}.t2.reply.txt${US}resume${US}thr_mcp_impl${US}-"
+assert_argv 1 "exec${US}--json${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}gpt-6-sol${US}--sandbox${US}workspace-write${US}-c${US}model_reasoning_effort=high${US}--ignore-user-config${US}--ignore-rules${US}-c${US}sandbox_mode=workspace-write${US}-c${US}sandbox_workspace_write.network_access=false${US}-c${US}sandbox_workspace_write.writable_roots=[]${US}-c${US}approval_policy=never${US}-c${US}approvals_reviewer=user${US}-c${US}web_search=disabled${US}--output-last-message${US}${SD}/${KEY}.t2.reply.txt${US}resume${US}thr_mcp_impl${US}-"
 # The audit trail never says a bare "mcp" for something exec resumed.
 assert_json "$SD/$KEY.t2.meta.json" \
   '.transport_requested == "mcp" and .transport_effective == "exec-resume"'
@@ -260,7 +260,7 @@ assert_not_contains "$ERR" "watchdog 3600s"
 
 IMG_CALL="$SANDBOX/image-call.json"
 call_frame "$IMG_CALL"
-assert_json "$IMG_CALL" '.params.arguments.model == "gpt-5.6-sol"'
+assert_json "$IMG_CALL" '.params.arguments.model == "gpt-6-sol"'
 assert_json "$IMG_CALL" '.params.arguments.sandbox == "workspace-write"'
 assert_json "$IMG_CALL" '.params.arguments["approval-policy"] == "never"'
 assert_json "$IMG_CALL" '.params.arguments.cwd | startswith("/")'

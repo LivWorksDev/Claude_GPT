@@ -3,7 +3,7 @@
 # at the first one) and exits non-zero if anything is broken.
 #
 # usage: codex-doctor.sh [--smoke] [--autonomous]
-#   --smoke  ALSO spend one REAL codex turn per UNIQUE configured model (two
+#   --smoke  ALSO spend one REAL codex turn per UNIQUE configured model (three
 #            with the default policy) to prove the model names still resolve —
 #            a deprecation found here costs a one-line turn instead of half a
 #            long run. It NEVER runs without the flag: a diagnostic must not
@@ -19,15 +19,19 @@
 #
 # This script deliberately does NOT source _common.sh: its `set -euo pipefail`
 # would abort the diagnosis at the first failure, and reporting everything is
-# the whole point. It sources only _pins.sh, which by contract has no shell
-# side effects and carries the argv policy block the --smoke turns share with
-# the real wrappers.
+# the whole point. It sources only _pins.sh and _models.sh, which by contract
+# have no shell side effects: the first carries the argv policy block the
+# --smoke turns share with the real wrappers, the second the default model of
+# every seat — so the policy shown here and the models smoked here are the ones
+# the wrappers really run.
 
 set -uo pipefail
 
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_pins.sh
 . "$SCRIPT_DIR/_pins.sh"
+# shellcheck source=_models.sh
+. "$SCRIPT_DIR/_models.sh"
 
 # --- arguments ---------------------------------------------------------------
 # With no arguments the autonomous section is absent, preserving the default
@@ -213,7 +217,7 @@ fi
 
 # model policy (mirrors _common.sh resolve_role)
 printf '\nmodel policy (override via env):\n'
-info "review/ask:  model=${TANDEM_REVIEW_MODEL:-gpt-5.6-sol} effort=${TANDEM_REVIEW_EFFORT:-xhigh} sandbox=read-only (pinned)"
+info "review/ask:  model=${TANDEM_REVIEW_MODEL:-$(tandem_default_model review)} effort=${TANDEM_REVIEW_EFFORT:-xhigh} sandbox=read-only (pinned)"
 # Default only when UNSET: a set-but-empty selector is a config error, not opus.
 implementer="${TANDEM_IMPLEMENTER-opus}"
 case "$implementer" in
@@ -282,7 +286,7 @@ case "$implementer" in
       impl_effort="${TANDEM_IMPLEMENT_EFFORT:-high}"
     fi
     info "implementer: sol — Codex CLI transport"
-    info "implement:   model=${TANDEM_IMPLEMENT_MODEL:-gpt-5.6-sol} effort=$impl_effort sandbox=workspace-write (pinned)"
+    info "implement:   model=${TANDEM_IMPLEMENT_MODEL:-$(tandem_default_model implement)} effort=$impl_effort sandbox=workspace-write (pinned)"
     # EFFECTIVE effort, never a promise: TANDEM_IMPLEMENT_EFFORT wins over
     # CRITICAL, so announcing "raises to xhigh" while the run will spend `low`
     # is propaganda, not diagnosis.
@@ -298,7 +302,7 @@ case "$implementer" in
     bad "TANDEM_IMPLEMENTER=$implementer is invalid — expected opus or sol"
     ;;
 esac
-info "image:       model=${TANDEM_IMAGE_MODEL:-gpt-5.6-sol} effort=${TANDEM_IMAGE_EFFORT:-high} sandbox=workspace-write (pinned)"
+info "image:       model=${TANDEM_IMAGE_MODEL:-$(tandem_default_model image)} effort=${TANDEM_IMAGE_EFFORT:-high} sandbox=workspace-write (pinned)"
 case "${TANDEM_WEB_SEARCH+set}" in
   set)
     case "$TANDEM_WEB_SEARCH" in
@@ -342,7 +346,7 @@ if ultra_dial_ok "$ultra_slot_timeout"; then
 else
   bad "TANDEM_ULTRA_SLOT_TIMEOUT='$ultra_slot_timeout' is not a positive integer — every swarm seat would exit 64"
 fi
-info "ultra seats: judge=${TANDEM_ULTRA_JUDGE_MODEL:-gpt-5.6-sol}/${TANDEM_ULTRA_JUDGE_EFFORT:-xhigh} worker=${TANDEM_ULTRA_WORKER_MODEL:-gpt-5.6-sol}/${TANDEM_ULTRA_WORKER_EFFORT:-high} scout=${TANDEM_ULTRA_SCOUT_MODEL:-gpt-5.6-luna}/${TANDEM_ULTRA_SCOUT_EFFORT:-high} sandbox=read-only (pinned) concurrency=$ultra_conc slot_timeout=${ultra_slot_timeout}s"
+info "ultra seats: judge=${TANDEM_ULTRA_JUDGE_MODEL:-$(tandem_default_model ultra-judge)}/${TANDEM_ULTRA_JUDGE_EFFORT:-xhigh} worker=${TANDEM_ULTRA_WORKER_MODEL:-$(tandem_default_model ultra-worker)}/${TANDEM_ULTRA_WORKER_EFFORT:-high} scout=${TANDEM_ULTRA_SCOUT_MODEL:-$(tandem_default_model ultra-scout)}/${TANDEM_ULTRA_SCOUT_EFFORT:-high} sandbox=read-only (pinned) concurrency=$ultra_conc slot_timeout=${ultra_slot_timeout}s"
 info "TANDEM_AUTONOMOUS=${TANDEM_AUTONOMOUS:-0} (1 replaces human gates with APPROVED+green-gate policy; commits stay on the tandem branch, never push/merge)"
 if [ "${TANDEM_AUTONOMOUS:-0}" = "1" ] && [ -z "${TANDEM_PROMOTE_REVIEWS:-}" ]; then
   bad "TANDEM_AUTONOMOUS=1 but TANDEM_PROMOTE_REVIEWS is unset — autonomous runs must not ask mid-run; set it to 0 or 1"
@@ -531,7 +535,7 @@ SMOKE_MODELS=()
 
 # smoke_add <model> — appends unless already present (bash 3.2: no associative
 # arrays). Deduplication is the point: with the default policy five roles name
-# two distinct models, and the user pays per model, not per role.
+# three distinct models, and the user pays per model, not per role.
 smoke_add() {
   local m="$1" x
   [ -n "$m" ] || return 0
@@ -693,16 +697,16 @@ smoke_report() {
 if [ "$SMOKE" -eq 1 ]; then
   printf '\nmodel smoke (--smoke):\n'
 
-  smoke_add "${TANDEM_REVIEW_MODEL:-gpt-5.6-sol}"
-  # implement only under sol: the opus transport spends no codex turn at all,
-  # and its model name already rides in through review/ask.
+  smoke_add "${TANDEM_REVIEW_MODEL:-$(tandem_default_model review)}"
+  # implement only under sol: the opus transport spends no codex turn at all, so
+  # smoking its model would verify a name this run never launches.
   if [ "$implementer" = "sol" ]; then
-    smoke_add "${TANDEM_IMPLEMENT_MODEL:-gpt-5.6-sol}"
+    smoke_add "${TANDEM_IMPLEMENT_MODEL:-$(tandem_default_model implement)}"
   fi
-  smoke_add "${TANDEM_IMAGE_MODEL:-gpt-5.6-sol}"
-  smoke_add "${TANDEM_ULTRA_JUDGE_MODEL:-gpt-5.6-sol}"
-  smoke_add "${TANDEM_ULTRA_WORKER_MODEL:-gpt-5.6-sol}"
-  smoke_add "${TANDEM_ULTRA_SCOUT_MODEL:-gpt-5.6-luna}"
+  smoke_add "${TANDEM_IMAGE_MODEL:-$(tandem_default_model image)}"
+  smoke_add "${TANDEM_ULTRA_JUDGE_MODEL:-$(tandem_default_model ultra-judge)}"
+  smoke_add "${TANDEM_ULTRA_WORKER_MODEL:-$(tandem_default_model ultra-worker)}"
+  smoke_add "${TANDEM_ULTRA_SCOUT_MODEL:-$(tandem_default_model ultra-scout)}"
 
   # The cost warning comes BEFORE anything is launched — the user must be able
   # to read what this is about to spend even if the first turn hangs.

@@ -76,7 +76,7 @@ que la sostienen; el pulido que no la toca, baja.
 | M32 | Campos del log derivados de fuente máquina, no transcritos | Observabilidad | P3 | S | pendiente |
 | M33 | Guía de adopción + snippet de CLAUDE.md para repos con políticas previas | Documentación | P3 | S | pendiente |
 | M34 | `doctor --autonomous`: preflight frío del modo desatendido | Diagnóstico | P2 | S | hecha (v0.34.0) |
-| M35a | Política de modelos Codex 6: Astra revisa, Sol implementa, Luna explora | Modelos | P2 | M | pendiente |
+| M35a | Política de modelos Codex 6: Astra revisa, Sol implementa, Luna explora | Modelos | P2 | M | hecha (v0.35.0) |
 | M35b | Sonnet 5.5 implementa, Opus 5.5 orquesta + deriva de Claude Code | Modelos | P1 | M | pendiente |
 | M36 | Retirar el transporte MCP (`codex mcp-server` ya no existe) | Transporte | P2 | M | pendiente |
 | M37 | Vigilancia de deriva local y gratuita en el doctor (el CI no corre) | Diagnóstico | P1 | M | pendiente |

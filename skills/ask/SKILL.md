@@ -1,12 +1,12 @@
 ---
 name: ask
-description: Get a grounded second opinion from GPT-5.6 Sol (via Codex, read-only) on architecture, debugging hypotheses, tradeoffs or research — consultative, never a gate. Follow-ups continue the same thread per topic. Use for "what would Sol say about X", red-teaming a decision, or a debugging second opinion. NOT for reviewing plans or diffs (use tandem:plan / tandem:review).
+description: Get a grounded second opinion from the Codex consultant (GPT-6 Astra by default, via Codex CLI, read-only) on architecture, debugging hypotheses, tradeoffs or research — consultative, never a gate. Follow-ups continue the same thread per topic. Use for "what would Codex say about X", red-teaming a decision, or a debugging second opinion. NOT for reviewing plans or diffs (use tandem:plan / tandem:review).
 argument-hint: "[topic-label] [question]"
 ---
 
 # tandem:ask — segunda opinión
 
-Sol answers from inside the repository (read-only). Its opinion is **advisory**: disagreement between you and Sol is the valuable signal — show it to the user verbatim, never resolve it silently, and never treat the answer as an approval of anything.
+Codex answers from inside the repository (read-only). Its opinion is **advisory**: disagreement between you and Codex is the valuable signal — show it to the user verbatim, never resolve it silently, and never treat the answer as an approval of anything.
 
 Shared scripts: `SCRIPTS="${CLAUDE_SKILL_DIR}/../../scripts"`.
 
@@ -36,4 +36,4 @@ bash "$SCRIPTS/codex-resume.sh" ask <topic-label> \
 
 ## After each reply
 
-Relay Sol's "Bottom line" and reasoning to the user, and state clearly where you agree and where you differ, with your reasons. Do not gate any workflow on this answer.
+Relay Codex's "Bottom line" and reasoning to the user, and state clearly where you agree and where you differ, with your reasons. Do not gate any workflow on this answer.

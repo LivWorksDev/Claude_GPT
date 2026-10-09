@@ -1,17 +1,17 @@
-# tandem — Fable orquesta, Opus implementa, Sol ataca
+# tandem — Fable orquesta, Opus implementa, Codex ataca
 
-Plugin de Claude Code que convierte a **Claude (Fable 5)** en orquestador y árbitro, a **Claude Opus 5** en implementador por defecto y a **OpenAI Codex** (GPT-5.6 Sol) en red-team y revisor adversarial independiente, todo desde una sesión normal de Claude Code:
+Plugin de Claude Code que convierte a **Claude (Fable 5)** en orquestador y árbitro, a **Claude Opus 5** en implementador por defecto y a **OpenAI Codex** (GPT-6 Astra por defecto) en red-team y revisor adversarial independiente, todo desde una sesión normal de Claude Code:
 
 ```
-Fable planifica → Sol ataca el plan (read-only, hilo persistente)
+Fable planifica → Codex ataca el plan (read-only, hilo persistente)
     → gate humano → Opus 5 implementa (subagente restringido, rama dedicada)
     → Fable lee el diff completo y ejecuta el testing gate
-    → un Sol NUEVO revisa el código (sin contexto previo)
+    → un Codex NUEVO revisa el código (sin contexto previo)
     → gate humano → Fable hace el commit (el implementador nunca commitea)
 ```
 
 > [!IMPORTANT]
-> El implementador por defecto ahora es Opus 5. Para conservar el transporte anterior de implementación con Codex CLI, define `TANDEM_IMPLEMENTER=sol`. Sol sigue siendo el red-team del plan y el revisor final independiente en ambos casos.
+> El implementador por defecto ahora es Opus 5. Para conservar el transporte anterior de implementación con Codex CLI, define `TANDEM_IMPLEMENTER=sol`. Codex sigue siendo el red-team del plan y el revisor final independiente en ambos casos.
 
 ## Instalación
 
@@ -31,17 +31,17 @@ claude plugin install tandem@claude-gpt
 claude --plugin-dir /ruta/a/este/repo
 ```
 
-Verifica el toolchain con `/tandem:doctor`. Ese diagnóstico es gratis (no gasta ni un turno) e incluye el conflicto de `CLAUDE_CODE_SUBAGENT_MODEL` que pararía el preflight de `/tandem:implement`. Si además quieres comprobar que los **nombres de modelo configurados siguen existiendo** — una deprecación descubierta a mitad de un run largo sale cara —, `bash scripts/codex-doctor.sh --smoke` lanza un turno real mínimo por modelo único (2 con la política default) y distingue "modelo retirado" de fallo de auth/red/timeout. Cuesta cuota, así que **nunca corre por defecto**: solo con el flag explícito.
+Verifica el toolchain con `/tandem:doctor`. Ese diagnóstico es gratis (no gasta ni un turno) e incluye el conflicto de `CLAUDE_CODE_SUBAGENT_MODEL` que pararía el preflight de `/tandem:implement`. Si además quieres comprobar que los **nombres de modelo configurados siguen existiendo** — una deprecación descubierta a mitad de un run largo sale cara —, `bash scripts/codex-doctor.sh --smoke` lanza un turno real mínimo por modelo único (3 con la política default) y distingue "modelo retirado" de fallo de auth/red/timeout. Cuesta cuota, así que **nunca corre por defecto**: solo con el flag explícito.
 
 ## Skills
 
 | Skill | Qué hace |
 | --- | --- |
 | `/tandem:run` | Pipeline completo: plan → red-team → implementación → verificación → review → commit |
-| `/tandem:plan` | Entrevista + plan + revisión adversarial de Sol hasta APPROVED (cap de rondas) |
+| `/tandem:plan` | Entrevista + plan + revisión adversarial de Codex hasta APPROVED (cap de rondas) |
 | `/tandem:implement` | Opus 5 implementa por defecto (`TANDEM_IMPLEMENTER=sol` usa Codex CLI); Fable verifica el diff y ejecuta el testing gate |
-| `/tandem:review` | Code review final por un hilo Sol nuevo e independiente; con `<label> --range A..B`, review de un rango ya committeado fuera del pipeline (veredicto y hallazgos, nunca un commit) |
-| `/tandem:ask` | Segunda opinión de Sol sobre cualquier tema, con follow-ups en el mismo hilo |
+| `/tandem:review` | Code review final por un hilo Codex nuevo e independiente; con `<label> --range A..B`, review de un rango ya committeado fuera del pipeline (veredicto y hallazgos, nunca un commit) |
+| `/tandem:ask` | Segunda opinión de Codex sobre cualquier tema, con follow-ups en el mismo hilo |
 | `/tandem:image` | Genera assets de imagen con la herramienta nativa de Codex (gpt-image-2), con transparencia por chroma-key para sprites |
 | `/tandem:ultra` | Enjambres multi-agente estilo ultracode dirigidos por Fable, con todos los asientos en Codex (read-only) |
 | `/tandem:status` | Dónde está un run y cómo se retoma, leyendo `.tandem/` — nunca gasta un turno |
@@ -54,7 +54,7 @@ Debajo del prompt puedes ver a la vez la sesión de Claude y lo que está hacien
 
 ```
 ◈ Fable 5 xhigh✳ · ctx 34% ▓▓▓░░░░░░░ · $0.42 · mi-proyecto ⑂ tandem/auth-refactor
-⚙ codex gpt-5.6-sol · implement high · t3 · workspace-write · exec pytest -q · 1m42s · auth-refactor
+⚙ codex gpt-6-sol · implement high · t3 · workspace-write · exec pytest -q · 1m42s · auth-refactor
 ```
 
 Cuando la ocupa un turno de Codex — en vuelo o recién terminado (15 min) — la segunda línea narra en vivo la actividad real (`exec …`, `edit …`, `thinking…`) leída del stream de eventos, y al acabar colorea el desenlace — verde `APPROVED`/`IMPLEMENTATION_COMPLETE`, ámbar `REVISE`, rojo `REQUEST_CHANGES` o fallo, gris si el proceso murió sin dejar rastro. Funciona también con `TANDEM_WORKTREE`: el heartbeat se escribe siempre en el checkout principal (resuelto vía `git rev-parse --git-common-dir`).
@@ -75,12 +75,12 @@ el observable equivalente es el mensaje de timeout más el slot liberado.
 
 | Rol | Modelo (default) | Effort | Frontera de ejecución |
 | --- | --- | --- | --- |
-| Revisor / consultor | `gpt-5.6-sol` | `xhigh` | `read-only` (fijado, no sobreescribible) |
+| Revisor / consultor | `gpt-6-astra` | `xhigh` | `read-only` (fijado, no sobreescribible) |
 | Implementador (default) | Claude Opus 5 | Rol (frontmatter) | Allowlist harness `Read, Edit, Write, Glob, Grep, Bash`; sin MCP/web/Agent anidado |
 | Implementador Opus crítico (`TANDEM_CRITICAL=1`) | Claude Opus 5 (`tandem:implementer-critical`) | `xhigh` (frontmatter; requiere Claude Code ≥ 2.1.111 — el doctor lo verifica) | Idéntica allowlist, cuerpo byte a byte (paridad fijada por test) |
-| Implementador (`TANDEM_IMPLEMENTER=sol`) | `gpt-5.6-sol` | `high` | Sandbox OS `workspace-write` (fijado, no sobreescribible) |
-| Implementador Sol crítico (`TANDEM_CRITICAL=1`) | `gpt-5.6-sol` | `xhigh` | Sandbox OS `workspace-write` |
-| Generador de imágenes | `gpt-5.6-sol` | `high` | `workspace-write` (fijado, no sobreescribible) |
+| Implementador (`TANDEM_IMPLEMENTER=sol`) | `gpt-6-sol` | `high` | Sandbox OS `workspace-write` (fijado, no sobreescribible) |
+| Implementador Sol crítico (`TANDEM_CRITICAL=1`) | `gpt-6-sol` | `xhigh` | Sandbox OS `workspace-write` |
+| Generador de imágenes | `gpt-6-sol` | `high` | `workspace-write` (fijado, no sobreescribible) |
 
 Política forzada en **todos** los turnos Codex (start, resume y asientos de enjambre), con el argv congelado byte a byte por la suite:
 
@@ -124,7 +124,7 @@ los otros turnos del hilo.
 
 | Gate | Política |
 | --- | --- |
-| Aprobación del plan | Solo `VERDICT: APPROVED` de Sol; se commitea el plan y se continúa |
+| Aprobación del plan | Solo `VERDICT: APPROVED` de Codex; se commitea el plan y se continúa |
 | Gate final + commit | Solo review `APPROVED` **y** testing gate en verde; commit en `tandem/<slug>` |
 | Preguntas de la entrevista | Sección **Assumptions** en el plan: decisión → default conservador → por qué (auditable) |
 | `TANDEM_PROMOTE_REVIEWS` | Obligatorio definirlo (0/1) — se valida en el preflight, nada pregunta a mitad de run |
@@ -135,7 +135,7 @@ Líneas rojas idénticas al modo interactivo: nunca push, nunca merge, nunca la 
 
 ## Modo ultra — enjambres dirigidos por Fable
 
-`/tandem:ultra` lanza workflows multi-agente estilo ultracode (reviews adversariales multi-dimensión, paneles de jueces, cazas de bugs, barridos de investigación) donde **todos los asientos que razonan son Codex**: donde un workflow nativo sentaría a Fable va Sol `xhigh` (tier `judge`), donde iría Opus va Sol `high` (`worker`) y donde iría Haiku va Luna `high` (`scout`). Los agentes Claude del workflow son solo envoltorios `haiku` que lanzan cada turno vía `scripts/codex-swarm.sh` y estructuran la respuesta.
+`/tandem:ultra` lanza workflows multi-agente estilo ultracode (reviews adversariales multi-dimensión, paneles de jueces, cazas de bugs, barridos de investigación) donde **todos los asientos que razonan son Codex**: donde un workflow nativo sentaría a Fable va Astra `xhigh` (tier `judge`), donde iría Opus va Sol `high` (`worker`) y donde iría Haiku va Luna `high` (`scout`). Los agentes Claude del workflow son solo envoltorios `haiku` que lanzan cada turno vía `scripts/codex-swarm.sh` y estructuran la respuesta.
 
 La skill empieza siempre con una deliberación dirigida por Fable — si el enjambre compensa, qué forma tiene y cuántos turnos costará — y no lanza nada sin tu aprobación (en autonomous, sin un brief que lo determine todo). Invariantes propias del modo: cada seat es un hilo fresco e independiente, `read-only` fijado y sin resume; el enjambre nunca escribe ni commitea — sus hallazgos alimentan el pipeline normal, nunca sustituyen el gate de `tandem:review`; concurrencia acotada por `TANDEM_ULTRA_CONCURRENCY` (default 4) y aplicada por el propio script — un semáforo por run bajo `.tandem/state/ultra/<run>/.slots/`, sin chunking en el workflow: los seats sobrantes hacen cola dentro del script y el que no consigue slot en `TANDEM_ULTRA_SLOT_TIMEOUT` s sale con 75 sin gastar cuota. El estado va a `.tandem/state/ultra/<run>/` y el informe del run a `.tandem/log/ultra-<run>.md`. Si la sesión no dispone del tool Workflow, la skill degrada al fan-out con `Agent` o a turnos secuenciales en background — mismos scripts, mismos prompts.
 

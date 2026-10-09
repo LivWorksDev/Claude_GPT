@@ -50,7 +50,7 @@ assert_eq "*" "$(cat "$MAIN/.tandem/.gitignore")" "main checkout .gitignore"
 statusline_payload ".workspace.project_dir=$MAIN" ".workspace.current_dir=$MAIN" \
   | bash "$SCRIPTS/statusline.sh" >"$OUT" 2>"$ERR"
 assert_rc 0 "status line in the main checkout"
-assert_file_contains "$OUT" "codex gpt-5.6-sol"
+assert_file_contains "$OUT" "codex gpt-6-sol"
 assert_file_contains "$OUT" "implement"
 
 # A status line whose session is INSIDE the worktree finds it via the reverse
@@ -58,7 +58,7 @@ assert_file_contains "$OUT" "implement"
 statusline_payload ".workspace.project_dir=$WT" ".workspace.current_dir=$WT" \
   | bash "$SCRIPTS/statusline.sh" >"$OUT" 2>"$ERR"
 assert_rc 0 "status line inside the worktree"
-assert_file_contains "$OUT" "codex gpt-5.6-sol"
+assert_file_contains "$OUT" "codex gpt-6-sol"
 assert_file_contains "$OUT" "implement"
 
 # In a plain checkout the two roots coincide — no regression for the common case.

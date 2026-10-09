@@ -30,11 +30,14 @@ need_jq() {
 # The sandbox is pinned per role and is deliberately NOT overridable by env:
 # reviewers must never write; implementers never leave the workspace;
 # danger-full-access is never used.
+# The default MODEL of a role is not spelled out here: it comes from
+# tandem_default_model (_models.sh, sourced further down — this function only
+# RUNS after the whole file has loaded). A TANDEM_*_MODEL override still wins.
 resolve_role() {
   ROLE="$1"
   case "$ROLE" in
     implement)
-      CODEX_MODEL="${TANDEM_IMPLEMENT_MODEL:-gpt-5.6-sol}"
+      CODEX_MODEL="${TANDEM_IMPLEMENT_MODEL:-$(tandem_default_model implement)}"
       if [ "${TANDEM_CRITICAL:-0}" = "1" ]; then
         CODEX_EFFORT="${TANDEM_IMPLEMENT_EFFORT:-xhigh}"
       else
@@ -43,7 +46,7 @@ resolve_role() {
       CODEX_SANDBOX="workspace-write"
       ;;
     review | ask)
-      CODEX_MODEL="${TANDEM_REVIEW_MODEL:-gpt-5.6-sol}"
+      CODEX_MODEL="${TANDEM_REVIEW_MODEL:-$(tandem_default_model review)}"
       CODEX_EFFORT="${TANDEM_REVIEW_EFFORT:-xhigh}"
       CODEX_SANDBOX="read-only"
       ;;
@@ -52,7 +55,7 @@ resolve_role() {
       # gpt-image-2 either way, but the text model writes the actual image
       # prompt and drives the chroma workflow — brief comprehension is what
       # buys one-shot renders. workspace-write so assets land in the repo.
-      CODEX_MODEL="${TANDEM_IMAGE_MODEL:-gpt-5.6-sol}"
+      CODEX_MODEL="${TANDEM_IMAGE_MODEL:-$(tandem_default_model image)}"
       CODEX_EFFORT="${TANDEM_IMAGE_EFFORT:-high}"
       CODEX_SANDBOX="workspace-write"
       ;;
@@ -188,6 +191,13 @@ exec_deadline_wait() {
 _TANDEM_SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_pins.sh
 . "$_TANDEM_SCRIPT_DIR/_pins.sh"
+# tandem_default_model lives in _models.sh for the same reason: the doctor cannot
+# source this file and must still display, and smoke, the very models the
+# wrappers run — and the swarm reads its tier defaults from the same function.
+# _models.sh has the same no-side-effects contract as _pins.sh, so this changes
+# nothing for the wrappers either.
+# shellcheck source=_models.sh
+. "$_TANDEM_SCRIPT_DIR/_models.sh"
 
 # state_init — sets STATE_ROOT/STATE_DIR under the *project* (never inside the
 # installed plugin, which is read-only and moves on updates) and keeps the

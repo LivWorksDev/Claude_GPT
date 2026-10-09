@@ -24,18 +24,18 @@ SD="$(state_dir review)"
 export TANDEM_CODEX_CWD="$WORK"
 run bash "$SCRIPTS/codex-start.sh" review demo "$SANDBOX/p.tpl"
 assert_rc 0 "start with a valid TANDEM_CODEX_CWD"
-assert_argv 1 "exec${US}--json${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}gpt-5.6-sol${US}--sandbox${US}read-only${US}-c${US}model_reasoning_effort=xhigh${US}--ignore-user-config${US}--ignore-rules${US}-c${US}sandbox_mode=read-only${US}-c${US}sandbox_workspace_write.network_access=false${US}-c${US}sandbox_workspace_write.writable_roots=[]${US}-c${US}approval_policy=never${US}-c${US}approvals_reviewer=user${US}--cd${US}${WORK}${US}--output-last-message${US}$SD/$KEY.t1.reply.txt${US}-"
+assert_argv 1 "exec${US}--json${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}gpt-6-astra${US}--sandbox${US}read-only${US}-c${US}model_reasoning_effort=xhigh${US}--ignore-user-config${US}--ignore-rules${US}-c${US}sandbox_mode=read-only${US}-c${US}sandbox_workspace_write.network_access=false${US}-c${US}sandbox_workspace_write.writable_roots=[]${US}-c${US}approval_policy=never${US}-c${US}approvals_reviewer=user${US}--cd${US}${WORK}${US}--output-last-message${US}$SD/$KEY.t1.reply.txt${US}-"
 
 # --- resume: the pin rides BEFORE the `resume` subcommand --------------------
 run bash "$SCRIPTS/codex-resume.sh" review demo "$SANDBOX/p.tpl"
 assert_rc 0 "resume with a valid TANDEM_CODEX_CWD"
-assert_argv 2 "exec${US}--json${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}gpt-5.6-sol${US}--sandbox${US}read-only${US}-c${US}model_reasoning_effort=xhigh${US}--ignore-user-config${US}--ignore-rules${US}-c${US}sandbox_mode=read-only${US}-c${US}sandbox_workspace_write.network_access=false${US}-c${US}sandbox_workspace_write.writable_roots=[]${US}-c${US}approval_policy=never${US}-c${US}approvals_reviewer=user${US}--cd${US}${WORK}${US}--output-last-message${US}$SD/$KEY.t2.reply.txt${US}resume${US}thr_stub_1${US}-"
+assert_argv 2 "exec${US}--json${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}gpt-6-astra${US}--sandbox${US}read-only${US}-c${US}model_reasoning_effort=xhigh${US}--ignore-user-config${US}--ignore-rules${US}-c${US}sandbox_mode=read-only${US}-c${US}sandbox_workspace_write.network_access=false${US}-c${US}sandbox_workspace_write.writable_roots=[]${US}-c${US}approval_policy=never${US}-c${US}approvals_reviewer=user${US}--cd${US}${WORK}${US}--output-last-message${US}$SD/$KEY.t2.reply.txt${US}resume${US}thr_stub_1${US}-"
 
 # --- swarm seats take the same pin -------------------------------------------
 run bash "$SCRIPTS/codex-swarm.sh" worker run-1 s-1 "$SANDBOX/seat.txt"
 assert_rc 0 "swarm with a valid TANDEM_CODEX_CWD"
 SEATMSG="$CLAUDE_PROJECT_DIR/.tandem/state/ultra/$(tkey run-1)/$(tkey s-1).reply.txt"
-assert_argv 3 "exec${US}--json${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}gpt-5.6-sol${US}--sandbox${US}read-only${US}-c${US}model_reasoning_effort=high${US}--ignore-user-config${US}--ignore-rules${US}-c${US}sandbox_mode=read-only${US}-c${US}sandbox_workspace_write.network_access=false${US}-c${US}sandbox_workspace_write.writable_roots=[]${US}-c${US}approval_policy=never${US}-c${US}approvals_reviewer=user${US}--cd${US}${WORK}${US}--output-last-message${US}${SEATMSG}${US}-"
+assert_argv 3 "exec${US}--json${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}gpt-6-sol${US}--sandbox${US}read-only${US}-c${US}model_reasoning_effort=high${US}--ignore-user-config${US}--ignore-rules${US}-c${US}sandbox_mode=read-only${US}-c${US}sandbox_workspace_write.network_access=false${US}-c${US}sandbox_workspace_write.writable_roots=[]${US}-c${US}approval_policy=never${US}-c${US}approvals_reviewer=user${US}--cd${US}${WORK}${US}--output-last-message${US}${SEATMSG}${US}-"
 
 # --- invalid and empty values: exactly 64, even with a broken codex ----------
 export CODEX_STUB_SCENARIO=version-fail
@@ -73,5 +73,5 @@ export CODEX_STUB_SCENARIO=ok
 run bash "$SCRIPTS/codex-start.sh" review plain "$SANDBOX/p.tpl"
 assert_rc 0 "start without TANDEM_CODEX_CWD"
 PKEY="$(tkey plain)"
-assert_argv 4 "exec${US}--json${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}gpt-5.6-sol${US}--sandbox${US}read-only${US}-c${US}model_reasoning_effort=xhigh${US}--ignore-user-config${US}--ignore-rules${US}-c${US}sandbox_mode=read-only${US}-c${US}sandbox_workspace_write.network_access=false${US}-c${US}sandbox_workspace_write.writable_roots=[]${US}-c${US}approval_policy=never${US}-c${US}approvals_reviewer=user${US}--output-last-message${US}$SD/$PKEY.t1.reply.txt${US}-"
+assert_argv 4 "exec${US}--json${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}gpt-6-astra${US}--sandbox${US}read-only${US}-c${US}model_reasoning_effort=xhigh${US}--ignore-user-config${US}--ignore-rules${US}-c${US}sandbox_mode=read-only${US}-c${US}sandbox_workspace_write.network_access=false${US}-c${US}sandbox_workspace_write.writable_roots=[]${US}-c${US}approval_policy=never${US}-c${US}approvals_reviewer=user${US}--output-last-message${US}$SD/$PKEY.t1.reply.txt${US}-"
 assert_not_contains "$CODEX_STUB_LOG.argv.4" "--cd"

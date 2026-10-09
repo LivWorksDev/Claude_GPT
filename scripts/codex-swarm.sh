@@ -17,10 +17,11 @@
 # four, with or without it: an extra argument is a usage error, never a silently
 # ignored one.
 #
-# Tier policy (the ultracode mapping — override models/efforts via env):
-#   judge   gpt-5.6-sol  xhigh   seats that would need a frontier judge
-#   worker  gpt-5.6-sol  high    standard analysis / review seats
-#   scout   gpt-5.6-luna high    mechanical sweeps and triage
+# Tier policy (the ultracode mapping — override models/efforts via env; the
+# default models are defined in scripts/_models.sh, this table mirrors them):
+#   judge   gpt-6-astra xhigh   seats that would need a frontier judge
+#   worker  gpt-6-sol   high    standard analysis / review seats
+#   scout   gpt-6-luna  high    mechanical sweeps and triage
 #
 # Differences vs codex-start.sh, all deliberate:
 #   - No thread persistence and no resume: seat independence is the point of a
@@ -131,15 +132,15 @@ need_jq
 
 case "$TIER" in
   judge)
-    CODEX_MODEL="${TANDEM_ULTRA_JUDGE_MODEL:-gpt-5.6-sol}"
+    CODEX_MODEL="${TANDEM_ULTRA_JUDGE_MODEL:-$(tandem_default_model ultra-judge)}"
     CODEX_EFFORT="${TANDEM_ULTRA_JUDGE_EFFORT:-xhigh}"
     ;;
   worker)
-    CODEX_MODEL="${TANDEM_ULTRA_WORKER_MODEL:-gpt-5.6-sol}"
+    CODEX_MODEL="${TANDEM_ULTRA_WORKER_MODEL:-$(tandem_default_model ultra-worker)}"
     CODEX_EFFORT="${TANDEM_ULTRA_WORKER_EFFORT:-high}"
     ;;
   scout)
-    CODEX_MODEL="${TANDEM_ULTRA_SCOUT_MODEL:-gpt-5.6-luna}"
+    CODEX_MODEL="${TANDEM_ULTRA_SCOUT_MODEL:-$(tandem_default_model ultra-scout)}"
     CODEX_EFFORT="${TANDEM_ULTRA_SCOUT_EFFORT:-high}"
     ;;
   *)

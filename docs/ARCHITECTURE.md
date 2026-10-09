@@ -7,18 +7,18 @@ flowchart TD
     U[Usuario] --> F[Claude Code + Fable 5<br/>orquestador, árbitro, contexto]
 
     F -->|tandem:plan| P[Entrevista 1 pregunta/vez<br/>docs/plans/slug.plan.md]
-    P --> S1[Codex · GPT-5.6 Sol · xhigh<br/>hilo A persistente · read-only<br/>red-team del plan]
+    P --> S1[Codex · GPT-6 Astra · xhigh<br/>hilo A persistente · read-only<br/>red-team del plan]
     S1 -->|VERDICT: REVISE<br/>disposiciones finding a finding| P
     S1 -->|VERDICT: APPROVED<br/>o cap 5 rondas| H1{Gate humano:<br/>¿aprobar plan?}
 
     H1 -->|sí, tandem:implement| G[Gates: árbol limpio +<br/>rama tandem/slug]
     G --> L{Implementador seleccionable<br/>TANDEM_IMPLEMENTER<br/>opus default · sol opcional}
     L -->|opus| O[Claude Opus 5<br/>subagente B restringido<br/>allowlist harness]
-    L -->|sol| B[Codex · GPT-5.6 Sol high<br/>xhigh si TANDEM_CRITICAL=1<br/>hilo B · workspace-write]
+    L -->|sol| B[Codex · GPT-6 Sol high<br/>xhigh si TANDEM_CRITICAL=1<br/>hilo B · workspace-write]
     O --> V[Fable: lee el diff COMPLETO<br/>fidelidad al plan · fixes directos<br/>testing gate bloqueante]
     B --> V
 
-    V -->|tandem:review| S2[Codex · GPT-5.6 Sol · xhigh<br/>hilo C NUEVO · read-only<br/>sin contexto del debate]
+    V -->|tandem:review| S2[Codex · GPT-6 Astra · xhigh<br/>hilo C NUEVO · read-only<br/>sin contexto del debate]
     S2 -->|VERDICT: REQUEST_CHANGES<br/>cap 3 rondas| V
     S2 -->|VERDICT: APPROVED| H2{Gate humano:<br/>¿aprobar diff?}
 
@@ -34,9 +34,9 @@ Mismo rol, rondas sucesivas  → mismo hilo (el crítico recuerda sus hallazgos)
 Cambio de rol                → hilo nuevo (el revisor final llega sin contaminar)
 ```
 
-- Sol revisa el plan, Fable corrige, Sol re-revisa → **hilo A** siempre.
+- Codex revisa el plan, Fable corrige, Codex re-revisa → **hilo A** siempre.
 - Empieza la implementación → **hilo/subagente B** nuevo. Con el default `opus`, es `tandem:implementer` (o `tandem:implementer-critical` con `effort: xhigh` bajo `TANDEM_CRITICAL=1` — desde v0.21, con gate de versión Claude Code ≥ 2.1.111) y sus rondas continúan vía `SendMessage`; con `TANDEM_IMPLEMENTER=sol`, es el hilo Codex CLI existente (Sol, effort high).
-- Review final del código → **hilo C** nuevo (Sol), clave de estado `cr-<slug>`.
+- Review final del código → **hilo C** nuevo (Codex), clave de estado `cr-<slug>`.
 - El implementador nunca aprueba su propia implementación.
 
 El hilo B Opus tiene espejo durable en `.tandem/state/implement-claude/<slug>.json`: agent id/nombre, rondas consumidas, último sentinel e informe, worktree e identidad del intento (`plan_path`, `plan_hash`, `branch`). `plan_hash` siempre es `git rev-parse HEAD:docs/plans/<slug>.plan.md`, el blob commiteado; nunca la working copy que cambia al marcar checkboxes. Identidad coincidente permite reanudar o un reset deliberado; mismatch solo permite descartar o parar. Ningún reset usa `SendMessage` como sonda ni ocurre sin agente inactivo comprobado y, si está registrado, worktree limpio. Ante incertidumbre autonomous termina `FAILED` preservando el estado.
@@ -71,7 +71,7 @@ visibilidad las ediciones deny-listed que Git ignore y la mutación de contenido
 de una entrada de primer nivel ya existente en `node_modules`; el censo detecta cambios
 del conjunto de nombres, no un snapshot profundo.
 
-**Fase 1 (esta)**: Sol sigue usando `codex exec` vía scripts endurecidos para plan/review/ask y para implementación cuando `TANDEM_IMPLEMENTER=sol`. Verificado contra el código fuente de la CLI (2026-07):
+**Fase 1 (esta)**: Codex sigue usándose vía `codex exec` con scripts endurecidos para plan/review/ask y para implementación cuando `TANDEM_IMPLEMENTER=sol`. Verificado contra el código fuente de la CLI (2026-07):
 
 - `codex exec resume` NO define `--sandbox`/`--model` propios; las opciones compartidas van en el padre: `codex exec --sandbox read-only … resume <id> …`. Los scripts además fuerzan `-c sandbox_mode=…` como cinturón y tirantes. Así ninguna reanudación hereda el default del `config.toml` del usuario (el fallo principal de TRIP-workflow).
 - Prompt por stdin desde archivo (`- <file`): elimina cuelgues de stdin no-TTY y bugs de quoting a la vez.
@@ -167,7 +167,7 @@ No se registra en el plugin todavía para no arrancar un proceso codex en cada s
 
 | Decisión | Motivo |
 | --- | --- |
-| Opus 5 implementa por defecto; Sol sigue red-team/review | Separa las familias generador/revisor; `TANDEM_IMPLEMENTER=sol` restaura el transporte anterior |
+| Opus 5 implementa por defecto; Codex sigue red-team/review | Separa las familias generador/revisor; `TANDEM_IMPLEMENTER=sol` restaura el transporte anterior |
 | Allowlist harness para Opus, sandbox OS para Sol | El agent type elimina MCP/web/Agent, pero Bash queda como riesgo residual explícito; equivalencia total con `workspace-write` queda fuera de v1 |
 | Estado en `.tandem/` del proyecto, no dentro del plugin | El plugin instalado es de solo lectura y su ruta cambia en cada update; TRIP guardaba estado dentro de `.claude/skills/` |
 | Sin `--yolo` ni `danger-full-access` en ningún transporte Codex | `grill-me-codex` da bypass total al implementador; para Sol, `workspace-write` basta y contiene el radio de daño |
@@ -184,7 +184,7 @@ No se registra en el plugin todavía para no arrancar un proceso codex en cada s
 | Trabajo | Flujo |
 | --- | --- |
 | Trivial (pocas líneas, docs) | Fable directamente, sin tandem |
-| Feature normal | `tandem:run` con defaults (Opus 5 implementa; Sol revisa) |
+| Feature normal | `tandem:run` con defaults (Opus 5 implementa; Codex revisa) |
 | Rollback al transporte anterior | `TANDEM_IMPLEMENTER=sol tandem:run` (Sol `high` implementa) |
 | Auth, migraciones, pagos, multi-tenancy, concurrencia | `tandem:run` con `TANDEM_CRITICAL=1`, review nunca omitida; el effort sube a xhigh bajo `sol` Y bajo opus (`tandem:implementer-critical`, Claude Code ≥ 2.1.111; los overrides de effort tienen precedencia — el doctor muestra el efectivo) |
 | Assets de imagen (iconos, sprites, mockups) | `tandem:image` — fuera del pipeline plan→review; gate visual de Fable + auditoría de escrituras |
@@ -192,6 +192,6 @@ No se registra en el plugin todavía para no arrancar un proceso codex en cada s
 
 ## Sesgo del árbitro con Opus
 
-Con el transporte default, Fable arbitra hallazgos de Sol sobre código producido por otro modelo Claude. Esa cercanía de familia puede introducir sesgo. La mitigación es procedimental y no se relaja: cada hallazgo de Sol debe traer evidencia `file:line`, y Fable debe registrar una disposición razonada finding a finding antes de aceptar o rechazarlo. Los gates humanos permanecen intactos.
+Con el transporte default, Fable arbitra hallazgos de Codex sobre código producido por otro modelo Claude. Esa cercanía de familia puede introducir sesgo. La mitigación es procedimental y no se relaja: cada hallazgo de Codex debe traer evidencia `file:line`, y Fable debe registrar una disposición razonada finding a finding antes de aceptar o rechazarlo. Los gates humanos permanecen intactos.
 
 La segunda línea de la status line la disputa una selección de ganador: un turno Codex VIVO (pid comprobado) la tiene siempre; entre estados no vivos (heartbeat terminal en su ventana de 900 s, orphaned, o el attempt state Opus de `.tandem/state/implement-claude/`) gana el timestamp más reciente, con empates deterministas. Durante una implementación Opus muestra presencia y desenlace (`⚒ running` / sentinel coloreado / `⚠ sin señal` a las 2 h) leídos del JSON durable — nunca actividad en vivo, que sigue siendo v2; Claude Code muestra además el progreso nativo del subagente.

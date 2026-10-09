@@ -255,8 +255,8 @@ run env TANDEM_IMPLEMENTER=sol TANDEM_PROMOTE_REVIEWS=1 \
 assert_rc 0 "autonomous plus smoke"
 assert_file_contains "$OUT" "autonomous preflight (--autonomous):"
 assert_file_contains "$OUT" "model smoke (--smoke):"
-assert_eq "2" "$(turns)" "one turn per unique configured model, none for autonomous"
-assert_no_file "$CODEX_STUB_LOG.argv.3"
+assert_eq "3" "$(turns)" "one turn per unique configured model, none for autonomous"
+assert_no_file "$CODEX_STUB_LOG.argv.4"
 
 # --- usage and default mode remain bounded and explicit ----------------------
 reset_stub

@@ -1,12 +1,12 @@
 ---
 name: review
-description: Independent code review by a FRESH GPT-5.6 Sol thread (read-only) that has no memory of the plan debate or the implementation. Pipeline mode reviews the uncommitted diff after tandem:implement and before committing, with a human gate and a commit; range mode (a label plus --range A..B) reviews an ALREADY-COMMITTED range out of the pipeline and produces only a verdict and findings, never a commit. NOT for reviewing plans (use tandem:plan).
+description: Independent code review by a FRESH Codex reviewer thread (GPT-6 Astra by default, read-only) that has no memory of the plan debate or the implementation. Pipeline mode reviews the uncommitted diff after tandem:implement and before committing, with a human gate and a commit; range mode (a label plus --range A..B) reviews an ALREADY-COMMITTED range out of the pipeline and produces only a verdict and findings, never a commit. NOT for reviewing plans (use tandem:plan).
 argument-hint: "[slug of the implemented plan] | [<label> --range A..B]"
 ---
 
 # tandem:review — revisor final independiente
 
-The final reviewer must arrive with **zero context contamination**: a brand-new Sol thread that never saw the plan debate or the implementation thread. You arbitrate its findings; the user approves the final diff; only then do YOU commit (Codex never commits).
+The final reviewer must arrive with **zero context contamination**: a brand-new Codex reviewer thread that never saw the plan debate or the implementation thread. You arbitrate its findings; the user approves the final diff; only then do YOU commit (Codex never commits).
 
 Shared scripts: `SCRIPTS="${CLAUDE_SKILL_DIR}/../../scripts"`. Log: `.tandem/log/<slug>.md`.
 State key for this skill: `cr-<slug>` (distinct from the plan-review thread, which uses the plan path).
@@ -120,7 +120,7 @@ Then offer next steps: merge/PR per the project's own conventions — tandem del
 
 ## Range mode (out of pipeline)
 
-Everything above is the PIPELINE review: an uncommitted diff, a testing gate, a human gate and a commit. This section is the OTHER mode of this skill and it is deliberately outside that pipeline. The user asks for Sol's verdict on work that is ALREADY committed — a branch, a PR, a merge, a slice of history — and the answer is a verdict plus findings, nothing else. No working tree is touched and nothing is ever committed as a result: there is **no Step 4** here (no human gate to commit, no commit, no terminal run record) and **no fix loop** (no Step 3.1, no testing gate — there is no working tree to fix). Steps 0 and 1 do not apply either: the working root and the thread target both come from the helper below.
+Everything above is the PIPELINE review: an uncommitted diff, a testing gate, a human gate and a commit. This section is the OTHER mode of this skill and it is deliberately outside that pipeline. The user asks for the reviewer's verdict on work that is ALREADY committed — a branch, a PR, a merge, a slice of history — and the answer is a verdict plus findings, nothing else. No working tree is touched and nothing is ever committed as a result: there is **no Step 4** here (no human gate to commit, no commit, no terminal run record) and **no fix loop** (no Step 3.1, no testing gate — there is no working tree to fix). Steps 0 and 1 do not apply either: the working root and the thread target both come from the helper below.
 
 Entry: `/tandem:review <label> --range A..B` (three-dot `A...B` works too — the diff against the merge base). `<label>` names THIS review, it is not a plan slug: a range usually has no plan, and that is not a defect.
 

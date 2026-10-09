@@ -39,7 +39,7 @@ assert_file_contains "$OUT" "tandem doctor: problems found"
 doctor TANDEM_IMPLEMENTER=sol
 assert_rc 0 "implementer sol"
 assert_file_contains "$OUT" "implementer: sol — Codex CLI transport"
-assert_file_contains "$OUT" "implement:   model=gpt-5.6-sol effort=high sandbox=workspace-write (pinned)"
+assert_file_contains "$OUT" "implement:   model=gpt-6-sol effort=high sandbox=workspace-write (pinned)"
 
 doctor TANDEM_IMPLEMENTER=sol TANDEM_CRITICAL=1
 assert_rc 0 "implementer sol, critical"
@@ -342,9 +342,9 @@ assert_file_contains "$OUT" "FAIL  jq not found"
 
 # --- the ultra tier policy and the image role are reported -------------------
 doctor -u TANDEM_IMPLEMENTER
-assert_file_contains "$OUT" "review/ask:  model=gpt-5.6-sol effort=xhigh sandbox=read-only (pinned)"
-assert_file_contains "$OUT" "image:       model=gpt-5.6-sol effort=high sandbox=workspace-write (pinned)"
-assert_file_contains "$OUT" "judge=gpt-5.6-sol/xhigh worker=gpt-5.6-sol/high scout=gpt-5.6-luna/high"
+assert_file_contains "$OUT" "review/ask:  model=gpt-6-astra effort=xhigh sandbox=read-only (pinned)"
+assert_file_contains "$OUT" "image:       model=gpt-6-sol effort=high sandbox=workspace-write (pinned)"
+assert_file_contains "$OUT" "judge=gpt-6-astra/xhigh worker=gpt-6-sol/high scout=gpt-6-luna/high"
 assert_file_contains "$OUT" "concurrency=4"
 assert_file_contains "$OUT" "slot_timeout=1800s"
 

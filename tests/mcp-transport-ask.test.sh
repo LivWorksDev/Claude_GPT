@@ -45,7 +45,7 @@ mode_of() {
 # start-argv-exact-order.test.sh carries, reused here so "the default did not
 # move" is an equality and not a vibe.
 ask_argv() {
-  printf '%s' "exec${US}--json${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}gpt-5.6-sol${US}--sandbox${US}read-only${US}-c${US}model_reasoning_effort=xhigh${US}--ignore-user-config${US}--ignore-rules${US}-c${US}sandbox_mode=read-only${US}-c${US}sandbox_workspace_write.network_access=false${US}-c${US}sandbox_workspace_write.writable_roots=[]${US}-c${US}approval_policy=never${US}-c${US}approvals_reviewer=user${US}--output-last-message${US}${1}${US}-"
+  printf '%s' "exec${US}--json${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}gpt-6-astra${US}--sandbox${US}read-only${US}-c${US}model_reasoning_effort=xhigh${US}--ignore-user-config${US}--ignore-rules${US}-c${US}sandbox_mode=read-only${US}-c${US}sandbox_workspace_write.network_access=false${US}-c${US}sandbox_workspace_write.writable_roots=[]${US}-c${US}approval_policy=never${US}-c${US}approvals_reviewer=user${US}--output-last-message${US}${1}${US}-"
 }
 
 # =============================================================================
@@ -112,7 +112,7 @@ assert_file_contains "$OUT" "» thread thr_mcp_ask"
 assert_file_contains "$OUT" "» exec echo hello world"
 assert_file_contains "$OUT" "  ✓ ok"
 assert_file_contains "$OUT" "» turn done — tokens in 1234 · out 56"
-assert_file_contains "$OUT" "--- codex reply (gpt-5.6-sol, turn 1) ---"
+assert_file_contains "$OUT" "--- codex reply (gpt-6-astra, turn 1) ---"
 assert_file_contains "$OUT" "THREAD_ID: thr_mcp_ask"
 assert_file_contains "$ERR" "transport=mcp"
 
@@ -122,7 +122,7 @@ jq -Rc 'fromjson? | objects
   | select((.method? // "") == "tools/call" and (.params.name? // "") == "codex")' \
   "$CODEX_STUB_LOG.mcp.in" | head -n 1 >"$CALL"
 [ -s "$CALL" ] || fail "the wrapper never issued a codex tools/call"
-assert_json "$CALL" '.params.arguments.model == "gpt-5.6-sol"'
+assert_json "$CALL" '.params.arguments.model == "gpt-6-astra"'
 assert_json "$CALL" '.params.arguments.sandbox == "read-only"'
 assert_json "$CALL" '.params.arguments["approval-policy"] == "never"'
 assert_json "$CALL" '.params.arguments.cwd | startswith("/")'
@@ -156,7 +156,7 @@ assert_eq "" "$(recovery_dirs)" "no recovery directory on the happy path"
 
 # --- the opt-in meta fields ---------------------------------------------------
 assert_json "$SD/$KEY.t1.meta.json" \
-  '.role == "ask" and .model == "gpt-5.6-sol" and .effort == "xhigh" and .sandbox == "read-only"'
+  '.role == "ask" and .model == "gpt-6-astra" and .effort == "xhigh" and .sandbox == "read-only"'
 assert_json "$SD/$KEY.t1.meta.json" \
   '.transport_requested == "mcp" and .transport_effective == "mcp"'
 
@@ -173,7 +173,7 @@ assert_eq "2" "$(cat "$SD/$KEY.turn")" "turn counter after the resume"
 # It really went through `codex exec resume` — invocation 1 of the exec
 # namespace, which the mcp start left untouched.
 assert_eq "1" "$(cat "$CODEX_STUB_LOG.n")" "exec invocations after the hybrid resume"
-assert_argv 1 "exec${US}--json${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}gpt-5.6-sol${US}--sandbox${US}read-only${US}-c${US}model_reasoning_effort=xhigh${US}--ignore-user-config${US}--ignore-rules${US}-c${US}sandbox_mode=read-only${US}-c${US}sandbox_workspace_write.network_access=false${US}-c${US}sandbox_workspace_write.writable_roots=[]${US}-c${US}approval_policy=never${US}-c${US}approvals_reviewer=user${US}--output-last-message${US}${SD}/${KEY}.t2.reply.txt${US}resume${US}thr_mcp_ask${US}-"
+assert_argv 1 "exec${US}--json${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}gpt-6-astra${US}--sandbox${US}read-only${US}-c${US}model_reasoning_effort=xhigh${US}--ignore-user-config${US}--ignore-rules${US}-c${US}sandbox_mode=read-only${US}-c${US}sandbox_workspace_write.network_access=false${US}-c${US}sandbox_workspace_write.writable_roots=[]${US}-c${US}approval_policy=never${US}-c${US}approvals_reviewer=user${US}--output-last-message${US}${SD}/${KEY}.t2.reply.txt${US}resume${US}thr_mcp_ask${US}-"
 # The audit trail never says a bare "mcp" for something exec resumed.
 assert_json "$SD/$KEY.t2.meta.json" \
   '.transport_requested == "mcp" and .transport_effective == "exec-resume"'

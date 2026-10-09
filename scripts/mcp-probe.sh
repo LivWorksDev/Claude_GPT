@@ -176,7 +176,7 @@ mkdir -p "$RUN_DIR/preflight" || die "cannot create the evidence directory: $RUN
 
 # The seat: read-only, effort and model from the review policy. The sandbox is
 # NOT overridable — the probes only ever ask a model to answer a word.
-MCP_MODEL="${TANDEM_REVIEW_MODEL:-gpt-5.6-sol}"
+MCP_MODEL="${TANDEM_REVIEW_MODEL:-$(tandem_default_model review)}"
 MCP_EFFORT="${TANDEM_REVIEW_EFFORT:-xhigh}"
 CODEX_SANDBOX="read-only"
 case "$MCP_EFFORT" in

@@ -18,7 +18,7 @@ doctor()       { run env "$@" bash "$SCRIPTS/codex-doctor.sh"; }
 doctor_smoke() { run env "$@" bash "$SCRIPTS/codex-doctor.sh" --smoke; }
 
 # The stub's records are cumulative per sandbox; each case starts from zero so
-# "2 turns" means this run's two turns.
+# "3 turns" means this run's three turns.
 reset_stub() { rm -f "$CODEX_STUB_LOG".*; }
 
 turns() {
@@ -78,15 +78,16 @@ assert_file_contains "$ERR" "unknown argument: --bogus"
 assert_file_contains "$ERR" "usage: codex-doctor.sh [--smoke]"
 assert_eq "0" "$(turns)" "exec turns after a usage error"
 
-# --- 3. --smoke with the default policy: exactly two turns, deduped ----------
+# --- 3. --smoke with the default policy: exactly three turns, deduped --------
 reset_stub
 doctor_smoke -u TANDEM_IMPLEMENTER
 assert_rc 0 "smoke, default policy"
-assert_file_contains "$OUT" "about to spend 2 REAL codex turns"
-assert_file_contains "$OUT" "ok    model gpt-5.6-sol answers"
-assert_file_contains "$OUT" "ok    model gpt-5.6-luna answers"
-assert_eq "2" "$(turns)" "one turn per unique model (five roles, two models)"
-assert_no_file "$CODEX_STUB_LOG.argv.3"
+assert_file_contains "$OUT" "about to spend 3 REAL codex turns"
+assert_file_contains "$OUT" "ok    model gpt-6-astra answers"
+assert_file_contains "$OUT" "ok    model gpt-6-sol answers"
+assert_file_contains "$OUT" "ok    model gpt-6-luna answers"
+assert_eq "3" "$(turns)" "one turn per unique model (five roles, three models)"
+assert_no_file "$CODEX_STUB_LOG.argv.4"
 assert_file_contains "$OUT" "tandem doctor: all good."
 
 # The argv, byte for byte — the only unknown is the temp root, read back from
@@ -95,8 +96,9 @@ CD1="$(tok_after 1 --cd)"
 assert_temp_root "$CD1"
 assert_eq "1" "$(tok_count 1 --cd)" "exactly one --cd (the CLI rejects two)"
 TMPROOT="$(dirname "$CD1")"
-assert_argv 1 "exec${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}gpt-5.6-sol${US}--sandbox${US}read-only${US}$(pins_of "$CD1")${US}-c${US}web_search=disabled${US}--ephemeral${US}--output-last-message${US}${TMPROOT}/reply.txt${US}-"
-assert_argv 2 "exec${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}gpt-5.6-luna${US}--sandbox${US}read-only${US}$(pins_of "$CD1")${US}-c${US}web_search=disabled${US}--ephemeral${US}--output-last-message${US}${TMPROOT}/reply.txt${US}-"
+assert_argv 1 "exec${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}gpt-6-astra${US}--sandbox${US}read-only${US}$(pins_of "$CD1")${US}-c${US}web_search=disabled${US}--ephemeral${US}--output-last-message${US}${TMPROOT}/reply.txt${US}-"
+assert_argv 2 "exec${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}gpt-6-sol${US}--sandbox${US}read-only${US}$(pins_of "$CD1")${US}-c${US}web_search=disabled${US}--ephemeral${US}--output-last-message${US}${TMPROOT}/reply.txt${US}-"
+assert_argv 3 "exec${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}gpt-6-luna${US}--sandbox${US}read-only${US}$(pins_of "$CD1")${US}-c${US}web_search=disabled${US}--ephemeral${US}--output-last-message${US}${TMPROOT}/reply.txt${US}-"
 
 # Stated again on their own, because these four are the reasons the block exists.
 assert_file_contains "$CODEX_STUB_LOG.argv.1" "--ephemeral"
@@ -106,6 +108,7 @@ assert_file_contains "$CODEX_STUB_LOG.argv.1" "approvals_reviewer=user"
 # forcing one could report a healthy model as retired.
 assert_not_contains "$CODEX_STUB_LOG.argv.1" "model_reasoning_effort"
 assert_not_contains "$CODEX_STUB_LOG.argv.2" "model_reasoning_effort"
+assert_not_contains "$CODEX_STUB_LOG.argv.3" "model_reasoning_effort"
 
 # The prompt is one line and the turn writes nothing into the project.
 assert_file_contains "$(stub_stdin 1)" "Reply with exactly: OK"
@@ -114,35 +117,37 @@ assert_no_file "$CLAUDE_PROJECT_DIR/.tandem"
 assert_no_file "$CD1"
 
 # --- 4. the model SET: overrides, dedupe and the implement rule ---------------
-# A third distinct model means a third turn.
+# A fourth distinct model means a fourth turn.
 reset_stub
 doctor_smoke -u TANDEM_IMPLEMENTER TANDEM_IMAGE_MODEL=custom-image
-assert_rc 0 "smoke with three distinct models"
-assert_file_contains "$OUT" "about to spend 3 REAL codex turns"
-assert_eq "3" "$(turns)" "three unique models"
-assert_eq "gpt-5.6-sol" "$(tok_after 1 --model)" "model of turn 1"
+assert_rc 0 "smoke with four distinct models"
+assert_file_contains "$OUT" "about to spend 4 REAL codex turns"
+assert_eq "4" "$(turns)" "four unique models"
+assert_eq "gpt-6-astra" "$(tok_after 1 --model)" "model of turn 1"
 assert_eq "custom-image" "$(tok_after 2 --model)" "model of turn 2"
-assert_eq "gpt-5.6-luna" "$(tok_after 3 --model)" "model of turn 3"
+assert_eq "gpt-6-sol" "$(tok_after 3 --model)" "model of turn 3"
+assert_eq "gpt-6-luna" "$(tok_after 4 --model)" "model of turn 4"
 
 # Under sol the implement model joins the set — and dedupes into it by default.
 reset_stub
 doctor_smoke TANDEM_IMPLEMENTER=sol
 assert_rc 0 "smoke under sol, default models"
-assert_eq "2" "$(turns)" "implement dedupes into review's model"
+assert_eq "3" "$(turns)" "implement dedupes into the sol model of image and the worker"
 
 reset_stub
 doctor_smoke TANDEM_IMPLEMENTER=sol TANDEM_IMPLEMENT_MODEL=impl-only
 assert_rc 0 "smoke under sol with a distinct implement model"
-assert_eq "3" "$(turns)" "implement is smoked under sol"
+assert_eq "4" "$(turns)" "implement is smoked under sol"
 assert_eq "impl-only" "$(tok_after 2 --model)" "the implement model"
 
 # Under opus it is NOT: that transport spends no codex turn at all.
 reset_stub
 doctor_smoke -u TANDEM_IMPLEMENTER TANDEM_IMPLEMENT_MODEL=impl-only
 assert_rc 0 "smoke under opus with a distinct implement model"
-assert_eq "2" "$(turns)" "implement is not smoked under opus"
+assert_eq "3" "$(turns)" "implement is not smoked under opus"
 assert_not_contains "$CODEX_STUB_LOG.argv.1" "impl-only"
 assert_not_contains "$CODEX_STUB_LOG.argv.2" "impl-only"
+assert_not_contains "$CODEX_STUB_LOG.argv.3" "impl-only"
 
 # --- 5. an inherited TANDEM_CODEX_CWD never survives into the smoke ----------
 mkdir -p "$SANDBOX/inherited"
@@ -164,39 +169,42 @@ assert_temp_root "$(tok_after 1 --cd)"
 
 # --- 6. a model the API does not know: named, actionable, and not the end ----
 reset_stub
-doctor_smoke -u TANDEM_IMPLEMENTER CODEX_STUB_FAIL_MODEL=gpt-5.6-sol CODEX_STUB_FAIL_KIND=model
+doctor_smoke -u TANDEM_IMPLEMENTER CODEX_STUB_FAIL_MODEL=gpt-6-astra CODEX_STUB_FAIL_KIND=model
 assert_rc 1 "smoke with an unavailable model"
-assert_file_contains "$OUT" "FAIL  model gpt-5.6-sol is not available"
+assert_file_contains "$OUT" "FAIL  model gpt-6-astra is not available"
 assert_file_contains "$OUT" "the CLI/API rejected the model NAME itself"
 assert_file_contains "$OUT" "action: point the matching TANDEM_*_MODEL override"
 # Continuation is an assertion, not a courtesy.
-assert_eq "2" "$(turns)" "the later model still ran"
-assert_file_contains "$OUT" "ok    model gpt-5.6-luna answers"
+assert_eq "3" "$(turns)" "the later models still ran"
+assert_file_contains "$OUT" "ok    model gpt-6-sol answers"
+assert_file_contains "$OUT" "ok    model gpt-6-luna answers"
 assert_file_contains "$OUT" "tandem doctor: problems found"
 
 # --- 7. an auth failure that MENTIONS the model is not a deprecation ---------
 reset_stub
-doctor_smoke -u TANDEM_IMPLEMENTER CODEX_STUB_FAIL_MODEL=gpt-5.6-sol CODEX_STUB_FAIL_KIND=other
+doctor_smoke -u TANDEM_IMPLEMENTER CODEX_STUB_FAIL_MODEL=gpt-6-astra CODEX_STUB_FAIL_KIND=other
 assert_rc 1 "smoke with an auth failure"
-assert_file_contains "$OUT" "FAIL  model gpt-5.6-sol: the turn failed (exit 7) — NOT a model-availability failure"
-assert_not_contains "$OUT" "gpt-5.6-sol is not available"
+assert_file_contains "$OUT" "FAIL  model gpt-6-astra: the turn failed (exit 7) — NOT a model-availability failure"
+assert_not_contains "$OUT" "gpt-6-astra is not available"
 # The stderr the classification was based on is shown, never swallowed.
 assert_file_contains "$OUT" "stderr: Error: 401 Unauthorized"
-assert_eq "2" "$(turns)" "the later model still ran after an auth failure"
-assert_file_contains "$OUT" "ok    model gpt-5.6-luna answers"
+assert_eq "3" "$(turns)" "the later models still ran after an auth failure"
+assert_file_contains "$OUT" "ok    model gpt-6-sol answers"
+assert_file_contains "$OUT" "ok    model gpt-6-luna answers"
 
 # --- 8. a hung model is cut by the watchdog, alone ---------------------------
 reset_stub
-doctor_smoke -u TANDEM_IMPLEMENTER CODEX_STUB_HANG_MODEL=gpt-5.6-sol \
+doctor_smoke -u TANDEM_IMPLEMENTER CODEX_STUB_HANG_MODEL=gpt-6-astra \
   TANDEM_DOCTOR_SMOKE_TIMEOUT_SECONDS=2
 assert_rc 1 "smoke with a hung model"
-assert_file_contains "$OUT" "FAIL  model gpt-5.6-sol: no reply within 2s"
+assert_file_contains "$OUT" "FAIL  model gpt-6-astra: no reply within 2s"
 assert_file_contains "$OUT" "NOT a model-availability failure"
 # The FAIL line is the whole report: bash's own "Terminated: 15 <command line>"
 # job notice must not be dumped into the middle of a diagnosis.
 assert_not_contains "$ERR" "Terminated"
-assert_eq "2" "$(turns)" "the later model still ran after a timeout"
-assert_file_contains "$OUT" "ok    model gpt-5.6-luna answers"
+assert_eq "3" "$(turns)" "the later models still ran after a timeout"
+assert_file_contains "$OUT" "ok    model gpt-6-sol answers"
+assert_file_contains "$OUT" "ok    model gpt-6-luna answers"
 
 # --- 9. the watchdog override is validated ------------------------------------
 reset_stub
@@ -242,7 +250,7 @@ assert_eq "0" "$(turns)" "no turn on an unproven capability"
 # finish that half instead of killing it the moment the leader is gone.
 reset_stub
 RES_PIDFILE="$SANDBOX/resistant.pid"
-doctor_smoke -u TANDEM_IMPLEMENTER CODEX_STUB_HANG_MODEL=gpt-5.6-sol \
+doctor_smoke -u TANDEM_IMPLEMENTER CODEX_STUB_HANG_MODEL=gpt-6-astra \
   CODEX_STUB_HANG_RESISTANT=1 CODEX_STUB_HANG_PIDFILE="$RES_PIDFILE" \
   TANDEM_DOCTOR_SMOKE_TIMEOUT_SECONDS=2
 assert_rc 1 "smoke with a TERM-resistant hung model"
@@ -255,7 +263,7 @@ if kill -0 "$RES_PID" 2>/dev/null; then
   kill -KILL "$RES_PID" 2>/dev/null || true
   fail "the TERM-resistant child (pid $RES_PID) survived the doctor's watchdog"
 fi
-assert_eq "2" "$(turns)" "the later model still ran after the resistant hang"
+assert_eq "3" "$(turns)" "the later models still ran after the resistant hang"
 
 # --- 13. an interrupted doctor reaps the group, leader alive or not ----------
 # TERM arrives while the hung turn is in flight — possibly inside the watchdog's
@@ -264,7 +272,7 @@ assert_eq "2" "$(turns)" "the later model still ran after the resistant hang"
 # liveness, never gated on the leader's.
 reset_stub
 RES_PIDFILE_2="$SANDBOX/resistant-int.pid"
-env -u TANDEM_IMPLEMENTER CODEX_STUB_HANG_MODEL=gpt-5.6-sol \
+env -u TANDEM_IMPLEMENTER CODEX_STUB_HANG_MODEL=gpt-6-astra \
   CODEX_STUB_HANG_RESISTANT=1 CODEX_STUB_HANG_PIDFILE="$RES_PIDFILE_2" \
   TANDEM_DOCTOR_SMOKE_TIMEOUT_SECONDS=2 \
   bash "$SCRIPTS/codex-doctor.sh" --smoke >"$OUT" 2>"$ERR" &

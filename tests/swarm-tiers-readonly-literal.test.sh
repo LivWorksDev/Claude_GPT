@@ -24,9 +24,9 @@ check() {
   assert_file_contains "$(stub_stdin "$N")" "fully rendered seat prompt"
 }
 
-check judge  s-judge  gpt-5.6-sol  xhigh
-check worker s-worker gpt-5.6-sol  high
-check scout  s-scout  gpt-5.6-luna high
+check judge  s-judge  gpt-6-astra xhigh
+check worker s-worker gpt-6-sol   high
+check scout  s-scout  gpt-6-luna  high
 
 # Overrides move model and effort per tier…
 export TANDEM_ULTRA_JUDGE_MODEL=j-model

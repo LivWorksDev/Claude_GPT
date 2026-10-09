@@ -1,6 +1,6 @@
 {
   "name": "claude-gpt",
-  "description": "Workflows multi-modelo para Claude Code: Fable 5 orquesta, Opus 5 implementa por defecto y Sol hace red-team y review independiente.",
+  "description": "Workflows multi-modelo para Claude Code: Fable 5 orquesta, Opus 5 implementa por defecto y Codex hace red-team y review independiente.",
   "owner": {
     "name": "Myum"
   },
@@ -8,7 +8,7 @@
     {
       "name": "tandem",
       "source": "./",
-      "description": "Claude Fable 5 orquesta; Opus 5 implementa por defecto y Codex (GPT-5.6 Sol) hace red-team y review independiente."
+      "description": "Claude Fable 5 orquesta; Opus 5 implementa por defecto y Codex (GPT-6 Astra) hace red-team y review independiente."
     }
   ]
 }

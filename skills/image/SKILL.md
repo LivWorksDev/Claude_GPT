@@ -1,6 +1,6 @@
 ---
 name: image
-description: Generate image assets (icons, sprites, illustrations, UI mockups) saved at exact repo paths using Codex's native gpt-image-2 tool, driven by GPT-5.6 Sol (effort high, workspace-write) — one thread per asset so refinements keep full context. Supports transparent backgrounds via the chroma-key workaround when the use case needs it (e.g. videogame sprites). Use when the user asks to generate an image or visual asset for the project. NOT for code changes (tandem:implement) and NOT part of the plan/review pipeline.
+description: Generate image assets (icons, sprites, illustrations, UI mockups) saved at exact repo paths using Codex's native gpt-image-2 tool, driven by the Codex image seat (GPT-6 Sol by default, effort high, workspace-write) — one thread per asset so refinements keep full context. Supports transparent backgrounds via the chroma-key workaround when the use case needs it (e.g. videogame sprites). Use when the user asks to generate an image or visual asset for the project. NOT for code changes (tandem:implement) and NOT part of the plan/review pipeline.
 argument-hint: "[asset-label] [what to generate]"
 ---
 

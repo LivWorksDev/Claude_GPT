@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.35.0 — 2026-10-01
+
+- **Política de modelos Codex 6** (M35a): los defaults pasan a la familia 6 que trae la
+  CLI 0.157.1 — el asiento adversarial read-only (red-team del plan, code review y `ask`)
+  y el juez de ultra → `gpt-6-astra`; el implementador Codex (`TANDEM_IMPLEMENTER=sol`),
+  la generación de imágenes y el worker de ultra → `gpt-6-sol`; el scout → `gpt-6-luna`.
+  Efforts sin cambios; los overrides `TANDEM_*_MODEL`/`_EFFORT` siguen ganando. Los
+  modelos 5.6 siguen siendo utilizables vía override.
+- **Fuente única de los defaults:** nuevo `scripts/_models.sh` con una sola función,
+  `tandem_default_model <seat>`, bajo el mismo contrato sin side effects que `_pins.sh`
+  (el doctor lo sourcea sin `_common.sh`). Sustituye a 17 literales repartidos en cuatro
+  scripts (`_common.sh`, `codex-swarm.sh`, `codex-doctor.sh` y `mcp-probe.sh`): el
+  próximo cambio de generación es una edición de un solo fichero, y un seat desconocido
+  responde rc 1 sin salida — nunca un `--model` vacío en silencio.
+- **`doctor --smoke`** con la política por defecto gasta ahora tres turnos (astra, sol y
+  luna), deduplicados por modelo.
+- **Vocabulario por rol en las skills:** el revisor se nombra por su papel («Codex», «the
+  reviewer», «the red-team») y no por un modelo que cambia de generación; el encabezado de
+  ronda del log del plan pasa a `## Round <n> — Codex · tokens`. `TANDEM_IMPLEMENTER=sol`
+  conserva su nombre: designa el transporte Codex de implementación, cuyo modelo es
+  gpt-6-sol. Descripciones de las skills, README, ARCHITECTURE y manifiestos actualizados
+  en su parte Codex (la parte Claude — Sonnet 5.5 implementa, Opus 5.5 orquesta — es M35b).
+- Tests: nuevo `tests/models-defaults.test.sh` — mapping escrito como literales, seat
+  desconocido → rc 1 sin salida, contrato sin side effects verificado en un shell limpio,
+  barridos estáticos (ningún `gpt-5.6` en `scripts/`, `skills/` ni en los documentos de
+  política vigente; ningún default de modelo asignado fuera de `_models.sh`) y
+  `resolve_role` por rol; 19 tests de argv y de política actualizados a los literales
+  nuevos, sin debilitar ninguna aserción. Suite completa: 90 passed.
+- Primer run del pipeline sobre la familia 6 y la CLI 0.157.1, tras un smoke real en
+  verde (start + resume con gpt-6-astra por los wrappers exec; deriva del stream solo
+  aditiva): red-team del plan con gpt-6-astra (2 rondas), implementación con Sonnet 5.5
+  (modelo por invocación) y code review con un hilo fresco de gpt-6-astra.
+
 ## 0.34.0 — 2026-08-30
 
 - **`codex-doctor.sh --autonomous` — preflight frío del modo desatendido** (M34):

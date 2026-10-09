@@ -26,13 +26,13 @@ HB="$CLAUDE_PROJECT_DIR/.tandem/state/current.json"
 export TANDEM_TURN_EFFORT=low
 run bash "$SCRIPTS/codex-resume.sh" review demo "$SANDBOX/p.tpl"
 assert_rc 0 "resume with TANDEM_TURN_EFFORT=low"
-assert_argv 1 "exec${US}--json${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}gpt-5.6-sol${US}--sandbox${US}read-only${US}-c${US}model_reasoning_effort=low${US}--ignore-user-config${US}--ignore-rules${US}-c${US}sandbox_mode=read-only${US}-c${US}sandbox_workspace_write.network_access=false${US}-c${US}sandbox_workspace_write.writable_roots=[]${US}-c${US}approval_policy=never${US}-c${US}approvals_reviewer=user${US}--output-last-message${US}$SD/$KEY.t1.reply.txt${US}resume${US}thr_effort_1${US}-"
+assert_argv 1 "exec${US}--json${US}--skip-git-repo-check${US}--color${US}never${US}--model${US}gpt-6-astra${US}--sandbox${US}read-only${US}-c${US}model_reasoning_effort=low${US}--ignore-user-config${US}--ignore-rules${US}-c${US}sandbox_mode=read-only${US}-c${US}sandbox_workspace_write.network_access=false${US}-c${US}sandbox_workspace_write.writable_roots=[]${US}-c${US}approval_policy=never${US}-c${US}approvals_reviewer=user${US}--output-last-message${US}$SD/$KEY.t1.reply.txt${US}resume${US}thr_effort_1${US}-"
 # Only the effort moved: the role's sandbox is still pinned read-only.
 assert_file_contains "$ERR" "effort=low sandbox=read-only"
 assert_json "$HB" '.effort == "low" and .sandbox == "read-only" and .turn == 1'
 assert_file "$SD/$KEY.t1.meta.json"
 assert_json "$SD/$KEY.t1.meta.json" \
-  '. == {role:"review", model:"gpt-5.6-sol", effort:"low", sandbox:"read-only"}'
+  '. == {role:"review", model:"gpt-6-astra", effort:"low", sandbox:"read-only"}'
 
 # --- 2. max and ultra are valid values ---------------------------------------
 export TANDEM_TURN_EFFORT=max
@@ -99,7 +99,7 @@ assert_file_contains "$CODEX_STUB_LOG.argv.5" "model_reasoning_effort=xhigh"
 assert_not_contains "$CODEX_STUB_LOG.argv.5" "model_reasoning_effort=low"
 # …and its meta.json records the ROLE's effort, with all four fields populated.
 assert_json "$SD/$FKEY.t1.meta.json" \
-  '. == {role:"review", model:"gpt-5.6-sol", effort:"xhigh", sandbox:"read-only"}'
+  '. == {role:"review", model:"gpt-6-astra", effort:"xhigh", sandbox:"read-only"}'
 
 run bash "$SCRIPTS/codex-swarm.sh" worker run-1 s-1 "$SANDBOX/seat.txt"
 assert_rc 0 "swarm with TANDEM_TURN_EFFORT defined"

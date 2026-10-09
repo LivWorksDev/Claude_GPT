@@ -81,7 +81,7 @@ export CODEX_STUB_REPLY="retry worked"
 run bash "$SCRIPTS/codex-swarm.sh" worker run-1 seat-a "$SANDBOX/seat.txt"
 assert_rc 0 "retry"
 assert_file_contains "$UD/$SEATKEY.reply.txt" "retry worked"
-assert_file_contains "$OUT" "--- codex reply (gpt-5.6-sol, run-1/seat-a) ---"
+assert_file_contains "$OUT" "--- codex reply (gpt-6-sol, run-1/seat-a) ---"
 
 # --- missing dependency -----------------------------------------------------
 MINBIN="$(make_minbin)"
