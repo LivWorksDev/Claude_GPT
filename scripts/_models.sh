@@ -31,17 +31,17 @@
 # Portable: bash 3.2+ (stock macOS), BSD userland.
 
 # tandem_default_model <seat> — prints the default model of a seat, nothing else.
-# Seats: review (also serves ask) · implement · image · ultra-judge · ultra-worker
-# · ultra-scout. Unknown seat → no output, return 1.
+# Seats: review (also serves ask) · implement · image · council · ultra-judge ·
+# ultra-worker · ultra-scout. Unknown seat → no output, return 1.
 #
 # The split follows what each seat does: the read-only adversarial seats (the
-# plan red-team, code review, ask, and the ultra judge) get the frontier model;
-# the seats that write or analyse as the workhorse (the Codex implementer, image
-# generation, the ultra worker) get Sol; the mechanical sweeps (the ultra scout)
-# get the fast, cheap one.
+# plan red-team, code review, ask, the Codex seat of the council and the ultra
+# judge) get the frontier model; the seats that write or analyse as the
+# workhorse (the Codex implementer, image generation, the ultra worker) get Sol;
+# the mechanical sweeps (the ultra scout) get the fast, cheap one.
 tandem_default_model() {
   case "${1:-}" in
-    review | ultra-judge) printf '%s' 'gpt-6-astra' ;;
+    review | council | ultra-judge) printf '%s' 'gpt-6-astra' ;;
     implement | image | ultra-worker) printf '%s' 'gpt-6-sol' ;;
     ultra-scout) printf '%s' 'gpt-6-luna' ;;
     *) return 1 ;;

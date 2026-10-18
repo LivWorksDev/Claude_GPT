@@ -41,6 +41,7 @@ check_seat() {
 check_seat review gpt-6-astra
 check_seat implement gpt-6-sol
 check_seat image gpt-6-sol
+check_seat council gpt-6-astra
 check_seat ultra-judge gpt-6-astra
 check_seat ultra-worker gpt-6-sol
 check_seat ultra-scout gpt-6-luna
@@ -141,7 +142,7 @@ assert_sweep_empty "a default model is assigned outside scripts/_models.sh" \
 # --- 4. resolve_role: every role gets the model of its own seat ---------------
 role_model() (
   # The case is about the DEFAULT: no override may be in scope.
-  unset TANDEM_REVIEW_MODEL TANDEM_IMPLEMENT_MODEL TANDEM_IMAGE_MODEL
+  unset TANDEM_REVIEW_MODEL TANDEM_IMPLEMENT_MODEL TANDEM_IMAGE_MODEL TANDEM_COUNCIL_MODEL
   # shellcheck source=../scripts/_common.sh
   . "$SCRIPTS/_common.sh"
   resolve_role "$1"
@@ -162,3 +163,4 @@ check_role review review gpt-6-astra
 check_role ask review gpt-6-astra
 check_role implement implement gpt-6-sol
 check_role image image gpt-6-sol
+check_role council council gpt-6-astra

@@ -18,6 +18,8 @@ assert_no_file "$SD/$KEY.thread"
 assert_no_file "$SD/$KEY.last.txt"
 assert_no_file "$SD/$KEY.t1.reply.txt"
 assert_json "$HB" '.status == "failed"'
+# No success receipt for a turn the wrapper rejected.
+assert_no_file "$SD/$KEY.t1.ok"
 
 # The events NDJSON was still captured — the failure must stay diagnosable.
 assert_file_contains "$SD/$KEY.t1.events.ndjson" '"type":"thread.started"'
@@ -44,6 +46,9 @@ assert_file "$SD/$KEY.t2.usage.json"
 assert_json "$SD/$KEY.t2.usage.json" '. == {"input_tokens":9000,"output_tokens":77}'
 assert_file "$SD/$KEY.t2.reply.txt"
 assert_eq "2" "$(cat "$SD/$KEY.turn")" "monotonic attempt number"
+# The receipt names the attempt that succeeded, and only that one.
+assert_file "$SD/$KEY.t2.ok"
+assert_no_file "$SD/$KEY.t1.ok"
 unset CODEX_STUB_TOKENS_IN CODEX_STUB_TOKENS_OUT
 
 # A zero-byte reply is empty too ([ -s ], not [ -f ]).

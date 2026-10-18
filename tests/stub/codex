@@ -43,7 +43,15 @@
 #                           behaviour for a key that does not exist, and the
 #                           way a test simulates one being renamed away.
 #   CODEX_STUB_DEBUG_RC     exit code of `codex debug …` with no `-c` at all
-#                           (default 0 — the probe's preflight)
+#                           (default 0 — the probe's preflight); it applies to
+#                           `codex debug models` too (non-zero → nothing on
+#                           stdout, an error on stderr)
+#   CODEX_STUB_MODELS_JSON  file printed verbatim by `codex debug models`;
+#                           unset → the stub's own catalog in the REAL shape
+#                           {"models":[{"slug":…,"supported_reasoning_levels":
+#                           [{"effort":…}]}]}: gpt-6-astra and gpt-6-sol
+#                           low…ultra, gpt-6-luna low…max. Like every debug
+#                           call it never advances the exec counter
 #   CODEX_STUB_HB_FILE      heartbeat snapshotted during the RUNNING phase
 #                           (default $CLAUDE_PROJECT_DIR/.tandem/state/current.json)
 #   CODEX_STUB_HELP_NO_EPHEMERAL  1 → `codex exec --help` omits `--ephemeral`,
@@ -163,6 +171,44 @@ if [ "${1:-}" = "exec" ] && [ "${2:-}" = "--help" ]; then
   printf '      --json\n'
   printf '  -o, --output-last-message <FILE>\n'
   exit "${CODEX_STUB_HELP_RC:-0}"
+fi
+
+# `codex debug models` prints the model catalog and calls no model: the free
+# check scripts/council.sh preflight runs before a single max-effort turn is
+# spent. Its own branch, BEFORE the generic debug one below, and — like it —
+# outside the exec counter.
+if [ "${1:-}" = "debug" ] && [ "${2:-}" = "models" ]; then
+  stub_rc="${CODEX_STUB_DEBUG_RC:-0}"
+  if [ "$stub_rc" -ne 0 ]; then
+    printf 'codex-stub: simulated catalog failure (debug models)\n' >&2
+    exit "$stub_rc"
+  fi
+  if [ -n "${CODEX_STUB_MODELS_JSON:-}" ]; then
+    cat "$CODEX_STUB_MODELS_JSON" || exit 1
+    exit 0
+  fi
+  stub_levels() {
+    # stub_levels <effort…> — one supported_reasoning_levels array.
+    local e sep=""
+    printf '['
+    for e in "$@"; do
+      case "$e" in
+        ultra) printf '%s{"effort":"%s","description":"Maximum reasoning with automatic task delegation"}' "$sep" "$e" ;;
+        *) printf '%s{"effort":"%s","description":"%s reasoning"}' "$sep" "$e" "$e" ;;
+      esac
+      sep=","
+    done
+    printf ']'
+  }
+  printf '{"models":['
+  printf '{"slug":"gpt-6-astra","display_name":"GPT-6 Astra","supported_reasoning_levels":%s},' \
+    "$(stub_levels low medium high xhigh max ultra)"
+  printf '{"slug":"gpt-6-sol","display_name":"GPT-6 Sol","supported_reasoning_levels":%s},' \
+    "$(stub_levels low medium high xhigh max ultra)"
+  printf '{"slug":"gpt-6-luna","display_name":"GPT-6 Luna","supported_reasoning_levels":%s}' \
+    "$(stub_levels low medium high xhigh max)"
+  printf ']}\n'
+  exit 0
 fi
 
 # `codex debug prompt-input …` validates the config and exits WITHOUT calling

@@ -218,6 +218,21 @@ fi
 # model policy (mirrors _common.sh resolve_role)
 printf '\nmodel policy (override via env):\n'
 info "review/ask:  model=${TANDEM_REVIEW_MODEL:-$(tandem_default_model review)} effort=${TANDEM_REVIEW_EFFORT:-xhigh} sandbox=read-only (pinned)"
+# The council has two machine-pinned seats. The Codex one is resolve_role's
+# `council` role; the Claude one lives ONLY in the frontmatter of
+# agents/council-fable.md (its offline twin is held equal by the suite), so it
+# is read from there instead of being restated here — a second literal would
+# report a seat nobody runs the day the pin moves.
+council_fm() {
+  # council_fm <file> <key> — one frontmatter value, trimmed and unquoted.
+  [ -f "$1" ] || return 0
+  sed -n "2,/^---/{s/^$2:[[:space:]]*//p;}" "$1" 2>/dev/null | head -n 1 \
+    | tr -d '\r"'"'" | sed -e 's/[[:space:]]*$//'
+}
+council_agent_file="$SCRIPT_DIR/../agents/council-fable.md"
+council_seat_model="$(council_fm "$council_agent_file" model)"
+council_seat_effort="$(council_fm "$council_agent_file" effort)"
+info "council:     model=${TANDEM_COUNCIL_MODEL:-$(tandem_default_model council)} effort=${TANDEM_COUNCIL_EFFORT:-max} sandbox=read-only (pinned) · claude seat=${council_seat_model:-?}/${council_seat_effort:-?} (agents/council-fable.md)"
 # Default only when UNSET: a set-but-empty selector is a config error, not opus.
 implementer="${TANDEM_IMPLEMENTER-opus}"
 case "$implementer" in
@@ -707,6 +722,10 @@ if [ "$SMOKE" -eq 1 ]; then
   smoke_add "${TANDEM_ULTRA_JUDGE_MODEL:-$(tandem_default_model ultra-judge)}"
   smoke_add "${TANDEM_ULTRA_WORKER_MODEL:-$(tandem_default_model ultra-worker)}"
   smoke_add "${TANDEM_ULTRA_SCOUT_MODEL:-$(tandem_default_model ultra-scout)}"
+  # Last on purpose: with the default policy the council's Codex seat IS Astra,
+  # already in the set, so it costs no extra turn — and appending it here keeps
+  # the order of every other model's turn exactly where it was.
+  smoke_add "${TANDEM_COUNCIL_MODEL:-$(tandem_default_model council)}"
 
   # The cost warning comes BEFORE anything is launched — the user must be able
   # to read what this is about to spend even if the first turn hangs.

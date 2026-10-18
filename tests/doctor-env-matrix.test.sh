@@ -343,7 +343,29 @@ assert_file_contains "$OUT" "FAIL  jq not found"
 # --- the ultra tier policy and the image role are reported -------------------
 doctor -u TANDEM_IMPLEMENTER
 assert_file_contains "$OUT" "review/ask:  model=gpt-6-astra effort=xhigh sandbox=read-only (pinned)"
+assert_file_contains "$OUT" "council:     model=gpt-6-astra effort=max sandbox=read-only (pinned) · claude seat=claude-fable-5-1/max (agents/council-fable.md)"
 assert_file_contains "$OUT" "image:       model=gpt-6-sol effort=high sandbox=workspace-write (pinned)"
+
+# The council's Codex seat follows its OWN overrides — never TANDEM_REVIEW_*.
+doctor -u TANDEM_IMPLEMENTER TANDEM_COUNCIL_MODEL=custom-council TANDEM_COUNCIL_EFFORT=ultra \
+  TANDEM_REVIEW_MODEL=review-only TANDEM_REVIEW_EFFORT=low
+assert_rc 0 "council overrides"
+assert_file_contains "$OUT" "council:     model=custom-council effort=ultra sandbox=read-only (pinned) · claude seat=claude-fable-5-1/max"
+assert_file_contains "$OUT" "review/ask:  model=review-only effort=low sandbox=read-only (pinned)"
+
+# The Claude seat is READ from agents/council-fable.md, never restated: a
+# copy of the doctor next to a different agent definition reports THAT one.
+PLUGIN_COPY="$SANDBOX/plugin-copy"
+mkdir -p "$PLUGIN_COPY/agents"
+cp -R "$SCRIPTS" "$PLUGIN_COPY/scripts"
+LC_ALL=C sed -e 's/^model: .*/model: claude-test-9-9/' -e 's/^effort: .*/effort: high/' \
+  "$REPO_ROOT/agents/council-fable.md" >"$PLUGIN_COPY/agents/council-fable.md"
+run env -u TANDEM_IMPLEMENTER bash "$PLUGIN_COPY/scripts/codex-doctor.sh"
+assert_rc 0 "doctor next to a modified council agent"
+assert_file_contains "$OUT" "· claude seat=claude-test-9-9/high (agents/council-fable.md)"
+rm -f "$PLUGIN_COPY/agents/council-fable.md"
+run env -u TANDEM_IMPLEMENTER bash "$PLUGIN_COPY/scripts/codex-doctor.sh"
+assert_file_contains "$OUT" "· claude seat=?/? (agents/council-fable.md)"
 assert_file_contains "$OUT" "judge=gpt-6-astra/xhigh worker=gpt-6-sol/high scout=gpt-6-luna/high"
 assert_file_contains "$OUT" "concurrency=4"
 assert_file_contains "$OUT" "slot_timeout=1800s"

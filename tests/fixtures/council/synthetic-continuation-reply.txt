@@ -1,0 +1,4 @@
+Continuación SINTÉTICA: segunda respuesta del mismo asiento
+- [B-1] RESUELTA: la síntesis v2 lo cubre
+RIESGO RESIDUAL: ninguno relevante
+VERDICT: APPROVED

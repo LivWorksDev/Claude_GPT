@@ -30,6 +30,9 @@ assert_json "$HB" '.role == "review" and .turn == 1'
 # The pre-deletion of the reply file is observable: the stub writes nothing in
 # this scenario, so a stale reply could only come from a previous turn.
 assert_no_file "$SD/$KEY.t1.reply.txt"
+# No success receipt: only a turn that passed every check of the wrapper gets
+# one (turn_receipt_write in _common.sh).
+assert_no_file "$SD/$KEY.t1.ok"
 
 # rc 64 and rc 3 are distinct outcomes and must not degrade into 1.
 export CODEX_STUB_EXIT=64

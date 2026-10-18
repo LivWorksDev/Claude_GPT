@@ -1,5 +1,58 @@
 # Changelog
 
+## 0.36.0 — 2026-10-18
+
+- **`/tandem:council` — consejo adversarial de tres modelos** (M39): valora una idea y
+  optimiza el procedimiento para alcanzar un objetivo. La sesión (Opus 5.5, max) entrevista,
+  sella un brief, compite con su propia propuesta, modera y sintetiza, pero no vota. Fable 5.1
+  (agente de plugin `tandem:council-fable`, `claude-fable-5-1`/max fijados en el frontmatter,
+  con un gemelo offline sin herramientas web) y GPT-6 Astra (rol Codex nuevo `council`:
+  `gpt-6-astra`, `max`, read-only, watchdog 3600 s, solo exec) proponen a ciegas, se
+  contrainterrogan y revisan la síntesis por rondas hasta consenso o tope
+  (`TANDEM_COUNCIL_ROUNDS`, 4). El informe y la transcripción íntegra quedan en
+  `docs/council/<run-id>/`; nada se commitea.
+- **`scripts/council.sh`, el contrato ejecutable** (bash 3.2 + jq, 11 subcomandos):
+  - preflight gratis: catálogo de `codex debug models`, pin de Fable leído de los agentes,
+    `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`, `CLAUDE_CODE_EFFORT_LEVEL`, `maxEffortLevel`,
+    `TANDEM_TURN_EFFORT` y sha256, más la cota de turnos (típico `2 × (2 + R)` en max, techo
+    `5 × (2 + R)` más los recordatorios en low);
+  - letras A/B/C al azar, y brief y aportaciones del líder sellados antes de lanzar;
+  - prompts compuestos byte a byte, con intentos y topes ejecutables;
+  - `astra`, el único camino a un turno de Astra: reserva y lanzamiento en una sola sección
+    crítica, token de lanzamiento, liveness por pid + `lstart` y tres firmas de argv,
+    recuperación por evidencia, y `bloqueada` + `unblock` humano ante la duda;
+  - captura fiel del transcript de Fable, con el modelo verificado en cada línea y el uso de
+    la última línea de cada `message.id`;
+  - `publish` solo de turnos certificados del intento vigente;
+  - registro de objeciones y regla de consenso de seis condiciones que solo dictamina
+    `status`; `--metadata` deja evidencia, anomalías y tokens.
+- **Recibo de éxito por turno** en `codex-start.sh` y `codex-resume.sh`, para todos los roles:
+  `<key>.t<N>.ok` = `{turn, thread_id, reply_sha256}`, escrito solo cuando el turno pasó todas
+  las comprobaciones del wrapper. Es la única prueba duradera de que ESE turno fue válido: un
+  turno rechazado deja su `reply.txt` en disco a propósito.
+- **Doctor:** línea de política del consejo (el asiento Codex con sus overrides; el asiento
+  Claude leído del frontmatter) y `smoke_add` del modelo del consejo, deduplicado con Astra.
+- **Lo que cazó la verificación del orquestador sobre un transcript real:** el uso de un
+  subagente se reparte en varias líneas por mensaje y, en los mensajes largos, solo la ÚLTIMA
+  lleva el recuento definitivo; las anteriores llevan los parciales del streaming. Medido
+  sobre 1480 líneas reales: la primera línea daba 6.514 tokens de salida, la última los
+  152.578 reales. `council.sh` ya se quedaba con la última, pero la fixture del plan no lo
+  distinguía. Se añadió una segunda fixture real de streaming que lo fija con literales
+  (comprobado por mutación) y se corrigió la premisa en ARCHITECTURE y en las fixtures.
+- **Tests:** 10 ficheros nuevos (`council-role`, `council-preflight`, `council-run`,
+  `council-lifecycle` y `council-recovery` con su preámbulo común
+  `council-lifecycle-lib.sh`, `council-capture`, `council-ledger`, `council-spaces`,
+  `skill-council-contract` y `agent-council-parity`); fixtures derivadas de dos transcripts
+  reales, más variantes sintéticas rotuladas como tales; el stub gana `debug models`; y los
+  caminos de fallo existentes fijan ahora que no dejan recibo. Suite completa: 100 passed;
+  shellcheck y actionlint limpios.
+- **Pipeline:** plan red-teameado por Astra en 5 rondas (9 hallazgos: 3 P1 + 6 P2, todos
+  aceptados); implementación con Opus 5.5 (`tandem:implementer`, modelo verificado en las 666
+  líneas `assistant` de su transcript); code review de Astra en un hilo fresco, aprobada en 2
+  rondas tras corregir 2 Major (rutas con espacios en `publish` y el sello del líder antes de
+  preparar cualquier prompt) (`docs/reviews/council.md`). El canario real del plan (C1–C5) queda pendiente del OK del
+  mantenedor.
+
 ## 0.35.0 — 2026-10-01
 
 - **Política de modelos Codex 6** (M35a): los defaults pasan a la familia 6 que trae la

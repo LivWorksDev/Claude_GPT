@@ -8,7 +8,8 @@ v0.30.0, verificado cita a cita por el mantenedor y con enmiendas ya incorporada
 informe íntegro, verificación y razonamiento en `docs/audits/informe-campo-2026-08-21.md`.
 Las entradas M35–M38 nacen de la revisión del 2026-10-01 sobre v0.34.0: deriva de la CLI de
 Codex a 0.157.1 (con `codex mcp-server` eliminado), la familia de modelos 6, la decisión de no
-reactivar el CI de GitHub y la nueva visión del producto (sección siguiente).
+reactivar el CI de GitHub y la nueva visión del producto (sección siguiente). M39 nace de una
+petición directa del mantenedor del 2026-10-18.
 
 **Cómo se traza:** cada mejora que se aborde entra por el propio pipeline
 (`/tandem:plan <slug sugerido>`); al aprobarse el plan se actualiza aquí el estado a
@@ -81,11 +82,14 @@ que la sostienen; el pulido que no la toca, baja.
 | M36 | Retirar el transporte MCP (`codex mcp-server` ya no existe) | Transporte | P2 | M | pendiente |
 | M37 | Vigilancia de deriva local y gratuita en el doctor (el CI no corre) | Diagnóstico | P1 | M | pendiente |
 | M38 | Juez adversarial de decisiones y visión — épica: a visión + ADR · b `tandem:judge` · c gates | Visión | P2 | L | pendiente |
+| M39 | `/tandem:council` — consejo adversarial de tres modelos para valorar ideas y optimizar estrategias | Consejo | P2 | L | hecha (v0.36.0; canario real pendiente) |
 
 ## Orden de ataque recomendado
 
 Revisado el 2026-10-01 contra la visión; solo entradas pendientes. El orden histórico de
-M1–M34 queda en el historial git de este fichero.
+M1–M34 queda en el historial git de este fichero. M39 (`council`) entró el 2026-10-18 por
+decisión directa del mantenedor, por delante de esta cola y sin alterarla: no depende de
+ninguna de sus entradas, y M35b sigue siendo la siguiente.
 
 1. **M35a → M35b** — la base de todo lo demás: los modelos con los que el pipeline se
    revisa e implementa a sí mismo. M35a es además el primer run real sobre la CLI 0.157.1 y
@@ -943,3 +947,31 @@ M1–M34 queda en el historial git de este fichero.
 - **Aceptación:** un plan que contradice un ADR registrado recibe `CONFLICT` citándolo; una
   sesión nueva retoma el juez sin re-explicarle nada (todo desde disco); ningún dictamen
   sin cita; el juez nunca escribe en el repo.
+
+## M39 — `/tandem:council`: consejo adversarial de tres modelos para valorar ideas
+
+- **Severidad/Esfuerzo:** P2 / L · **Slug:** `council`
+- **Origen:** petición del mantenedor del 2026-10-18: un comando para valorar ideas y
+  discutirlas entre modelos, liderado por Opus 5.5 en max y con Fable 5.1 y GPT-6 Astra
+  también en max, de forma adversarial y por iteraciones hasta optimizar el procedimiento
+  hacia un objetivo. Entrevista de cuatro decisiones: ámbito general con el proyecto como
+  contexto opcional de solo lectura; el usuario interviene solo al inicio (preguntas +
+  brief); búsqueda web con fuente obligatoria; entregable Markdown en el proyecto (informe +
+  transcripción íntegra).
+- **Problema:** tandem ataca planes y diffs, pero no tiene un modo para valorar una idea ni
+  para optimizar una estrategia. `tandem:ask` es la segunda opinión de un solo modelo y
+  `tandem:ultra` sienta solo asientos Codex, sin memoria entre rondas ni otra familia.
+- **Propuesta:** `docs/plans/council.plan.md`, aprobado por Astra en 5 rondas (9 hallazgos,
+  3 P1 + 6 P2, todos aceptados): rol Codex `council` (Astra, max, read-only), asiento Fable
+  5.1 max como agente de plugin con el ID fijado, `scripts/council.sh` como contrato
+  ejecutable del debate (preflight, sellos, intentos, captura fiel del transcript con
+  verificación de modelo, publicación con recibo de éxito por turno, lock por run, ciclo de
+  vida del turno, registro de objeciones y consenso dictaminado por script) y la skill
+  `skills/council/`.
+- **Aceptación:** la del plan (A1–A10 + A1b/A5b) y, como cierre bloqueante, el canario real
+  C1–C5 con OK explícito del mantenedor.
+- **Estado (2026-10-18):** implementada en v0.36.0 (100 tests en verde con shellcheck y
+  actionlint). El canario real C1–C5 sigue pendiente del OK del mantenedor y de una sesión
+  nueva con el plugin cargado; hasta entonces las formas sintéticas de las fixtures (la
+  continuación por `SendMessage` y la respuesta en bloques `text`) no están validadas contra
+  el harness real.

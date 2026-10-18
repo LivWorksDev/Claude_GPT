@@ -2,7 +2,9 @@
 # tandem — start a NEW persistent Codex thread for a target.
 #
 # usage: codex-start.sh <role> <target> <prompt-template.tpl> [extra-file] [notes-file]
-#   role    review | implement | ask | image  (pins model, effort and sandbox — see _common.sh)
+#   role    review | implement | ask | image | council  (pins model, effort and
+#           sandbox — see _common.sh; `council` is launched only by
+#           scripts/council.sh astra)
 #   target  plan path or kebab-case topic label; it is the state key, reuse it verbatim
 #   extra-file / notes-file  optional files whose content fills {{EXTRA}} / {{NOTES}}
 #
@@ -13,10 +15,11 @@
 #      every seat, while `on` explicitly keeps the read-only default. Empty or
 #      any other value is a usage error before dependencies or state.
 #      TANDEM_TRANSPORT  exec (default) | mcp. `mcp` routes the turn through
-#      `codex mcp-server` and is supported for the four roles above — `review`
-#      only for its pipeline targets (`cr-*`/`range-review-*`; plan reviews stay
-#      on exec, M21); every artefact, exit code and guard is identical either
-#      way (scripts/_mcp.sh).
+#      `codex mcp-server` and is supported for ask, review, implement and image
+#      — `review` only for its pipeline targets (`cr-*`/`range-review-*`; plan
+#      reviews stay on exec, M21); every artefact, exit code and guard is
+#      identical either way (scripts/_mcp.sh). `council` is exec-only and
+#      answers 64 under mcp, before dependencies and state.
 #      TANDEM_MCP_TIMEOUT_SECONDS  per-turn watchdog for the mcp transport; it
 #      overrides a default resolved PER ROLE by the role's DOMINANT LAUNCH MODE,
 #      not by its sandbox: review and implement run in the background and
@@ -24,7 +27,11 @@
 #      foreground contracts and keep the default that stays below the Bash
 #      tool's ceiling.
 #      TANDEM_EXEC_TIMEOUT_SECONDS  equivalent per-turn watchdog for the exec
-#      transport (540s foreground; 3600s review/implement by default).
+#      transport (540s foreground; 3600s review/implement/council by default).
+#
+# On success the turn also leaves its receipt <key>.t<N>.ok — {turn, thread_id,
+# reply_sha256} — written after every check passed; no failure path writes it
+# (turn_receipt_write in _common.sh).
 #
 # exit codes: 0 ok · 1 codex failure · 2 thread already exists (resume instead)
 #             3 missing dependency · 64 usage error
@@ -262,6 +269,11 @@ printf '%s\n' "$THREAD_ID" >"$THREAD_FILE"
 # Per-turn replies are the durable record; last.txt is a convenience pointer
 # to the newest one, updated only after every success check passed.
 cp "$MSG_FILE" "$LAST_FILE"
+# The turn's success receipt, the last step of the tail every transport shares:
+# the only durable proof that THIS turn passed the checks above (see
+# turn_receipt_write). Best-effort — a receipt that cannot land never fails a
+# turn that already succeeded.
+turn_receipt_write "$STATE_DIR/$KEY.t$TURN.ok" "$TURN" "$THREAD_ID" "$MSG_FILE" || true
 hb_end "done" "$(hb_verdict "$MSG_FILE")"
 
 printf '\n--- codex reply (%s, turn %s) ---\n' "$CODEX_MODEL" "$TURN"

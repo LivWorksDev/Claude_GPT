@@ -25,7 +25,7 @@ need_jq() {
   command -v jq >/dev/null 2>&1 || die "jq not found. Install: brew install jq" 3
 }
 
-# resolve_role <review|implement|ask|image>
+# resolve_role <review|implement|ask|image|council>
 # Sets ROLE, CODEX_MODEL, CODEX_EFFORT, CODEX_SANDBOX.
 # The sandbox is pinned per role and is deliberately NOT overridable by env:
 # reviewers must never write; implementers never leave the workspace;
@@ -59,8 +59,22 @@ resolve_role() {
       CODEX_EFFORT="${TANDEM_IMAGE_EFFORT:-high}"
       CODEX_SANDBOX="workspace-write"
       ;;
+    council)
+      # The Codex seat of tandem:council (scripts/council.sh is its only
+      # caller): Astra at max, read-only. A role of its OWN rather than `ask`
+      # plus env overrides, because these pins are re-applied by THIS function
+      # on every resume — a continuation launched without an override could
+      # otherwise fall back to ask's xhigh and to the 540 s foreground watchdog.
+      # Its variables are its own too: TANDEM_REVIEW_* never reach it. `max`,
+      # not `ultra`: the catalog describes ultra as reasoning with automatic
+      # task delegation, outside tandem's control and accounting —
+      # TANDEM_COUNCIL_EFFORT=ultra remains an explicit choice.
+      CODEX_MODEL="${TANDEM_COUNCIL_MODEL:-$(tandem_default_model council)}"
+      CODEX_EFFORT="${TANDEM_COUNCIL_EFFORT:-max}"
+      CODEX_SANDBOX="read-only"
+      ;;
     *)
-      die "unknown role '$ROLE' (expected: review, implement, ask or image)" 64
+      die "unknown role '$ROLE' (expected: review, implement, ask, image or council)" 64
       ;;
   esac
 }
@@ -115,6 +129,10 @@ TANDEM_EXEC_TIMEOUT_DEFAULT=540
 TANDEM_EXEC_TIMEOUT_DEFAULT_REVIEW=3600
 TANDEM_EXEC_TIMEOUT_DEFAULT_IMPLEMENT=3600
 TANDEM_EXEC_TIMEOUT_DEFAULT_ULTRA=3600
+# The council's turns ALWAYS run in the background (scripts/council.sh astra),
+# and a max-effort turn with web search passes the 540 s foreground default
+# with room to spare. A literal of its own, like the others.
+TANDEM_EXEC_TIMEOUT_DEFAULT_COUNCIL=3600
 
 # kill_group_term_kill <pid> <group> <grace> — send TERM, allow <grace>
 # seconds, then KILL whatever remains. The process GROUP is checked
@@ -149,6 +167,7 @@ exec_timeout_validate() {
     review) EXEC_TIMEOUT="$TANDEM_EXEC_TIMEOUT_DEFAULT_REVIEW" ;;
     implement) EXEC_TIMEOUT="$TANDEM_EXEC_TIMEOUT_DEFAULT_IMPLEMENT" ;;
     ultra) EXEC_TIMEOUT="$TANDEM_EXEC_TIMEOUT_DEFAULT_ULTRA" ;;
+    council) EXEC_TIMEOUT="$TANDEM_EXEC_TIMEOUT_DEFAULT_COUNCIL" ;;
     *) EXEC_TIMEOUT="$TANDEM_EXEC_TIMEOUT_DEFAULT" ;;
   esac
   case "${TANDEM_EXEC_TIMEOUT_SECONDS+set}" in
@@ -313,6 +332,52 @@ usage_next_index() {
     n=$((n + 1))
   done
   printf '%s' "$n"
+}
+
+# --- turn receipt ------------------------------------------------------------
+# file_sha256 <file> — the lowercase hex sha256 of <file>, computed by
+# `shasum -a 256` or `sha256sum`, whichever exists first. Prints nothing and
+# returns 1 when neither tool exists, the file cannot be read, or the output is
+# not a 64-digit digest. Read through stdin so no file name can leak into, or
+# be mistaken for, the digest.
+file_sha256() {
+  local f="${1:-}" out=""
+  [ -n "$f" ] && [ -f "$f" ] && [ -r "$f" ] || return 1
+  if command -v shasum >/dev/null 2>&1; then
+    out="$(shasum -a 256 <"$f" 2>/dev/null)" || out=""
+  elif command -v sha256sum >/dev/null 2>&1; then
+    out="$(sha256sum <"$f" 2>/dev/null)" || out=""
+  else
+    return 1
+  fi
+  out="${out%%[[:space:]]*}"
+  case "$out" in
+    '' | *[!0-9a-f]*) return 1 ;;
+  esac
+  [ "${#out}" -eq 64 ] || return 1
+  printf '%s' "$out"
+}
+
+# turn_receipt_write <dest> <turn> <thread-id> <reply-file> — the SUCCESS
+# receipt of a turn: `{turn, thread_id, reply_sha256}`, written atomically
+# (usage_persist) by the two wrappers as the very last step of their shared
+# success tail, after every check of the turn passed and last.txt was updated.
+# No failure path reaches it — a rejected thread, an empty reply, a missing
+# thread event, a codex exit != 0, a watchdog — so it is the only durable proof
+# that THIS turn passed the wrapper's validation: comparing bytes with last.txt
+# proves nothing, because a rejected turn can repeat them. reply_sha256 is null
+# when no sha256 tool exists. Best-effort like every ledger: a receipt that
+# cannot land never aborts a turn that already succeeded (its caller ignores the
+# return code); scripts/council.sh refuses to publish a turn without one.
+turn_receipt_write() {
+  local dest="${1:-}" turn="${2:-}" thread="${3:-}" reply="${4:-}" sha json
+  case "$turn" in '' | *[!0-9]*) return 1 ;; esac
+  sha="$(file_sha256 "$reply")" || sha=""
+  json="$(jq -cn --argjson turn "$((10#$turn))" --arg thread "$thread" --arg sha "$sha" \
+    '{turn: $turn, thread_id: $thread,
+      reply_sha256: (if $sha == "" then null else $sha end)}' 2>/dev/null)" || json=""
+  [ -n "$json" ] || return 1
+  usage_persist "$dest" "$json"
 }
 
 # --- heartbeat -------------------------------------------------------------

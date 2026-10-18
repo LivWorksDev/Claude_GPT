@@ -20,6 +20,8 @@ assert_no_file "$SD/$KEY.last.txt"
 # The reply itself WAS produced — it just cannot be attached to a thread.
 assert_file_contains "$SD/$KEY.t1.reply.txt" "stub reply"
 assert_json "$HB" '.status == "failed"'
+# …and it carries no success receipt: a reply on disk proves nothing.
+assert_no_file "$SD/$KEY.t1.ok"
 
 # A turn with no thread id still cost real quota: exit code unchanged, ledger
 # written, 'failed' heartbeat carrying the tokens, footer on stderr.

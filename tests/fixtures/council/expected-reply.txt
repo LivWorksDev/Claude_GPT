@@ -1,0 +1,8 @@
+Línea 1 con «comillas», `código` y "dobles"
+
+- [B-1] [P2] Título de ejemplo
+  - Escenario: algo falla
+  - Evidencia: https://example.com/fuente
+  - Propuesta: arreglarlo
+RIESGO RESIDUAL: el que quede
+VERDICT: APPROVED

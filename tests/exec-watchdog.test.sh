@@ -40,6 +40,7 @@ assert_file_contains "$ERR" "no answer within 1s for exec profile review"
 assert_file_contains "$ERR" "TANDEM_EXEC_TIMEOUT_SECONDS"
 assert_not_contains "$ERR" "USAGE:"
 assert_no_file "$REVIEW_SD/$START_KEY.t1.usage.json"
+assert_no_file "$REVIEW_SD/$START_KEY.t1.ok"
 assert_json "$HB" '.status == "failed" and .role == "review" and .target == "wd-start"'
 
 seed_thread review wd-resume thr_exec_watchdog 3
@@ -50,6 +51,7 @@ assert_file_contains "$ERR" "no answer within 1s for exec profile review"
 assert_file_contains "$ERR" "TANDEM_EXEC_TIMEOUT_SECONDS"
 assert_not_contains "$ERR" "USAGE:"
 assert_no_file "$REVIEW_SD/$RESUME_KEY.t4.usage.json"
+assert_no_file "$REVIEW_SD/$RESUME_KEY.t4.ok"
 assert_json "$HB" '.status == "failed" and .role == "review" and .target == "wd-resume"'
 
 run bash "$SCRIPTS/codex-swarm.sh" worker wd-run hung-seat "$SANDBOX/seat.txt"

@@ -22,7 +22,7 @@ assert_file_contains "$ERR" "usage: codex-start.sh <role> <target> <template.tpl
 
 # Unknown role.
 usage auditor demo "$SANDBOX/p.tpl"
-assert_file_contains "$ERR" "unknown role 'auditor' (expected: review, implement, ask or image)"
+assert_file_contains "$ERR" "unknown role 'auditor' (expected: review, implement, ask, image or council)"
 
 # Missing template.
 usage review demo "$SANDBOX/missing.tpl"

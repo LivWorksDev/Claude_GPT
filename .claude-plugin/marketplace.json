@@ -8,7 +8,7 @@
     {
       "name": "tandem",
       "source": "./",
-      "description": "Claude Fable 5 orquesta; Opus 5 implementa por defecto y Codex (GPT-6 Astra) hace red-team y review independiente."
+      "description": "Claude Fable 5 orquesta; Opus 5 implementa por defecto y Codex (GPT-6 Astra) hace red-team y review independiente. /tandem:council reúne a Opus 5.5, Fable 5.1 y GPT-6 Astra en un consejo adversarial para valorar ideas."
     }
   ]
 }

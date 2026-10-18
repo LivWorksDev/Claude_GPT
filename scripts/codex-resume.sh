@@ -8,6 +8,8 @@
 # the user's ~/.codex/config.toml.
 #
 # usage: codex-resume.sh <role> <target> <prompt-template.tpl> [extra-file] [notes-file]
+#   role   review | implement | ask | image | council (`council` is launched
+#          only by scripts/council.sh astra)
 # env:   TANDEM_CODEX_CWD   optional working root for the turn (`--cd`)
 #        TANDEM_WEB_SEARCH   off | on; `off` pins the native web_search tool off
 #                            on every seat, while `on` explicitly keeps the
@@ -19,11 +21,11 @@
 #                           run when a reply arrived without its VERDICT:/sentinel
 #                           line: re-emitting what is missing must not pay the
 #                           role's expensive reasoning. The sandbox is untouched.
-#        TANDEM_TRANSPORT   exec (default) | mcp, for the four roles the
-#                           wrappers know (ask, review, implement, image) —
-#                           `review` only for its pipeline targets
+#        TANDEM_TRANSPORT   exec (default) | mcp, for ask, review, implement
+#                           and image — `review` only for its pipeline targets
 #                           (`cr-*`/`range-review-*`; plan reviews stay on exec,
-#                           M21). Validated here EXACTLY as in
+#                           M21), and `council` is exec-only (64 under mcp).
+#                           Validated here EXACTLY as in
 #                           codex-start.sh, but a continuation is always the
 #                           HYBRID `codex exec resume`: `codex-reply` only exists
 #                           inside one invocation, and the thread dies with the
@@ -33,7 +35,11 @@
 #                           transport_effective "exec-resume", never a bare
 #                           "mcp" that would falsify the audit trail.
 #        TANDEM_EXEC_TIMEOUT_SECONDS  per-turn watchdog for every resume
-#                           (540s foreground; 3600s review/implement default).
+#                           (540s foreground; 3600s review/implement/council
+#                           default).
+# On success the turn also leaves its receipt <key>.t<N>.ok — {turn, thread_id,
+# reply_sha256} — written after every check passed; no failure path writes it
+# (turn_receipt_write in _common.sh).
 # exit codes: 0 ok · 1 codex failure · 2 no thread yet (start instead)
 #             3 missing dependency · 64 usage error
 
@@ -261,6 +267,10 @@ fi
 # Per-turn replies are the durable record; last.txt is a convenience pointer
 # to the newest one, updated only after every success check passed.
 cp "$MSG_FILE" "$LAST_FILE"
+# The turn's success receipt — the only durable proof that THIS turn passed
+# the checks above, the fallback-thread guard included (see
+# turn_receipt_write). Best-effort, like the ledger.
+turn_receipt_write "$STATE_DIR/$KEY.t$TURN.ok" "$TURN" "$THREAD_ID" "$MSG_FILE" || true
 hb_end "done" "$(hb_verdict "$MSG_FILE")"
 
 printf '\n--- codex reply (%s, turn %s) ---\n' "$CODEX_MODEL" "$TURN"

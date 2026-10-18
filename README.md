@@ -44,6 +44,7 @@ Verifica el toolchain con `/tandem:doctor`. Ese diagnóstico es gratis (no gasta
 | `/tandem:ask` | Segunda opinión de Codex sobre cualquier tema, con follow-ups en el mismo hilo |
 | `/tandem:image` | Genera assets de imagen con la herramienta nativa de Codex (gpt-image-2), con transparencia por chroma-key para sprites |
 | `/tandem:ultra` | Enjambres multi-agente estilo ultracode dirigidos por Fable, con todos los asientos en Codex (read-only) |
+| `/tandem:council` | Consejo adversarial de tres modelos frontera para valorar una idea y optimizar la estrategia hacia un objetivo: la sesión (Opus 5.5) lidera y sintetiza, Fable 5.1 y GPT-6 Astra (max, solo lectura) proponen a ciegas, se contrainterrogan y revisan hasta consenso o tope; informe + transcripción en `docs/council/` |
 | `/tandem:status` | Dónde está un run y cómo se retoma, leyendo `.tandem/` — nunca gasta un turno |
 | `/tandem:doctor` | Diagnóstico del toolchain (codex, login, jq, política de modelos, status line); `--smoke` añade un turno real por modelo único para verificar que los nombres siguen vivos, solo bajo demanda |
 | `/tandem:statusline` | Instala/desinstala la status line (modelo, contexto, coste + puerta Codex en vivo) |
@@ -81,6 +82,7 @@ el observable equivalente es el mensaje de timeout más el slot liberado.
 | Implementador (`TANDEM_IMPLEMENTER=sol`) | `gpt-6-sol` | `high` | Sandbox OS `workspace-write` (fijado, no sobreescribible) |
 | Implementador Sol crítico (`TANDEM_CRITICAL=1`) | `gpt-6-sol` | `xhigh` | Sandbox OS `workspace-write` |
 | Generador de imágenes | `gpt-6-sol` | `high` | `workspace-write` (fijado, no sobreescribible) |
+| Consejo (`/tandem:council`) | Asiento Codex `gpt-6-astra` (rol `council`) · asiento Claude `claude-fable-5-1` (`agents/council-fable.md`) · líder: la sesión, Opus 5.5 | `max` los tres (Astra por rol; Fable por frontmatter; el líder por sesión) | Astra `read-only` (fijado); Fable allowlist `Read, Grep, Glob, WebSearch, WebFetch` (modo confidencial: sin web) |
 
 Política forzada en **todos** los turnos Codex (start, resume y asientos de enjambre), con el argv congelado byte a byte por la suite:
 
@@ -107,7 +109,7 @@ Overrides por entorno: `TANDEM_IMPLEMENTER` (`opus` default / `sol`; cualquier o
 `TANDEM_EXEC_TIMEOUT_SECONDS` sobreescribe el watchdog de `codex exec` en
 start, resume y ultra. Sin override, la matriz por modo de lanzamiento dominante
 es 540 s para `ask`/`image` (foreground) y 3600 s para
-`review`/`implement`/`ultra` (background), nunca por sandbox. El literal
+`review`/`implement`/`ultra`/`council` (background), nunca por sandbox. El literal
 foreground queda por debajo del cap de 600 s del tool Bash para que el wrapper
 clasifique, reapee y contabilice antes de que muera la invocación exterior; por
 eso las excepciones foreground documentadas de review/implement prefijan
@@ -138,6 +140,22 @@ Líneas rojas idénticas al modo interactivo: nunca push, nunca merge, nunca la 
 `/tandem:ultra` lanza workflows multi-agente estilo ultracode (reviews adversariales multi-dimensión, paneles de jueces, cazas de bugs, barridos de investigación) donde **todos los asientos que razonan son Codex**: donde un workflow nativo sentaría a Fable va Astra `xhigh` (tier `judge`), donde iría Opus va Sol `high` (`worker`) y donde iría Haiku va Luna `high` (`scout`). Los agentes Claude del workflow son solo envoltorios `haiku` que lanzan cada turno vía `scripts/codex-swarm.sh` y estructuran la respuesta.
 
 La skill empieza siempre con una deliberación dirigida por Fable — si el enjambre compensa, qué forma tiene y cuántos turnos costará — y no lanza nada sin tu aprobación (en autonomous, sin un brief que lo determine todo). Invariantes propias del modo: cada seat es un hilo fresco e independiente, `read-only` fijado y sin resume; el enjambre nunca escribe ni commitea — sus hallazgos alimentan el pipeline normal, nunca sustituyen el gate de `tandem:review`; concurrencia acotada por `TANDEM_ULTRA_CONCURRENCY` (default 4) y aplicada por el propio script — un semáforo por run bajo `.tandem/state/ultra/<run>/.slots/`, sin chunking en el workflow: los seats sobrantes hacen cola dentro del script y el que no consigue slot en `TANDEM_ULTRA_SLOT_TIMEOUT` s sale con 75 sin gastar cuota. El estado va a `.tandem/state/ultra/<run>/` y el informe del run a `.tandem/log/ultra-<run>.md`. Si la sesión no dispone del tool Workflow, la skill degrada al fan-out con `Agent` o a turnos secuenciales en background — mismos scripts, mismos prompts.
+
+## Modo consejo — tres modelos valoran una idea
+
+`/tandem:council` no ataca un plan ni un diff: valora una idea y optimiza el procedimiento con el que alcanzar un objetivo. Es un consejo adversarial de tres modelos frontera de dos familias. La **sesión** (Opus 5.5 en esfuerzo max) lidera: entrevista al usuario, fija un brief, compite con su propia propuesta, modera y sintetiza — pero **no vota**. **Fable 5.1** (subagente Claude persistente, `tandem:council-fable`) y **GPT-6 Astra** (hilo Codex persistente, rol `council`), los dos en max y de solo lectura, proponen a ciegas, se contrainterrogan y revisan la síntesis ronda a ronda hasta consenso o tope (`TANDEM_COUNCIL_ROUNDS`, 4 por defecto). El usuario interviene solo al principio (preguntas + aprobación del brief); después el consejo corre solo hasta el final.
+
+El contrato ejecutable es `scripts/council.sh` (bash 3.2 + jq): letras A/B/C por permutación aleatoria (el moderador no las elige; se revelan al final), brief y aportaciones del líder **sellados** antes de lanzar a los asientos, canal fiel byte a byte (Astra por los ficheros del wrapper, con un recibo de éxito por turno; Fable por la captura de su transcript, con el modelo verificado línea a línea y el uso deduplicado por `message.id`), topes ejecutables por fase y asiento, registro de objeciones con formatos de línea estrictos y una regla de consenso que solo dictamina `council.sh status`. Toda cifra lleva fuente, y la síntesis se audita con WebFetch antes de cada ronda.
+
+**Requisitos.** La sesión debe correr en Opus 5.5 con esfuerzo `max`: el plugin no puede fijar el líder, así que la skill le pide autodeclararse y el usuario lo confirma en el gate del brief. `max` se elige por sesión (selector de modelo o `/effort max`): no se acepta en `effortLevel` ni en `modelSettings`. Tras actualizar el plugin hace falta una **sesión nueva** para que Claude Code registre los agentes del consejo (los agentes de plugin no se recargan en caliente). `bash scripts/council.sh preflight` lo comprueba todo sin gastar un turno: el catálogo de `codex debug models` para el modelo/effort de Astra, el pin de Fable leído de los dos agentes, `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`, `CLAUDE_CODE_EFFORT_LEVEL`, `maxEffortLevel` en los settings en alcance y `TANDEM_TURN_EFFORT`.
+
+**Coste.** Cada turno es max: la cota típica es `2 × (2 + R)` turnos max de los asientos (12 con R = 4) y el techo `5 × (2 + R)` (30 con R = 4) más `2 + R` recordatorios de Astra en `low`; el preflight y el gate del brief la muestran. Según el plan de suscripción del usuario, Fable puede facturar a créditos de uso ([doc](https://code.claude.com/docs/en/model-config#fable-and-usage-credits)) — para subagentes no está documentado y el preflight no lo ve.
+
+**Modo confidencial.** `council.sh init <run-id> --offline`: Astra sin búsqueda web (`TANDEM_WEB_SEARCH=off` en sus turnos) y Fable a través de su gemelo `tandem:council-fable-offline`, cuya allowlist no tiene herramientas web — una garantía del harness, no de una instrucción. Las cifras que no vienen del usuario ni del proyecto quedan como SUPUESTO.
+
+**Entregable.** Todo lo legible queda en `docs/council/<YYYY-MM-DD-slug>/` (o `TANDEM_COUNCIL_DIR`): brief, prompts de cada fase, propuestas, contrainterrogatorio, rondas, síntesis, auditorías de fuentes, registro, `estrategia-final.md` (copia byte a byte de la síntesis aprobada), `informe.md` y `metadatos.md` (letras → modelo/effort con su evidencia, veredictos, anomalías, tokens). El estado de máquina vive en `.tandem/state/council/` (gitignorado). **Nada se commitea ni se pushea**: decides tú qué hacer con `docs/council/` — cuidado con ideas confidenciales en un repo público.
+
+Variables: `TANDEM_COUNCIL_ROUNDS` (tope de rondas, 4), `TANDEM_COUNCIL_INTAKE` (`ask` por defecto: entrevista; `auto`: sin preguntas, supuestos explícitos en el brief — no lee `TANDEM_AUTONOMOUS`), `TANDEM_COUNCIL_MODEL`/`TANDEM_COUNCIL_EFFORT` (asiento Codex; `TANDEM_REVIEW_*` no le afecta; `TANDEM_COUNCIL_EFFORT=ultra` es una opción explícita, no el default, porque `ultra` delega fuera del control y la contabilidad de tandem), `TANDEM_COUNCIL_LEADER_MODEL` (líder esperado, `claude-opus-5-5`), `TANDEM_COUNCIL_DIR` (`docs/council`) y `TANDEM_COUNCIL_LOCK_TIMEOUT` (segundos de espera del lock del run, 30). Definidas y vacías son error de uso (64), nunca «sin definir». El rol `council` solo existe en exec: con `TANDEM_TRANSPORT=mcp` responde 64.
 
 ## Modo imagen — assets generados por Codex
 
@@ -171,6 +189,8 @@ Invariantes del modo: sandbox `workspace-write` fijado; los turnos de imagen sol
 - `.tandem/` — estado por proyecto, auto-gitignorado y por-feature (clave = target + checksum; una feature nueva nunca pisa el estado de otra): hilos, y prompt/respuesta/eventos POR TURNO (`state/…tN.*`), log append-only del debate (`log/`).
 - `.tandem/state/implement-claude/<slug>.json` + `<slug>.t<N>.report.md` — espejo durable del intento Opus; `plan_hash` es el blob commiteado, no la working copy que cambia al marcar checkboxes.
 - `.tandem/state/implement-audit/<slug>.census` + `<slug>.guard` — línea de partida mecánica y marcador fail-closed de vida del intento; el censo sobrevive al handoff y el guard no.
+- `.tandem/state/<rol>/<clave>.t<N>.ok` — recibo de éxito de cada turno Codex (`{turn, thread_id, reply_sha256}`), escrito solo cuando el turno pasó todas las comprobaciones del wrapper; `codex-reset.sh` lo borra con el resto.
+- `docs/council/<run-id>/` — brief, prompts, respuestas publicadas, síntesis, registro, informe y metadatos de un consejo (versionable; nada se commitea solo). `.tandem/state/council/runs/<run-id>/run.json` es su estado de máquina: letras, sellos, intentos, turnos de Astra, capturas de Fable, procedencia y anomalías.
 - `.tandem/state/current.json` — heartbeat de la status line (rol, modelo, effort, sandbox, turno, pid, estado, veredicto, y `tokens_in`/`tokens_out` del turno — null mientras `running`, poblados al cerrar; la status line los muestra humanizados, `1.2k→56`). Artefacto de presentación: se escribe de forma atómica y su fallo nunca aborta un turno.
 
 ## Tests

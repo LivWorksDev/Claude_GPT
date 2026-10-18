@@ -31,9 +31,12 @@ assert_eq "OLD REPLY FROM TURN 3" "$(cat "$SD/$KEY.last.txt")" "last.txt intact"
 assert_eq "4" "$(cat "$SD/$KEY.turn")" "turn incremented"
 # 3. the thread file still names the thread we asked for.
 assert_eq "thr_requested" "$(cat "$SD/$KEY.thread")" "thread file intact"
-# 4. the wrong turn's artefacts are still on disk for inspection.
+# 4. the wrong turn's artefacts are still on disk for inspection — but NO
+#    success receipt: its reply.txt sits there on purpose and must never be
+#    mistaken for a turn that passed the guard.
 assert_file_contains "$SD/$KEY.t4.reply.txt" "fresh reply that must NOT be promoted"
 assert_file_contains "$SD/$KEY.t4.events.ndjson" "thr_somewhere_else"
+assert_no_file "$SD/$KEY.t4.ok"
 # 5. the EXIT guard closed the heartbeat as failed.
 assert_json "$CLAUDE_PROJECT_DIR/.tandem/state/current.json" \
   '.status == "failed" and .turn == 4'
