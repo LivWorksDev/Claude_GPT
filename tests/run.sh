@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# tandem tests — the runner. Pure bash 3.2, no dependencies beyond jq and git.
+# tandem tests — the runner. Pure bash 3.2, no dependencies beyond jq and git
+# (plus node for the one case that runs the council report's JavaScript,
+# council-report-js: linked into every sandbox when it exists; without it that
+# case fails by itself, naming it, and the rest of the suite never sees it).
 #
 #   bash tests/run.sh              # every tests/*.test.sh
 #   bash tests/run.sh statusline   # only cases whose name contains "statusline"
@@ -37,6 +40,9 @@ command -v git >/dev/null 2>&1 || fatal "git is required to run the suite"
 
 JQ_BIN="$(command -v jq)"
 GIT_BIN="$(command -v git)"
+# Optional, and resolved HERE, before any environment is scrubbed: a missing
+# node is no fatal of the runner (council-report-js names it when it fails).
+NODE_BIN="$(command -v node 2>/dev/null || true)"
 
 # Physical path once, up front: on macOS $TMPDIR is /var/… which is a symlink to
 # /private/var, and every expectation in the suite is derived from the physical
@@ -50,8 +56,9 @@ RUNNER_TMP="$(CDPATH='' cd -- "$RUNNER_TMP" && pwd -P)"
 
 # --- sandbox construction ---------------------------------------------------
 # $SANDBOX/tools holds symlinks to the two external binaries the scripts need
-# and nothing else. Never the directory they live in: /opt/homebrew/bin also
-# contains bash 5 and, quite possibly, the developer's real `codex`.
+# (and to node, when it exists, for the report's JavaScript test) and nothing
+# else. Never the directory they live in: /opt/homebrew/bin also contains bash
+# 5 and, quite possibly, the developer's real `codex`.
 make_sandbox() {
   local name="$1" sb
   sb="$RUNNER_TMP/$name"
@@ -60,6 +67,7 @@ make_sandbox() {
   chmod +x "$sb/bin/codex"
   ln -sf "$JQ_BIN" "$sb/tools/jq"
   ln -sf "$GIT_BIN" "$sb/tools/git"
+  if [ -n "$NODE_BIN" ]; then ln -sf "$NODE_BIN" "$sb/tools/node"; fi
   printf '%s' "$sb"
 }
 

@@ -1,7 +1,7 @@
 {
   "name": "tandem",
   "displayName": "Tandem — Fable × Codex",
-  "version": "0.36.1",
+  "version": "0.37.0",
   "description": "Claude Fable 5 orquesta; Opus 5 implementa por defecto y OpenAI Codex (GPT-6 Astra) hace red-team y review independiente. Plan → red-team → implementación → verificación → code review. Y /tandem:council: un consejo adversarial de Opus 5.5, Fable 5.1 y GPT-6 Astra que valora ideas y optimiza estrategias.",
   "author": {
     "name": "Myum"

@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.37.0 — 2026-10-19
+
+- **Informe visual e interactivo del consejo** (M40): `council.sh report <run-id>`, en el
+  paso 6 tras escribir `informe.md`, deja `DOC_DIR/informe.html`. Es una sola página
+  autocontenida y sin red (sin CDN, fuentes web, librerías ni `fetch`), con modo claro y
+  oscuro, que funciona en el móvil. Siete pestañas:
+  - **Resumen:** sello del veredicto, KPIs, bloques de la estrategia, decisiones pendientes,
+    disidencias por asiento y alternativas descartadas.
+  - **Plan:** calendario a escala de los primeros 30 días con la marca de hoy, gráfico de
+    hitos, puertas, riesgos y supuestos.
+  - **Debate:** mapa fase × asiento con fichas de objeción y veredictos, y las rondas una a una
+    con su riesgo residual.
+  - **Objeciones:** filtrables, con su planteamiento y su historia.
+  - **Estrategia:** plegable, con índice y su procedencia.
+  - **Documentos:** todos los del run.
+  - **Proceso:** asientos, tokens, turnos, fuentes y anomalías.
+- **Una sola gramática.** Los hechos que muestra la página los calcula `council.sh` con las
+  mismas definiciones jq que `ledger`, `status` y `metadatos.md`:
+  - objeciones y su historia (defs nuevas `detail_of` y `events`);
+  - registro, veredictos y riesgo de cada ronda, y consenso;
+  - procedencia de la estrategia;
+  - fuentes de la última auditoría;
+  - asientos, tokens, turnos y anomalías.
+
+  `write_metadata` se refactorizó en funciones compartidas con la salida idéntica byte a byte,
+  y lo prueba un test de regresión contra la salida de 0.36.1. El JavaScript solo presenta.
+- **Seguridad.**
+  - El payload va en un `<script type="application/json">` sin ningún byte `<`
+    (`split("<") | join("\u003c")`, lineal).
+  - El render escapa todo texto y no admite HTML crudo.
+  - Enlaces: `http(s)` con `noopener noreferrer`; cualquier otro esquema queda como texto.
+- **Frescura por contenido.**
+  - `report` deriva textos, hechos y huella de una sola instantánea de los documentos.
+  - La línea de huella describe exactamente los bytes embebidos.
+  - `status` distingue en `PHASE:` si falta `informe.html`, si está desactualizado o si está al
+    día, sin tocar `STATUS:` ni el exit code.
+  - La procedencia de la estrategia la dicta el estado: «aprobada» solo con consenso y copia
+    exacta.
+- **Tests.** Casos nuevos `council-report`, `council-report-fresh` y `council-report-js`, y
+  `council-spaces` ampliado. El runner enlaza `node` en el sandbox: es una dependencia SOLO de
+  los tests, que pasan `node --check` a la plantilla y ejecutan su bloque de funciones puras en
+  `node:vm`. Sin `node`, ese caso falla nombrándolo.
+
 ## 0.36.1 — 2026-10-19
 
 Correcciones del canario real de `/tandem:council`, que terminó en CONSENSO en la ronda 4 y

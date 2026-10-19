@@ -24,11 +24,14 @@
 #   publish <run-id> <phase>
 #   ledger <run-id>
 #   status <run-id> [--metadata]
+#   report <run-id>                              informe.html, after informe.md
 #   <phase>  propose | cross | round-<N>     <run-id>  YYYY-MM-DD-<slug>
 #
 # Paths. DOC_DIR = ${TANDEM_COUNCIL_DIR:-docs/council}/<run-id>, relative to the
 # project (CLAUDE_PROJECT_DIR, else $PWD): everything a human reads — brief,
 # staged prompts, published answers, syntheses, audits, register, report.
+# DOC_DIR/informe.html is a VIEW derived from those Markdown files (`report`):
+# never edited by hand, regenerated whenever they change.
 # RUN_DIR = .tandem/state/council/runs/<run-id>/ (gitignored): run.json, the
 # leader's sealed contributions, Fable's captures. Astra's thread files sit
 # next to every other role's, in .tandem/state/council/, one target per
@@ -40,7 +43,9 @@
 # atomically (temp file + mv) and releases it; the lock is never held while a
 # model works. An orphaned lock (only a kill -9 inside a critical section leaves
 # one) is cleaned by hand, never reclaimed automatically — the same rule as the
-# swarm's slots.
+# swarm's slots. `report` is the exception that takes no lock at all: it reads
+# run.json once, never writes it, and derives everything from its own snapshot
+# of the documents.
 #
 # env — every TANDEM_COUNCIL_* variable follows the ${VAR+set} discipline:
 # defined and empty is a usage error (64), never "unset".
@@ -52,6 +57,9 @@
 #   TANDEM_COUNCIL_LOCK_TIMEOUT   seconds to wait for the run lock (default 30)
 #   TANDEM_CLAUDE_MANAGED_SETTINGS  managed settings file the preflight reads
 #                                 (default: the platform's standard path)
+#   TANDEM_COUNCIL_REPORT_TEMPLATE  internal, for the tests only: the template
+#                                 `report` renders (default
+#                                 skills/council/report/informe.tpl.html)
 #
 # exit codes: 0 ok · 1 condition not met · 2 already exists · 3 missing
 #             dependency · 64 usage · 65 integrity · 75 congestion (run lock not
@@ -90,6 +98,7 @@ usage: council.sh <subcommand> [args…]
   publish <run-id> <phase>
   ledger <run-id>
   status <run-id> [--metadata]
+  report <run-id>
 <phase> = propose | cross | round-<N> · <run-id> = YYYY-MM-DD-<slug>
 EOF
   exit "${1:-64}"
@@ -319,9 +328,14 @@ lock_release() {
   return 0
 }
 
+REPORT_DIR=""
+REPORT_TMP=""
 council_on_exit() {
   local rc=$?
   [ -n "${STATE_TMP:-}" ] && rm -f "$STATE_TMP" 2>/dev/null
+  # report's snapshot and its half-composed informe.html, also on an error.
+  if [ -n "${REPORT_TMP:-}" ]; then rm -f "$REPORT_TMP" 2>/dev/null || true; fi
+  if [ -n "${REPORT_DIR:-}" ]; then rm -rf "$REPORT_DIR" 2>/dev/null || true; fi
   lock_release
   exit "$rc"
 }
@@ -520,7 +534,7 @@ recover_entries() {
   return 0
 }
 
-# --- the line parser shared by stage, ledger and status ------------------------
+# --- the line parser shared by stage, ledger, status and report ---------------
 # Line formats (skills/council/prompts/seat-rules.md): objection
 # `- [B-3] [P2] <title>`, own status `- [B-3] RESUELTA: <reason>` /
 # `- [B-3] NO RESUELTA: <reason>`, reopen `- [REABRE B-3] <argument>`, register
@@ -559,6 +573,76 @@ def objections:
 def lastline: [.lines[] | sub("\\s+$"; "") | select(length > 0)] | last // "";
 def verdict: (lastline | m1("^VERDICT: (?<v>APPROVED|REVISE)$")) as $v | if $v == null then null else $v.v end;
 def has_riesgo: any(.lines[]; test("^\\s*(-\\s+)?RIESGO RESIDUAL:"));
+def riesgo: [ .lines[] | m1("^\\s*(-\\s+)?RIESGO RESIDUAL:(?<t>.*?)\\s*$") | select(. != null)
+              | .t | sub("^\\s+"; "") ] | first;
+def indent_of: capture("^(?<w>\\s*)").w | length;
+# detail_of($docs) — on an objection: the lines indented deeper than its own
+# line that follow it in the answer that declared it (Escenario, Evidencia,
+# Propuesta…), up to the first line that is not; a blank line belongs to the
+# detail only when more indentation follows it.
+def detail_of($docs):
+  . as $o
+  | ([ $docs[] | select(.author == $o.author and .phase == $o.phase) ] | first) as $d
+  | if $d == null then "" else
+      $d.lines as $L
+      | ([ range(0; $L | length) as $i
+           | ($L[$i] | m1(rx_obj)) as $m
+           | select($m != null and $m.l == $o.author and oid($m.l; $m.n) == $o.id) | $i ] | first) as $at
+      | if $at == null then "" else
+          ($L[$at] | indent_of) as $k
+          | (reduce range($at + 1; $L | length) as $j ({out: [], pend: [], stop: false};
+              if .stop then .
+              elif ($L[$j] | test("^\\s*$")) then .pend += [$L[$j]]
+              elif ($L[$j] | indent_of) > $k then .out += .pend + [$L[$j]] | .pend = []
+              else .stop = true end)).out
+          | join("\n")
+        end
+    end;
+# events — the history behind objections: every OWN line of a new objection, a
+# status or a REABRE, in author and phase order, under the same rules as
+# objections (a quoted foreign ID is a reference; a status or a REABRE counts
+# once its objection exists). objections stays the source of the final status;
+# events decides nothing.
+def events:
+  sort_by(.author, .order)
+  | reduce .[] as $d ({seen: {}, ev: []};
+      reduce $d.lines[] as $line (.;
+        ($line | m1(rx_obj)) as $o
+        | ($line | m1(rx_st)) as $s
+        | ($line | m1(rx_re)) as $r
+        | if $o != null and $o.l == $d.author then
+            oid($o.l; $o.n) as $id
+            | .seen[$id] = true
+            | .ev += [{id: $id, author: $d.author, phase: $d.phase, kind: "NUEVA", sev: $o.s, text: $o.t}]
+          elif $s != null and $s.l == $d.author and (.seen | has(oid($s.l; $s.n))) then
+            .ev += [{id: oid($s.l; $s.n), author: $d.author, phase: $d.phase, kind: $s.st,
+                     text: ($s.m | sub("^\\s+"; ""))}]
+          elif $r != null and $r.l == $d.author and (.seen | has(oid($r.l; $r.n))) then
+            .ev += [{id: oid($r.l; $r.n), author: $d.author, phase: $d.phase, kind: "REABRE",
+                     text: ($r.a | sub("^\\s+"; ""))}]
+          else . end))
+  | .ev;
+# rounds_of($r1; $r2) — every round with BOTH reviewer answers published, and
+# what each reviewer published in it.
+def rounds_of($r1; $r2):
+  [ .[] | select(.phase | test("^round-[0-9]+$")) ]
+  | group_by(.phase | ltrimstr("round-") | tonumber)
+  | map(select(any(.[]; .author == $r1) and any(.[]; .author == $r2)))
+  | map({n: (.[0].phase | ltrimstr("round-") | tonumber),
+         verdicts: ([ .[] | select(.author == $r1 or .author == $r2)
+                      | {letra: .author, verdict: verdict, riesgo: riesgo} ] | sort_by(.letra))});
+# sources_of($file) — on the lines of an audit: its `- [F<n>] VERIFICADA|NO
+# ACCESIBLE|NO CONFIRMA <src> — <desc>` lines, split at the first « — », and
+# whether it is the offline audit (`- OFFLINE: no aplica`).
+def sources_of($file):
+  { file: $file,
+    offline: any(.[]; test("^\\s*- OFFLINE: no aplica\\s*$")),
+    items: [ .[] | m1("^\\s*-\\s+\\[(?<id>F[0-9]+)\\]\\s+(?<status>VERIFICADA|NO ACCESIBLE|NO CONFIRMA)\\s+(?<rest>.*?)\\s*$")
+             | select(. != null)
+             | (.rest | m1("^(?<src>.*?) — (?<desc>.*)$")) as $p
+             | {id, status,
+                src: (if $p == null then .rest else $p.src end),
+                desc: (if $p == null then "" else $p.desc end)} ] };
 def rows:
   [ .[] | sub("\\s+$"; "") | select(test("^\\|.*\\|$"))
     | split("|") | .[1:-1] | map(sub("^\\s+"; "") | sub("\\s+$"; ""))
@@ -1987,16 +2071,17 @@ phase_complete() {
   return 0
 }
 
-write_metadata() {
-  # write_metadata <last-complete-round> <consensus-json-or-empty>
-  local n="$1" cj="$2" tmp key target gen=0 f astra_sum fable_sum nu=0 nf=0 usage_list fable_list
-  tmp="$(mktemp "$DOC_DIR/.metadatos.XXXXXX")" || die "cannot create a temp file in $DOC_DIR" 65
+# --- the facts metadatos.md states, shared with report -------------------------
+# usage_facts_json — the tokens: {astra, fable, nu, nf, sin_usage_definitivo,
+# mensajes}. Astra: every usage file of every generation, each one ONCE —
+# failed and interrupted turns included: the quota was spent all the same.
+# Fable: every capture's usage file, plus the lower bound its captures declare
+# (messages whose last transcript line carried no stop_reason).
+usage_facts_json() {
+  local key target f astra_sum fable_sum nu=0 nf=0 usage_list fable_list
   usage_list="$(mktemp "$RUN_DIR/.usage-list.XXXXXX")" || die "cannot create a temp file" 65
-  fable_list="$(mktemp "$RUN_DIR/.fable-list.XXXXXX")" || die "cannot create a temp file" 65
-  # Astra: every usage file of every generation, each one ONCE — failed and
-  # interrupted turns included: the quota was spent all the same.
+  fable_list="$(mktemp "$RUN_DIR/.fable-list.XXXXXX")" || { rm -f "$usage_list"; die "cannot create a temp file" 65; }
   for target in $(q -r '.astra_targets[]'); do
-    gen=$((gen + 1))
     key="$(target_key "$target")"
     for f in "$STATE_DIR/$key".t*.usage.json; do
       [ -f "$f" ] || continue
@@ -2021,7 +2106,17 @@ write_metadata() {
       | jq -sc 'reduce .[] as $u ({}; reduce ($u | to_entries[]) as $e (.;
           if ($e.value | type) == "number" then .[$e.key] = ((.[$e.key] // 0) + $e.value) else . end))')"
   fi
-  # Per-turn evidence of Astra: the meta.json each wrapper wrote BEFORE its turn.
+  rm -f "$usage_list" "$fable_list"
+  q -c --argjson asum "$astra_sum" --argjson fsum "$fable_sum" --argjson nu "$nu" --argjson nf "$nf" '
+    {astra: $asum, fable: $fsum, nu: $nu, nf: $nf,
+     sin_usage_definitivo: ([ .captures[] | select(.captura == "capturado") | (.sin_usage_definitivo // 0) ] | add // 0),
+     mensajes: ([ .captures[] | select(.captura == "capturado") | (.mensajes // 0) ] | add // 0)}'
+}
+
+# astra_metas_json — per-turn evidence of Astra: every entry of astra_turns
+# plus the meta.json its wrapper wrote BEFORE the turn ({meta: null} when
+# there is none).
+astra_metas_json() {
   local metas
   metas="$(q -c '.astra_turns' | jq -c '.[]' | while IFS= read -r e; do
       t="$(printf '%s' "$e" | jq -r '.target')"
@@ -2031,11 +2126,49 @@ write_metadata() {
         m="$(jq -c '.' "$STATE_DIR/$(target_key "$t").t$nn.meta.json" 2>/dev/null || printf 'null')"
       fi
       printf '%s' "$e" | jq -c --argjson m "$m" '. + {meta: $m}'
-    done | jq -sc '.')"
+    done | jq -sc '.')" || die "cannot read the Astra turns of run.json" 65
   [ -n "$metas" ] || metas='[]'
-  q -r --argjson metas "$metas" --argjson asum "$astra_sum" --argjson fsum "$fable_sum" \
-    --argjson nu "$nu" --argjson nf "$nf" --argjson cj "${cj:-null}" --argjson n "$n" '
-    def seatname: if . == "lider" then "líder" elif . == "astra" then "Astra (Codex)" else "Fable (Claude)" end;
+  printf '%s' "$metas"
+}
+
+# On run.json: the evidence behind each seat's model, and the anomalies of the
+# run — the lists metadatos.md prints and report shows.
+# shellcheck disable=SC2016  # jq programs: their $names belong to jq
+METADATA_JQ='
+def seat_facts($metas):
+  . as $r
+  | [ $r.letters | to_entries[] | .key as $l | .value as $s
+      | if $s == "lider" then
+          {letra: $l, asiento: $s, modelos: ["\($r.leader_model // "?")"], effort: "max"}
+        elif $s == "astra" then
+          {letra: $l, asiento: $s,
+           modelos: ([ $metas[] | select(.meta != null) | "\(.meta.model)/\(.meta.effort)" ] | unique),
+           evidencia: [ $metas[] | select(.meta != null) | "\(.target) t\(.turno)" ]}
+        else
+          {letra: $l, asiento: $s,
+           modelos: ([ $r.captures[] | .modelos[]? ] | unique),
+           transcrito: any($r.captures[]; .captura == "transcrito"),
+           capturas: ($r.captures | length)}
+        end ];
+def anomaly_list:
+  . as $r
+  | [ ( $r.prompts[] | select(.recordatorio) | "recordatorio: \(.fase) letra \(.letra) (a\(.intento))" ),
+      ( $r.captures[] | select(.captura == "transcrito") | "transcripción a mano (--manual): \(.fase) a\(.intento) \(.tipo) — modelo no verificado" ),
+      ( $r.prompts[] | select(.historia) | "reconstrucción: \(.fase) letra \(.letra) (a\(.intento), con historial)" ),
+      ( if ($r.astra_targets | length) > 1 then "generaciones del hilo de Astra: \($r.astra_targets | join(", "))" else empty end ),
+      ( if ($r.agents | length) > 1 then "agentes de Fable registrados: \($r.agents | length) (reconstrucciones)" else empty end ),
+      ( $r.astra_turns[] | select(.estado != "done") | "turno de Astra \(.fase) a\(.intento) \(.tipo): \(.estado)\(if .nota then " — " + .nota else "" end)" ),
+      ( ($r.anomalies // [])[] | "lectura fuera de alcance (\(.asiento), \(.fase) a\(.intento)): \(.rutas // [.comando] | join(" · "))" )
+    ];
+'
+
+write_metadata() {
+  # write_metadata <last-complete-round> <consensus-json-or-empty>
+  local n="$1" cj="$2" tmp uf metas
+  uf="$(usage_facts_json)"
+  metas="$(astra_metas_json)"
+  tmp="$(mktemp "$DOC_DIR/.metadatos.XXXXXX")" || die "cannot create a temp file in $DOC_DIR" 65
+  q -r --argjson metas "$metas" --argjson u "$uf" --argjson cj "${cj:-null}" --argjson n "$n" "$METADATA_JQ"'
     def kv: to_entries | map("\(.key)=\(.value)") | join(" ");
     . as $r
     | "# Metadatos del consejo \($r.run_id)",
@@ -2047,15 +2180,13 @@ write_metadata() {
       "",
       "| Letra | Asiento | Modelo / effort | Evidencia |",
       "| --- | --- | --- | --- |",
-      ( $r.letters | to_entries[] | .key as $l | .value as $s
-        | if $s == "lider" then
-            "| \($l) | líder | \($r.leader_model // "?") / max | autodeclarado por la sesión y confirmado por el usuario en el gate del brief (no medido) |"
-          elif $s == "astra" then
-            ([ $metas[] | select(.meta != null) | "\(.meta.model)/\(.meta.effort)" ] | unique) as $me
-            | "| \($l) | Astra (Codex) | \(if ($me | length) > 0 then ($me | join(", ")) else "sin turnos con meta.json" end) | meta.json de cada turno (\([ $metas[] | select(.meta != null) | "\(.target) t\(.turno)" ] | join(", "))) |"
+      ( seat_facts($metas)[]
+        | if .asiento == "lider" then
+            "| \(.letra) | líder | \(.modelos[0]) / max | autodeclarado por la sesión y confirmado por el usuario en el gate del brief (no medido) |"
+          elif .asiento == "astra" then
+            "| \(.letra) | Astra (Codex) | \(if (.modelos | length) > 0 then (.modelos | join(", ")) else "sin turnos con meta.json" end) | meta.json de cada turno (\(.evidencia | join(", "))) |"
           else
-            ([ $r.captures[] | .modelos[]? ] | unique) as $fm
-            | "| \($l) | Fable (Claude) | \(if ($fm | length) > 0 then ($fm | join(", ")) else "no verificado" end) / frontmatter | modelos de cada captura del transcript\(if any($r.captures[]; .captura == "transcrito") then "; hay capturas transcritas a mano (modelo no verificado)" else "" end) |"
+            "| \(.letra) | Fable (Claude) | \(if (.modelos | length) > 0 then (.modelos | join(", ")) else "no verificado" end) / frontmatter | modelos de cada captura del transcript\(if .transcrito then "; hay capturas transcritas a mano (modelo no verificado)" else "" end) |"
           end ),
       "",
       "## Turnos de Astra",
@@ -2079,25 +2210,95 @@ write_metadata() {
       "",
       "## Anomalías",
       "",
-      ( [ ( $r.prompts[] | select(.recordatorio) | "- recordatorio: \(.fase) letra \(.letra) (a\(.intento))" ),
-          ( $r.captures[] | select(.captura == "transcrito") | "- transcripción a mano (--manual): \(.fase) a\(.intento) \(.tipo) — modelo no verificado" ),
-          ( $r.prompts[] | select(.historia) | "- reconstrucción: \(.fase) letra \(.letra) (a\(.intento), con historial)" ),
-          ( if ($r.astra_targets | length) > 1 then "- generaciones del hilo de Astra: \($r.astra_targets | join(", "))" else empty end ),
-          ( if ($r.agents | length) > 1 then "- agentes de Fable registrados: \($r.agents | length) (reconstrucciones)" else empty end ),
-          ( $r.astra_turns[] | select(.estado != "done") | "- turno de Astra \(.fase) a\(.intento) \(.tipo): \(.estado)\(if .nota then " — " + .nota else "" end)" ),
-          ( ($r.anomalies // [])[] | "- lectura fuera de alcance (\(.asiento), \(.fase) a\(.intento)): \(.rutas // [.comando] | join(" · "))" )
-        ] | if length == 0 then "- ninguna" else .[] end ),
+      ( anomaly_list | if length == 0 then "- ninguna" else .[] | "- \(.)" end ),
       "",
       "## Tokens",
       "",
-      "- Astra: \(if ($asum | length) == 0 then "sin ficheros de uso" else ($asum | kv) end) (\($nu) ficheros t<N>.usage.json de \($r.astra_targets | length) generación(es), cada uno una vez, también los de turnos fallidos o interrumpidos)",
-      ( ([ $r.captures[] | select(.captura == "capturado") | (.sin_usage_definitivo // 0) ] | add // 0) as $fpart
-        | ([ $r.captures[] | select(.captura == "capturado") | (.mensajes // 0) ] | add // 0) as $fmsgs
-        | "- Fable: \(if ($fsum | length) == 0 then "sin ficheros de uso" else ($fsum | kv) end) (\($nf) capturas, deduplicadas por message.id)\(if $fpart > 0 then " — COTA INFERIOR: \($fpart) de \($fmsgs) mensajes del transcript sin usage definitivo (su última línea no trae stop_reason)" else "" end)" ),
+      "- Astra: \(if ($u.astra | length) == 0 then "sin ficheros de uso" else ($u.astra | kv) end) (\($u.nu) ficheros t<N>.usage.json de \($r.astra_targets | length) generación(es), cada uno una vez, también los de turnos fallidos o interrumpidos)",
+      ( $u.sin_usage_definitivo as $fpart
+        | $u.mensajes as $fmsgs
+        | "- Fable: \(if ($u.fable | length) == 0 then "sin ficheros de uso" else ($u.fable | kv) end) (\($u.nf) capturas, deduplicadas por message.id)\(if $fpart > 0 then " — COTA INFERIOR: \($fpart) de \($fmsgs) mensajes del transcript sin usage definitivo (su última línea no trae stop_reason)" else "" end)" ),
       "- líder: no medido"
-    ' >"$tmp" || { rm -f "$tmp" "$usage_list" "$fable_list"; die "could not compose metadatos.md" 65; }
-  rm -f "$usage_list" "$fable_list"
+    ' >"$tmp" || { rm -f "$tmp"; die "could not compose metadatos.md" 65; }
   write_atomic "$DOC_DIR/metadatos.md" "$tmp"
+}
+
+# --- the report's documents and their fingerprint -------------------------------
+REPORT_MARK='<!-- COUNCIL_DATA -->'
+
+# report_docs <dir> — the CLOSED list of the documents report embeds, as paths
+# relative to <dir>, in LC_ALL=C order: brief, informe, estrategia-final,
+# metadatos, registro, every sintesis-v<N> and auditoria-v<N>, and the
+# published answers (1-propuestas/<L>, 2-contrainterrogatorio/<L>,
+# rondas/r<N>-<L>). Never prompts/, never RUN_DIR, never a stray file.
+report_docs() {
+  local d="$1" rel f n L
+  {
+    for rel in brief.md informe.md estrategia-final.md metadatos.md registro.md; do
+      if [ -f "$d/$rel" ]; then printf '%s\n' "$rel"; fi
+    done
+    for f in "$d"/sintesis-v*.md "$d"/auditoria-v*.md; do
+      [ -f "$f" ] || continue
+      rel="${f##*/}"
+      case "$rel" in
+        sintesis-v*) n="${rel#sintesis-v}" ;;
+        *) n="${rel#auditoria-v}" ;;
+      esac
+      n="${n%.md}"
+      case "$n" in '' | *[!0-9]*) continue ;; esac
+      printf '%s\n' "$rel"
+    done
+    for L in A B C; do
+      if [ -f "$d/1-propuestas/$L.md" ]; then printf '1-propuestas/%s.md\n' "$L"; fi
+      if [ -f "$d/2-contrainterrogatorio/$L.md" ]; then printf '2-contrainterrogatorio/%s.md\n' "$L"; fi
+      for f in "$d/rondas/r"*"-$L.md"; do
+        [ -f "$f" ] || continue
+        n="${f##*/r}"
+        n="${n%-"$L".md}"
+        case "$n" in '' | *[!0-9]*) continue ;; esac
+        printf 'rondas/%s\n' "${f##*/}"
+      done
+    done
+  } | LC_ALL=C sort
+}
+
+# report_digest <dir> — the fingerprint of the documents report embeds: the
+# sha256 of the LC_ALL=C-sorted lines `<relative path>\t<sha256 of the file>\n`
+# of report_docs <dir>. report computes it on its snapshot and writes it into
+# informe.html; status recomputes it on the live files. Content, never mtime.
+report_digest() {
+  local d="$1" rels raw rel sha out="" rc=0
+  rels="$(mktemp "$RUN_DIR/.digest-docs.XXXXXX")" || return 1
+  raw="$(mktemp "$RUN_DIR/.digest.XXXXXX")" || { rm -f "$rels"; return 1; }
+  report_docs "$d" >"$rels" || rc=1
+  if [ "$rc" -eq 0 ]; then
+    while IFS= read -r rel; do
+      [ -n "$rel" ] || continue
+      sha="$(file_sha256 "$d/$rel")" || { rc=1; break; }
+      printf '%s\t%s\n' "$rel" "$sha" >>"$raw"
+    done <"$rels"
+  fi
+  if [ "$rc" -eq 0 ]; then
+    if LC_ALL=C sort "$raw" >"$rels"; then
+      out="$(file_sha256 "$rels")" || rc=1
+    else
+      rc=1
+    fi
+  fi
+  rm -f "$rels" "$raw"
+  [ "$rc" -eq 0 ] || return 1
+  printf '%s' "$out"
+}
+
+# report_fresh — informe.html carries exactly one fingerprint line, and it is
+# the fingerprint of the documents as they are now.
+report_fresh() {
+  local want have
+  want="$(LC_ALL=C sed -n 's/^<!-- tandem-council-digest: \([0-9a-f]\{64\}\) -->$/\1/p' "$DOC_DIR/informe.html" 2>/dev/null)" \
+    || return 1
+  case "$want" in '' | *"$NL"*) return 1 ;; esac
+  have="$(report_digest "$DOC_DIR")" || return 1
+  [ "$want" = "$have" ]
 }
 
 cmd_status() {
@@ -2129,7 +2330,15 @@ cmd_status() {
   [ "$n" -gt 0 ] && cj="$(consensus_json "$n" "$r1" "$r2")"
 
   if [ -f "$DOC_DIR/informe.md" ]; then
-    phase="informe (escrito)"
+    # The visual report's freshness is informative: it never changes the
+    # STATUS: line nor the exit code.
+    if [ ! -f "$DOC_DIR/informe.html" ]; then
+      phase="informe (escrito; falta informe.html: council.sh report)"
+    elif report_fresh; then
+      phase="informe (escrito)"
+    else
+      phase="informe (escrito; informe.html desactualizado: council.sh report)"
+    fi
   elif [ ! -f "$DOC_DIR/brief.md" ]; then
     phase="entrevista (sin brief.md)"
   elif [ -z "$(q -r '.seals.brief.sha256 // empty')" ]; then
@@ -2183,6 +2392,163 @@ cmd_status() {
 }
 
 # =============================================================================
+# report — informe.html, the visual form of the finished report
+# =============================================================================
+# One self-contained page, with no network, that embeds the closed list of
+# documents (report_docs) and the facts computed HERE, with the same grammar as
+# ledger, status and metadatos.md: the page's JavaScript only presents. The
+# Markdown files stay the record with authority; the HTML is derived from them.
+# No lock (the moderator writes the Markdown without one): report copies the
+# documents ONCE into a private snapshot and derives the embedded texts, the
+# facts and the fingerprint from those same bytes — a concurrent edit yields at
+# worst a page coherent with the previous version, which status sees stale.
+cmd_report() {
+  [ $# -eq 1 ] || die "usage: council.sh report <run-id>" 64
+  run_id_validate "$1"
+  local tpl live missing f rel marks snap work r1 r2 n cj identical an afile digest prog i
+  local -a embed
+  council_paths
+  need_jq
+  run_require
+  state_load
+  live="$DOC_DIR"
+
+  # The three outputs of step 6: never the visual form of a run half-way.
+  missing=""
+  for f in informe.md estrategia-final.md metadatos.md; do
+    if [ ! -f "$live/$f" ]; then missing="$missing${missing:+, }$live/$f"; fi
+  done
+  [ -z "$missing" ] \
+    || die "no informe.html for a report that is not finished — missing: $missing (step 6: status --metadata, then informe.md)" 1
+  tpl="${TANDEM_COUNCIL_REPORT_TEMPLATE:-$PLUGIN_ROOT/skills/council/report/informe.tpl.html}"
+  [ -f "$tpl" ] || die "report template not found: $tpl" 65
+  marks="$(LC_ALL=C grep -cxF -- "$REPORT_MARK" "$tpl" 2>/dev/null || true)"
+  [ "$marks" = "1" ] \
+    || die "the report template must hold exactly one line $REPORT_MARK (found ${marks:-0}): $tpl" 65
+
+  # The snapshot: every document copied once; everything below reads the copy.
+  REPORT_DIR="$(mktemp -d "$RUN_DIR/.report.XXXXXX")" || die "cannot create a temp directory in $RUN_DIR" 65
+  snap="$REPORT_DIR/docs"
+  work="$REPORT_DIR/work"
+  mkdir "$snap" "$work" || die "cannot create the report snapshot in $REPORT_DIR" 65
+  report_docs "$live" >"$work/list" || die "cannot list the documents of $live" 65
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    case "$rel" in */*) mkdir -p "$snap/${rel%/*}" || die "cannot create the report snapshot in $REPORT_DIR" 65 ;; esac
+    cp "$live/$rel" "$snap/$rel" || die "cannot copy $live/$rel into the report snapshot" 65
+  done <"$work/list"
+  DOC_DIR="$snap"
+
+  # The facts, with the grammar of ledger, status and metadatos.md.
+  r1="$(seat_letter astra)"
+  r2="$(seat_letter fable)"
+  if [ -z "$r1" ] || [ -z "$r2" ]; then die "run.json assigns no letter to astra or to fable" 65; fi
+  if [ "$r2" \< "$r1" ]; then f="$r1"; r1="$r2"; r2="$f"; fi
+  n="$(last_complete_round "$r1" "$r2")"
+  cj="null"
+  if [ "$n" -gt 0 ]; then cj="$(consensus_json "$n" "$r1" "$r2")"; fi
+  identical=false
+  if [ "$n" -gt 0 ] && [ -f "$snap/sintesis-v$n.md" ] \
+    && cmp -s "$snap/estrategia-final.md" "$snap/sintesis-v$n.md"; then
+    identical=true
+  fi
+  docs_json >"$work/parser.json"
+  registro_json >"$work/registro.json"
+  usage_facts_json >"$work/usage.json"
+  astra_metas_json >"$work/metas.json"
+  an=0
+  afile=""
+  for f in "$snap"/auditoria-v*.md; do
+    [ -f "$f" ] || continue
+    rel="${f##*/}"
+    rel="${rel#auditoria-v}"
+    rel="${rel%.md}"
+    case "$rel" in '' | *[!0-9]*) continue ;; esac
+    if [ "$((10#$rel))" -gt "$an" ]; then
+      an="$((10#$rel))"
+      afile="${f##*/}"
+    fi
+  done
+  if [ -n "$afile" ]; then
+    jq -Rsc --arg f "$afile" "$COUNCIL_JQ"'split("\n") | sources_of($f)' "$snap/$afile" >"$work/sources.json" \
+      || die "cannot read the sources of $afile" 65
+  else
+    printf '{"file":null,"offline":false,"items":[]}' >"$work/sources.json"
+  fi
+
+  # The documents, each one whole, keyed by its path relative to DOC_DIR — in
+  # ONE jq call (a path of the closed list holds only [A-Za-z0-9/.-], so it can
+  # be spelled as a key of the program).
+  prog=""
+  i=0
+  embed=()
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    embed+=(--rawfile "d$i" "$snap/$rel")
+    prog="$prog${prog:+, }\"$rel\": \$d$i"
+    i=$((i + 1))
+  done <"$work/list"
+  if [ "$i" -gt 0 ]; then
+    jq -nc "${embed[@]}" "{$prog}" >"$work/docs.json" || die "cannot embed the documents" 65
+  else
+    printf '{}' >"$work/docs.json"
+  fi
+  digest="$(report_digest "$snap")" || die "cannot fingerprint the documents (no shasum/sha256sum?)" 65
+
+  # The payload: no `<` byte survives, so no text of a seat can close the
+  # <script> that holds it, nor open a comment.
+  q -j --slurpfile docs "$work/docs.json" --slurpfile parser "$work/parser.json" \
+    --slurpfile reg "$work/registro.json" --slurpfile usage "$work/usage.json" \
+    --slurpfile metas "$work/metas.json" --slurpfile sources "$work/sources.json" \
+    --argjson cj "$cj" --argjson n "$n" --argjson identical "$identical" \
+    --arg r1 "$r1" --arg r2 "$r2" --arg generated "$(now_utc)" "$COUNCIL_JQ$METADATA_JQ"'
+    . as $r
+    | $parser[0] as $d
+    | (($cj // {round: null, consensus: false,
+                reasons: ["ninguna ronda tiene publicadas las dos respuestas revisoras"], verdicts: []})
+       + {last_round: $n, max_rounds: $r.max_rounds}) as $status
+    | {schema: 1,
+       generated: $generated,
+       run: {run_id: $r.run_id, created: $r.created, mode: $r.mode, max_rounds: $r.max_rounds,
+             letters: $r.letters, leader_model: ($r.leader_model // null)},
+       docs: $docs[0],
+       facts: {
+         objections: ([ ($d | objections)[] | . + {detail: detail_of($d)} ] | sort_by(.author, .n)),
+         events: ($d | events),
+         rows: ($reg[0] | rows),
+         rounds: ($d | rounds_of($r1; $r2)),
+         status: $status,
+         strategy: {last_round: $n,
+                    synthesis: (if $n > 0 then "sintesis-v\($n).md" else null end),
+                    identical: $identical,
+                    consensus: $status.consensus},
+         sources: $sources[0],
+         seats: seat_facts($metas[0]),
+         tokens: $usage[0],
+         astra_turns: [ $metas[0][] | {fase, intento, tipo, target, estado, turno,
+                          recuperado: (.recuperado // false), nota: (.nota // null),
+                          inicio: (.inicio // null), fin: (.fin // null), exit: (.exit // null), meta} ],
+         anomalies: anomaly_list}}
+    | tojson | split("<") | join("\\u003c")' >"$work/payload.json" || die "could not compute the facts of the report" 65
+
+  # Compose next to the destination, then rename into place.
+  REPORT_TMP="$(mktemp "$live/.informe.html.XXXXXX")" || die "cannot create a temp file in $live" 65
+  {
+    LC_ALL=C awk -v m="$REPORT_MARK" '$0 == m { exit } { print }' "$tpl"
+    printf '<script type="application/json" id="council-data">'
+    cat "$work/payload.json"
+    printf '</script>\n<!-- tandem-council-digest: %s -->\n' "$digest"
+    LC_ALL=C awk -v m="$REPORT_MARK" 'f { print } $0 == m { f = 1 }' "$tpl"
+  } >"$REPORT_TMP" || die "could not compose informe.html" 65
+  write_atomic "$live/informe.html" "$REPORT_TMP"
+  REPORT_TMP=""
+  DOC_DIR="$live"
+  rm -rf "$REPORT_DIR"
+  REPORT_DIR=""
+  printf 'INFORME HTML: %s\n' "$live/informe.html"
+}
+
+# =============================================================================
 # dispatch
 # =============================================================================
 [ $# -ge 1 ] || council_usage
@@ -2204,6 +2570,7 @@ case "$SUBCMD" in
   publish) cmd_publish "$@" ;;
   ledger) cmd_ledger "$@" ;;
   status) cmd_status "$@" ;;
+  report) cmd_report "$@" ;;
   *)
     printf 'tandem: unknown council subcommand: %s\n' "$SUBCMD" >&2
     council_usage

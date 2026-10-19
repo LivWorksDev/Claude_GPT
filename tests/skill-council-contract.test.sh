@@ -139,6 +139,18 @@ assert_file_contains "$FLAT" 'plus `2 + R` Astra reminders at `low` (30 + 6 with
 # --- the report links the approved text and never rewrites it -----------------
 assert_file_contains "$FLAT" 'the report summarises it and never rewrites or corrects it'
 
+# --- step 6 renders the visual report, a derived view (A9 of M40) -------------
+assert_file_contains "$CODE" 'CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" report <run-id>'
+assert_file_contains "$FLAT" 'Then render its visual form, `DOC_DIR/informe.html`'
+[ "$(pos 'bash "$COUNCIL" status <run-id> --metadata')" -lt "$(pos 'bash "$COUNCIL" report <run-id>')" ] \
+  || fail "report must come after status --metadata"
+[ "$(pos 'Then write `DOC_DIR/informe.md`')" -lt "$(pos 'bash "$COUNCIL" report <run-id>')" ] \
+  || fail "report must come after informe.md is written"
+assert_file_contains "$FLAT" 'Tell the user both paths: `informe.md`, the record with authority, and `informe.html`, its visual form.'
+assert_file_contains "$FLAT" '`informe.html` is a derived view: never edit it by hand, and never correct there anything that is not in the Markdown files'
+assert_file_contains "$FM" "informe.html"
+assert_file "$REPO_ROOT/skills/council/report/informe.tpl.html"
+
 # --- every prompt the skill and the script rely on exists ---------------------
 for p in seat-rules.md phase-propose.md phase-cross.md phase-round.md nudge.md astra.tpl; do
   assert_file "$REPO_ROOT/skills/council/prompts/$p"
@@ -156,5 +168,12 @@ assert_file_contains "$README" "**Nada se commitea ni se pushea**"
 assert_file_contains "$README" "init <run-id> --offline"
 assert_file_contains "$ARCH" '## Consejo (`/tandem:council`)'
 assert_file_contains "$ARCH" "Opus compite y sintetiza, pero no vota."
+
+# --- the version the plugin declares is the newest CHANGELOG entry (A9 of M40;
+# marketplace.json carries no version field of its own) ----------------------
+PV="$(jq -r '.version' "$REPO_ROOT/.claude-plugin/plugin.json")"
+CV="$(LC_ALL=C sed -n 's/^## \([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\) — .*/\1/p' "$REPO_ROOT/CHANGELOG.md" | head -n 1)"
+assert_eq "$CV" "$PV" "plugin.json version matches the newest CHANGELOG entry"
+assert_eq "null" "$(jq -r '.plugins[0].version // "null"' "$REPO_ROOT/.claude-plugin/marketplace.json")" "marketplace.json pins no version of its own"
 
 note "skills/council/SKILL.md — preflight first, self-declared leader, seal before launch, council.sh astra only, barriers and red lines anchored"

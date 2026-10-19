@@ -155,6 +155,8 @@ El contrato ejecutable es `scripts/council.sh` (bash 3.2 + jq): letras A/B/C por
 
 **Entregable.** Todo lo legible queda en `docs/council/<YYYY-MM-DD-slug>/` (o `TANDEM_COUNCIL_DIR`): brief, prompts de cada fase, propuestas, contrainterrogatorio, rondas, síntesis, auditorías de fuentes, registro, `estrategia-final.md` (copia byte a byte de la síntesis aprobada), `informe.md` y `metadatos.md` (letras → modelo/effort con su evidencia, veredictos, anomalías, tokens). El estado de máquina vive en `.tandem/state/council/` (gitignorado). **Nada se commitea ni se pushea**: decides tú qué hacer con `docs/council/` — cuidado con ideas confidenciales en un repo público.
 
+**Informe visual.** Al final, `council.sh report <run-id>` deja también `informe.html`: una sola página autocontenida y sin red (ni CDN, ni fuentes web, ni librerías) con el sello del veredicto, KPIs, el calendario de los primeros 30 días, el gráfico de hitos, el mapa del debate fase × asiento, las objeciones filtrables con su historia ronda a ronda, la estrategia plegable, todos los documentos del run, los tokens, los turnos y las fuentes. Se abre con doble clic en cualquier navegador, también en el móvil y en modo oscuro. Es una **vista derivada**: los Markdown siguen siendo el registro con autoridad, los hechos que muestra (objeciones, estados, veredictos, consenso, fuentes, tokens) los calcula `council.sh` con la misma gramática que `ledger` y `status`, y nunca se edita a mano. Si cambia un documento del run, `status` lo avisa (`informe.html desactualizado`) y basta volver a ejecutar `report`; también sirve para generar el HTML de un run anterior a la 0.37.0.
+
 Variables: `TANDEM_COUNCIL_ROUNDS` (tope de rondas, 4), `TANDEM_COUNCIL_INTAKE` (`ask` por defecto: entrevista; `auto`: sin preguntas, supuestos explícitos en el brief — no lee `TANDEM_AUTONOMOUS`), `TANDEM_COUNCIL_MODEL`/`TANDEM_COUNCIL_EFFORT` (asiento Codex; `TANDEM_REVIEW_*` no le afecta; `TANDEM_COUNCIL_EFFORT=ultra` es una opción explícita, no el default, porque `ultra` delega fuera del control y la contabilidad de tandem), `TANDEM_COUNCIL_LEADER_MODEL` (líder esperado, `claude-opus-5-5`), `TANDEM_COUNCIL_DIR` (`docs/council`) y `TANDEM_COUNCIL_LOCK_TIMEOUT` (segundos de espera del lock del run, 30). Definidas y vacías son error de uso (64), nunca «sin definir». El rol `council` solo existe en exec: con `TANDEM_TRANSPORT=mcp` responde 64.
 
 ## Modo imagen — assets generados por Codex
@@ -206,6 +208,12 @@ bash tests/verify.sh                # PROOF: suite + shellcheck + actionlint pin
 propio sandbox bajo `env -i` con allowlist explícita (el `HOME`, el `CLAUDE_CONFIG_DIR` y un
 `codex` de verdad de tu máquina son estructuralmente inalcanzables). Los sandboxes de los
 casos en rojo se conservan para el post-mortem; los verdes se borran.
+
+`node` es una dependencia **solo de los tests**: el runner lo enlaza en cada sandbox si lo
+encuentra, para el caso `council-report-js`, que pasa `node --check` a los dos bloques de
+JavaScript del informe HTML del consejo y ejecuta su bloque de funciones puras en `node:vm`.
+Sin `node` ese caso falla nombrándolo (una capa que no puede correr es un fallo, nunca un
+salto silencioso) y el resto de la suite ni lo ve. El plugin en uso no lo necesita.
 
 En macOS los scripts se prueban contra el bash 3.2 del sistema, que es lo que corre el CI.
 Si tu `bash` por defecto es el 5 de Homebrew el self-check del runner te lo dirá; replica el

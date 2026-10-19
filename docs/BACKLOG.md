@@ -83,6 +83,7 @@ que la sostienen; el pulido que no la toca, baja.
 | M37 | Vigilancia de deriva local y gratuita en el doctor (el CI no corre) | Diagnóstico | P1 | M | pendiente |
 | M38 | Juez adversarial de decisiones y visión — épica: a visión + ADR · b `tandem:judge` · c gates | Visión | P2 | L | pendiente |
 | M39 | `/tandem:council` — consejo adversarial de tres modelos para valorar ideas y optimizar estrategias | Consejo | P2 | L | hecha (v0.36.1) |
+| M40 | Informe visual e interactivo del consejo (`council.sh report` → `informe.html`) | Consejo | P2 | M | hecha (v0.37.0) |
 
 ## Orden de ataque recomendado
 
@@ -978,3 +979,25 @@ ninguna de sus entradas, y M35b sigue siendo la siguiente.
     inferior de los tokens de Fable— están corregidas en v0.36.1.
   - La rama de respuesta en bloques `text` de `capture` sigue sin ejercitarse en real: el
     harness entregó siempre por `SubagentHandback`.
+
+## M40 — Informe visual e interactivo del consejo (`informe.html`)
+
+- **Severidad/Esfuerzo:** P2 / M · **Slug:** `council-report-html`
+- **Origen:** petición del mantenedor del 2026-10-19: entregar el resultado del consejo de una
+  forma más visual, en un HTML interactivo, con gráficos, énfasis visual y el contenido
+  organizado. Primero se probó con el resultado del canario real (Recap90); el mantenedor vio
+  el prototipo y pidió integrarlo por el pipeline tandem.
+- **Problema:** el entregable del consejo son unos treinta Markdown (más de 250 KB en el
+  canario). El resultado (veredicto, estrategia, plan, objeciones, debate) existe, pero cuesta
+  verlo y recorrerlo.
+- **Propuesta:** `docs/plans/council-report-html.plan.md`, aprobado por Astra en 2 rondas
+  (1 P1 + 2 P2, todos aceptados).
+  - **Los hallazgos:** `node` invisible en el sandbox de tests; instantánea única de los
+    documentos para que la huella nunca dé por al día un HTML incoherente; procedencia de la
+    estrategia dictada por el estado, no por la igualdad de textos.
+  - **El diseño:** `council.sh report` con los hechos en jq (la misma gramática que `ledger` y
+    `status`) y la plantilla `skills/council/report/informe.tpl.html` autocontenida, sin red,
+    con el render escapado.
+- **Aceptación:** A1–A9 del plan en la suite, y A10, la comprobación manual en un navegador
+  real sobre el run del canario, sin cuota.
+- **Estado (2026-10-19):** hecha en v0.37.0.

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # council.sh with spaces in BOTH the project path and TANDEM_COUNCIL_DIR — a
 # whole propose phase, end to end: init, the leader's seal, the two stages, a
-# real Astra turn through the wrappers, Fable's capture and the publication.
+# real Astra turn through the wrappers, Fable's capture and the publication —
+# and then the visual report of what was published (report).
 # A path that travelled through a space-separated string would be cut at its
 # first space and the paid answers would never reach DOC_DIR (code review of
 # M39, round 1); every path of the run must survive word splitting.
@@ -66,4 +67,27 @@ done
 assert_no_file "$PROJ/docs/my"
 assert_json "$RJ" '[.publications[] | select(.fase == "propose")] | length == 3'
 
-note "council under spaced paths: init, seals, stage, astra, capture and publish all keep the full path"
+# The visual report (A7 of M40): its snapshot, its temp file and its page all
+# live under the spaced paths.
+printf '# Informe del consejo\n\n## Resumen ejecutivo\n\nUn informe de prueba.\n' >"$DOC/informe.md"
+printf '# Estrategia\n\nEscrita a mano para la prueba.\n' >"$DOC/estrategia-final.md"
+council status "$RID" --metadata
+assert_rc 1 "status --metadata under the spaced paths (no complete round yet)"
+assert_file "$DOC/metadatos.md"
+assert_file_contains "$OUT" "PHASE: informe (escrito; falta informe.html: council.sh report)"
+council report "$RID"
+assert_rc 0 "report under the spaced paths"
+assert_eq "INFORME HTML: $DOC/informe.html" "$(cat "$OUT")" "report prints the full spaced path"
+assert_file "$DOC/informe.html"
+LC_ALL=C sed -n 's|^<script type="application/json" id="council-data">\(.*\)</script>$|\1|p' "$DOC/informe.html" >"$SANDBOX/payload.json"
+assert_json "$SANDBOX/payload.json" '.schema == 1 and (.docs | keys) == ["1-propuestas/A.md", "1-propuestas/B.md",
+  "1-propuestas/C.md", "brief.md", "estrategia-final.md", "informe.md", "metadatos.md"]'
+jq -j '.docs["1-propuestas/C.md"]' "$SANDBOX/payload.json" >"$SANDBOX/embedded C.md"
+cmp -s "$FX/expected-reply.txt" "$SANDBOX/embedded C.md" || fail "Fable's published answer was not embedded byte for byte"
+for left in "$DOC"/.informe.html.* "$RD"/.report.*; do
+  [ -e "$left" ] && fail "a report temp was left behind: $left"
+done
+council status "$RID"
+assert_file_contains "$OUT" "PHASE: informe (escrito)"
+
+note "council under spaced paths: init, seals, stage, astra, capture, publish and report all keep the full path"

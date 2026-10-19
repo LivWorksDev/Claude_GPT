@@ -1,6 +1,6 @@
 ---
 name: council
-description: Adversarial council of three frontier models from two families that weighs an idea and optimises the procedure to reach a goal - this session (Opus 5.5, max) interviews the user, freezes a brief, competes with its own proposal, moderates and synthesises; Fable 5.1 (Claude subagent) and GPT-6 Astra (Codex thread), both at max and read-only, propose blind, cross-examine each other and review the synthesis round by round until consensus or the round cap. Leaves a Markdown report plus the full transcript under docs/council/. Use when the user wants an idea evaluated or a strategy optimised against a measurable goal. NOT for plans, diffs or code (use tandem:plan / tandem:review / tandem:ultra) and NOT for a quick second opinion (use tandem:ask).
+description: Adversarial council of three frontier models from two families that weighs an idea and optimises the procedure to reach a goal - this session (Opus 5.5, max) interviews the user, freezes a brief, competes with its own proposal, moderates and synthesises; Fable 5.1 (Claude subagent) and GPT-6 Astra (Codex thread), both at max and read-only, propose blind, cross-examine each other and review the synthesis round by round until consensus or the round cap. Leaves a Markdown report, its visual and interactive form (informe.html, a self-contained HTML view derived from the Markdown) and the full transcript under docs/council/. Use when the user wants an idea evaluated or a strategy optimised against a measurable goal. NOT for plans, diffs or code (use tandem:plan / tandem:review / tandem:ultra) and NOT for a quick second opinion (use tandem:ask).
 argument-hint: "[idea y objetivo]"
 effort: max
 ---
@@ -153,6 +153,14 @@ CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" status <run-id> --metadata
 
 It copies, byte for byte, the synthesis reviewed in the last round to `DOC_DIR/estrategia-final.md` and writes `DOC_DIR/metadatos.md` (letters revealed → model/effort with their evidence, rounds and verdicts, anomalies, tokens). Its exit code is the status (0 CONSENSO, 1 SIN_CONSENSO): both files are written either way. Then write `DOC_DIR/informe.md` with these fixed sections: **Resumen ejecutivo** · **La estrategia** (a link to `estrategia-final.md`: the report summarises it and never rewrites or corrects it — a change after the last round would be a text no reviewer approved) · **Por qué esta y no las alternativas** · **Supuestos** (verified with source / to validate, with the minimal experiment) · **Riesgos y mitigaciones** · **Métricas, umbrales y criterios de abandono** · **Primeros 30 días** · **Decisiones pendientes** (the ABIERTA rows) · **Disidencias** (verbatim quotes of the seats) · **Estado** (CONSENSO or SIN_CONSENSO with the reasons `status` printed) · a link to `metadatos.md`.
 
+Then render its visual form, `DOC_DIR/informe.html`: one self-contained page, with no network, that embeds every document of the run and the facts `council.sh` computes with the same grammar as `ledger` and `status` (the verdict, the objections and their history, the rounds, the sources, the tokens):
+
+```bash
+CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" report <run-id>
+```
+
+It prints `INFORME HTML: <path>` (exit 1 names any of `informe.md`, `estrategia-final.md` or `metadatos.md` still missing). Tell the user both paths: `informe.md`, the record with authority, and `informe.html`, its visual form. If `informe.md` — or any other document of the run — changes afterwards, run `report` again: while the page is stale, `status` says `informe.html desactualizado`.
+
 ## Failures, retries and the turn bound
 
 Per phase and seat there are at most two substantive turns (the original and one retry) and one reminder, and the caps are executable: `stage` prepares no third attempt, `astra` launches no third substantive turn nor a second reminder, and `capture` captures nothing beyond the cap (65).
@@ -172,6 +180,7 @@ The bound shown at the brief gate: typical `2 × (2 + R)` max-effort seat turns 
 - The seats never write, and you never edit a seat's answer: only `capture` and `publish` move them (`--manual` is the one exception, and it is visible).
 - Consensus comes only from `status`: never declare it without `STATUS: CONSENSO`.
 - Never commit and never push anything: the user decides what to do with `docs/council/` (an idea can be confidential and the repo public).
+- `informe.html` is a derived view: never edit it by hand, and never correct there anything that is not in the Markdown files — fix the Markdown, then run `report` again.
 - Astra's turns go ONLY through `council.sh astra`: never `codex-start.sh` or `codex-resume.sh` directly, never `TANDEM_TRANSPORT` nor `TANDEM_TURN_EFFORT` in this skill (the script alone decides each turn's effort: max, or low for a reminder), and never `codex-reset.sh` on a council target — a rejected thread is replaced by the next generation, because the reset would delete the usage ledger and the per-turn `meta.json`, the run's accounting and its evidence.
 - Neither `model` nor `effort` in the Agent call, and every Fable turn names a prompt prepared by `stage`.
 - Never use `SendMessage` as a probe: messaging a finished agent starts new background work (the same rule as `skills/implement/SKILL.md`).
