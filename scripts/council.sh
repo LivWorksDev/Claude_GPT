@@ -159,8 +159,25 @@ letter_validate() {
 
 # --- paths --------------------------------------------------------------------
 council_paths() {
-  local base
+  local base d
   PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
+  # The leader's working directory can move between its Bash calls (real
+  # canary, 2026-10-18). With no CLAUDE_PROJECT_DIR, the run is looked for in
+  # $PWD and then in each parent, so a call made from a subdirectory of the
+  # project — its DOC_DIR, say — still finds the run. init never walks: it
+  # creates the run where it is called, and prints that PROJECT for the skill
+  # to pin in every later call.
+  if [ -z "${CLAUDE_PROJECT_DIR:-}" ] && [ "${SUBCMD:-}" != "init" ] && [ -n "${RUN_ID:-}" ]; then
+    d="$PWD"
+    while :; do
+      if [ -f "$d/.tandem/state/council/runs/$RUN_ID/run.json" ]; then
+        PROJECT_DIR="$d"
+        break
+      fi
+      [ "$d" = "/" ] && break
+      d="$(dirname -- "$d")"
+    done
+  fi
   DOC_CONFIG="${TANDEM_COUNCIL_DIR:-docs/council}"
   base="$DOC_CONFIG"
   case "$base" in /*) : ;; *) base="$PROJECT_DIR/$base" ;; esac
@@ -915,16 +932,16 @@ cmd_init() {
   STATE="$(jq -cn --arg id "$RUN_ID" --arg created "$(now_utc)" --arg mode "$mode" \
     --argjson rounds "$rounds" --arg a "$a" --arg b "$bseat" --arg c "$c" \
     --arg target "council-$RUN_ID-g1" --arg docdir "$DOC_CONFIG" \
-    --arg leader "${TANDEM_COUNCIL_LEADER_MODEL:-$COUNCIL_LEADER_DEFAULT}" \
+    --arg leader "${TANDEM_COUNCIL_LEADER_MODEL:-$COUNCIL_LEADER_DEFAULT}" --arg proj "$PROJECT_DIR" \
     '{run_id: $id, created: $created, mode: $mode, max_rounds: $rounds,
       letters: {A: $a, B: $b, C: $c}, astra_targets: [$target],
       agents: [], astra_turns: [], prompts: [], captures: [], seals: {},
-      leader_model: $leader, doc_dir_config: $docdir}')" \
+      leader_model: $leader, doc_dir_config: $docdir, project_dir: $proj}')" \
     || { rm -rf "$RUN_DIR" "$DOC_DIR"; die "cannot build run.json" 65; }
   state_save
 
   printf 'tandem: council run %s created (mode %s, up to %s rounds)\n' "$RUN_ID" "$mode" "$rounds"
-  printf 'DOC_DIR: %s\nRUN_DIR: %s\n' "$DOC_DIR" "$RUN_DIR"
+  printf 'PROJECT: %s\nDOC_DIR: %s\nRUN_DIR: %s\n' "$PROJECT_DIR" "$DOC_DIR" "$RUN_DIR"
   printf 'LETTERS: A=%s B=%s C=%s\n' "$a" "$bseat" "$c"
 }
 
@@ -1549,6 +1566,11 @@ def carr: (.message.content // []) | if type == "array" then . else [] end;
        end
    end) as $reply
 | (reduce $a[] as $l ({}; .[($l.message.id // "" | tostring)] = ($l.message.usage // {}))) as $U
+# A message has its FINAL usage only when its last line carries a stop_reason:
+# the harness does not always write that last chunk (measured on the real
+# canary: the SubagentHandback messages of Fable keep the stream-start count on
+# every line, stop_reason null). Such a usage is a lower bound, and is counted.
+| (reduce $a[] as $l ({}; .[($l.message.id // "" | tostring)] = ($l.message.stop_reason // null))) as $S
 | {
     malformed: ([ $all[] | select(type != "object" or has("__malformed")) ] | length),
     assistant: ($a | length),
@@ -1559,6 +1581,8 @@ def carr: (.message.content // []) | if type == "array" then . else [] end;
                                 or (startswith($pin + "-") and (.[($pin | length) + 1:] | test("^[0-9]{8}$"))))
                                | not)) ],
     reply: (if ($reply | type) == "string" and ($reply | length) > 0 then $reply else null end),
+    mensajes: ($S | length),
+    sin_usage_definitivo: ([ $S[] | select(. == null) ] | length),
     usage: {
       input_tokens: ([ $U[] | (.input_tokens | numbers) // 0 ] | add // 0),
       cache_read_input_tokens: ([ $U[] | (.cache_read_input_tokens | numbers) // 0 ] | add // 0),
@@ -1703,10 +1727,12 @@ cmd_capture() {
   # which can be long enough to strain the argument-size limit.
   upd --arg f "$PHASE" --argjson k "$k" --arg tipo "$tipo" --arg a "$agent" --arg o "$out" \
     --argjson from "$((cursor + 1))" --argjson to "$line_to" --arg p "$reply" --arg s "$sha" \
-    --arg u "$usage" --argjson an "$(printf '%s' "$analysis" | jq -c '{models, reads}')" --arg t "$(now_utc)" \
+    --arg u "$usage" --argjson an "$(printf '%s' "$analysis" | jq -c '{models, reads, mensajes, sin_usage_definitivo}')" --arg t "$(now_utc)" \
     '.captures += [{fase: $f, intento: $k, tipo: $tipo, agent_id: $a, output_file: $o,
        desde: $from, hasta: $to, captura: "capturado", modelo: "verificado",
-       modelos: ($an.models | unique), respuesta: $p, sha256: $s, uso: $u, registrado: $t}]
+       modelos: ($an.models | unique), respuesta: $p, sha256: $s, uso: $u,
+       mensajes: $an.mensajes, sin_usage_definitivo: $an.sin_usage_definitivo,
+       uso_completo: ($an.sin_usage_definitivo == 0), registrado: $t}]
      | .anomalies = ((.anomalies // []) + [ $an.reads[]
          | {tipo: "lectura-fuera-de-alcance", asiento: "fable", fase: $f, intento: $k,
             herramienta: .herramienta, rutas: .rutas, registrado: $t} ])'
@@ -2065,7 +2091,9 @@ write_metadata() {
       "## Tokens",
       "",
       "- Astra: \(if ($asum | length) == 0 then "sin ficheros de uso" else ($asum | kv) end) (\($nu) ficheros t<N>.usage.json de \($r.astra_targets | length) generación(es), cada uno una vez, también los de turnos fallidos o interrumpidos)",
-      "- Fable: \(if ($fsum | length) == 0 then "sin ficheros de uso" else ($fsum | kv) end) (\($nf) capturas, deduplicadas por message.id)",
+      ( ([ $r.captures[] | select(.captura == "capturado") | (.sin_usage_definitivo // 0) ] | add // 0) as $fpart
+        | ([ $r.captures[] | select(.captura == "capturado") | (.mensajes // 0) ] | add // 0) as $fmsgs
+        | "- Fable: \(if ($fsum | length) == 0 then "sin ficheros de uso" else ($fsum | kv) end) (\($nf) capturas, deduplicadas por message.id)\(if $fpart > 0 then " — COTA INFERIOR: \($fpart) de \($fmsgs) mensajes del transcript sin usage definitivo (su última línea no trae stop_reason)" else "" end)" ),
       "- líder: no medido"
     ' >"$tmp" || { rm -f "$tmp" "$usage_list" "$fable_list"; die "could not compose metadatos.md" 65; }
   rm -f "$usage_list" "$fable_list"

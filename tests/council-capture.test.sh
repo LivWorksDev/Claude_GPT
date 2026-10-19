@@ -81,6 +81,12 @@ assert_json "$RJ" '.captures | length == 1'
 assert_json "$RJ" '.captures[0] | .fase == "propose" and .intento == 1 and .tipo == "sustantivo"
   and .captura == "capturado" and .modelo == "verificado" and .modelos == ["claude-fable-5-1"]
   and .desde == 1 and .hasta == 38'
+# A message has its FINAL usage only when its last line carries a stop_reason.
+# In this real capture none of the 7 does, so its usage is a lower bound —
+# counted in run.json and stated in metadatos.md (real canary, 2026-10-18).
+assert_json "$RJ" '.captures[0] | .mensajes == 7 and .sin_usage_definitivo == 7 and .uso_completo == false'
+council status "$RID" --metadata
+assert_file_contains "$DOC/metadatos.md" "COTA INFERIOR: 7 de 7 mensajes del transcript sin usage definitivo (su última línea no trae stop_reason)"
 
 # --- a SECOND real transcript, with streaming usage ---------------------------
 # A long implementer run of the same host (tests/fixtures/council/README.md):
@@ -101,6 +107,11 @@ assert_rc 0 "capture of the streaming transcript"
 cmp -s "$FX/expected-reply.txt" "$(reply_of)" || fail "the streaming handback answer is not byte-for-byte input.message"
 assert_json "$(usage_of)" '. == {input_tokens: 8, cache_read_input_tokens: 886207, cache_creation_input_tokens: 34997, output_tokens: 5148}'
 assert_json "$RJ" '.captures[0].modelos == ["claude-fable-5-1"]'
+# Every message of the streaming capture ends with its stop_reason: its usage
+# is complete, and metadatos.md claims no lower bound.
+assert_json "$RJ" '.captures[0] | .mensajes == 4 and .sin_usage_definitivo == 0 and .uso_completo == true'
+council status "$RID" --metadata
+assert_not_contains "$DOC/metadatos.md" "COTA INFERIOR"
 RID="$SAVE_RID" DOC="$SAVE_DOC" RD="$SAVE_RD" RJ="$SAVE_RJ" TR="$SAVE_TR"
 
 # A second capture of the same attempt is beyond the cap of the phase.

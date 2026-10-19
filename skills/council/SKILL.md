@@ -30,7 +30,7 @@ bash "$COUNCIL" init <run-id>
 bash "$COUNCIL" init <run-id> --offline
 ```
 
-`init` prints `DOC_DIR`, `RUN_DIR` and the letters drawn at random (`LETTERS: A=… B=… C=…`); the moderator never chooses them. Keep your letter, Astra's and Fable's: every `stage` names one. **Invoked with an existing run id**, run `bash "$COUNCIL" status <run-id>` instead: its `PHASE:` line says where the run is, and it resumes from there.
+Run `init` from the project root — this session's working directory at the start. It prints `PROJECT`, `DOC_DIR`, `RUN_DIR` and the letters drawn at random (`LETTERS: A=… B=… C=…`); the moderator never chooses them. **Every later command carries `CLAUDE_PROJECT_DIR="<project>"`**, with the `PROJECT` path `init` printed: your Bash working directory can move between calls, and a call from somewhere else would not find the run (real canary, 2026-10-18; `council.sh` also looks for it in the parents of the working directory, but the pin is the contract). Keep your letter, Astra's and Fable's: every `stage` names one. **Invoked with an existing run id**, run `CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" status <run-id>` instead (the project root where the run was created): its `PHASE:` line says where the run is, and it resumes from there.
 
 ## Step 1 — Interview and brief (gate)
 
@@ -41,7 +41,7 @@ Write `DOC_DIR/brief.md` with these fixed sections: **Objetivo** · **Horizonte*
 Gate: the user approves the brief AND confirms that this session runs on the leader model at max effort (`max` is chosen per session — model selector or `/effort max`; it is not accepted in `effortLevel` settings). Show the turn bound the preflight printed and the cost note (Fable may bill usage credits). Only then freeze it:
 
 ```bash
-bash "$COUNCIL" seal <run-id> brief
+CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" seal <run-id> brief
 ```
 
 With `TANDEM_COUNCIL_INTAKE=auto`: no questions; every gap becomes an explicit item under **Supuestos**; if the goal or the success criterion cannot be derived without inventing them, STOP and ask for a complete brief.
@@ -51,9 +51,9 @@ With `TANDEM_COUNCIL_INTAKE=auto`: no questions; every gap becomes an explicit i
 1. Write YOUR proposal to `RUN_DIR/sealed/propose.md` (the structure of `prompts/phase-propose.md`, last line `ENTREGA: PROPUESTA`) and seal it BEFORE launching the seats — the seal is the executable proof that you wrote yours before seeing theirs (`stage` prepares no seat prompt of the phase before it, and `seal` answers 65 once one is staged: a Fable seat can answer before any capture exists):
 
    ```bash
-   bash "$COUNCIL" seal <run-id> propose
-   bash "$COUNCIL" stage <run-id> propose <astra-letter>
-   bash "$COUNCIL" stage <run-id> propose <fable-letter>
+   CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" seal <run-id> propose
+   CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" stage <run-id> propose <astra-letter>
+   CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" stage <run-id> propose <fable-letter>
    ```
 
    Each `stage` prints the absolute path of the prompt it wrote.
@@ -61,7 +61,7 @@ With `TANDEM_COUNCIL_INTAKE=auto`: no questions; every gap becomes an explicit i
    - **Astra** — Bash with `run_in_background: true`:
 
      ```bash
-     bash "$COUNCIL" astra <run-id> propose
+     CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" astra <run-id> propose
      ```
 
    - **Fable** — the Agent tool with `run_in_background: true`, `subagent_type: tandem:council-fable` (`tandem:council-fable-offline` in a run created with `--offline`), with **no `model` and no `effort` parameter** in the call: a value in the call would win over the frontmatter and persist into every continuation, and the frontmatter is the only source of the seat's pin. The prompt is exactly this fixed task text:
@@ -71,29 +71,29 @@ With `TANDEM_COUNCIL_INTAKE=auto`: no questions; every gap becomes an explicit i
      with Fable's letter and the absolute path `stage` printed. Then record the agent with the id and the `output_file` the launch returned:
 
      ```bash
-     bash "$COUNCIL" record-agent <run-id> <agent-id> <output-file>
+     CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" record-agent <run-id> <agent-id> <output-file>
      ```
 
-3. **The completion notification of the Astra Bash run and the Fable agent's completion notification are hard synchronization barriers.** Before BOTH arrive you do not capture, publish, stage another phase, write a synthesis or message either seat.
+3. **Two hard synchronization barriers: the completion notification of the Astra Bash run, and Fable's final report — the `SubagentHandback` message (or the agent result) that carries its answer.** Before BOTH arrive you do not capture, publish, stage another phase, write a synthesis or message either seat. **Do NOT also wait for the Fable agent's separate completion notification**: in the desktop app it arrives after the handback and opens no turn, so a leader waiting for it stalls (real canary, 2026-10-18, 15 h stopped). Once both barriers are met, capture in the same turn; while one is still missing, end the turn.
 4. Capture Fable's answer from its transcript (model verified, usage deduplicated):
 
    ```bash
-   bash "$COUNCIL" capture <run-id> propose
+   CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" capture <run-id> propose
    ```
 
 5. If an answer lacks a line the machine reads (its sentinel, its `VERDICT:`, a `RIESGO RESIDUAL:` next to an APPROVED, a status line of its own P1/P2), send ONE reminder to that seat — `stage` computes exactly what is missing:
 
    ```bash
-   bash "$COUNCIL" stage <run-id> propose <letter> --reminder
-   bash "$COUNCIL" astra <run-id> propose --reminder
-   bash "$COUNCIL" capture <run-id> propose --reminder
+   CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" stage <run-id> propose <letter> --reminder
+   CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" astra <run-id> propose --reminder
+   CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" capture <run-id> propose --reminder
    ```
 
-   For Astra, the second line (Bash, background, same barrier). For Fable, `SendMessage` to the recorded agent naming the reminder file — «Lee completo el fichero `<ruta absoluta>` y responde exactamente como pide.» — and, after its notification, the third line.
+   For Astra, the second line (Bash, background, same barrier). For Fable, `SendMessage` to the recorded agent naming the reminder file — «Lee completo el fichero `<ruta absoluta>` y responde exactamente como pide.» — and, after its `SubagentHandback`, the third line.
 6. Publish — the barrier between phases. It moves only machine-verified answers of the current attempts; failed and interrupted turns never reach `DOC_DIR`:
 
    ```bash
-   bash "$COUNCIL" publish <run-id> propose
+   CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" publish <run-id> propose
    ```
 
 ## Step 3 — Phase 2: cross-examination
@@ -101,14 +101,14 @@ With `TANDEM_COUNCIL_INTAKE=auto`: no questions; every gap becomes an explicit i
 The same pattern: write `RUN_DIR/sealed/cross.md` (your cross-examination of the other two proposals, objections in the exact format with YOUR letter, last line `ENTREGA: CONTRAINTERROGATORIO`), then:
 
 ```bash
-bash "$COUNCIL" seal <run-id> cross
-bash "$COUNCIL" stage <run-id> cross <astra-letter>
-bash "$COUNCIL" stage <run-id> cross <fable-letter>
+CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" seal <run-id> cross
+CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" stage <run-id> cross <astra-letter>
+CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" stage <run-id> cross <fable-letter>
 # Bash with run_in_background: true — and, in the same message, SendMessage to Fable:
-bash "$COUNCIL" astra <run-id> cross
-# only after BOTH completion notifications:
-bash "$COUNCIL" capture <run-id> cross
-bash "$COUNCIL" publish <run-id> cross
+CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" astra <run-id> cross
+# only after BOTH barriers — Astra's notification and Fable's SubagentHandback:
+CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" capture <run-id> cross
+CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" publish <run-id> cross
 ```
 
 Each seat receives the other two proposals by letter. Astra runs in the background; Fable continues through `SendMessage` to the recorded agent naming its cross prompt. The same barriers, the same reminders.
@@ -122,7 +122,7 @@ Write `DOC_DIR/sintesis-v1.md` with fixed sections (**Estrategia**, **Por qué e
 The disposition is `ACEPTADA`, `RECHAZADA` or `ABIERTA`, and the severity is ALWAYS the one its author declared — you cannot downgrade a P1. The register must pass:
 
 ```bash
-bash "$COUNCIL" ledger <run-id>
+CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" ledger <run-id>
 ```
 
 Then audit, with WebFetch, the sources of the figures that support decisions of the synthesis, and write `DOC_DIR/auditoria-v1.md`, one line per source: `- [F1] VERIFICADA <url> — <cifra o afirmación>` (or `NO ACCESIBLE`, or `NO CONFIRMA`). A `NO CONFIRMA` forces you to fix the synthesis and audit again before launching the round — `stage round-1` refuses an audit that still carries one. Offline: the audit is the single line `- OFFLINE: no aplica`, and every figure that comes neither from the user nor from the project stays a SUPUESTO.
@@ -132,15 +132,15 @@ Then audit, with WebFetch, the sources of the figures that support decisions of 
 For each round N (R = `TANDEM_COUNCIL_ROUNDS`, default 4):
 
 ```bash
-bash "$COUNCIL" stage <run-id> round-<N> <astra-letter>
-bash "$COUNCIL" stage <run-id> round-<N> <fable-letter>
+CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" stage <run-id> round-<N> <astra-letter>
+CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" stage <run-id> round-<N> <fable-letter>
 # Bash with run_in_background: true — and, in the same message, SendMessage to Fable:
-bash "$COUNCIL" astra <run-id> round-<N>
-# only after BOTH completion notifications:
-bash "$COUNCIL" capture <run-id> round-<N>
-bash "$COUNCIL" publish <run-id> round-<N>
-bash "$COUNCIL" ledger <run-id>
-bash "$COUNCIL" status <run-id>
+CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" astra <run-id> round-<N>
+# only after BOTH barriers — Astra's notification and Fable's SubagentHandback:
+CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" capture <run-id> round-<N>
+CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" publish <run-id> round-<N>
+CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" ledger <run-id>
+CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" status <run-id>
 ```
 
 The Astra turn (background) and the `SendMessage` to Fable naming its round prompt go out in parallel; both barriers hold before `capture`; a reminder goes out if the `VERDICT:`, the `RIESGO RESIDUAL:` or a status line is missing. After `publish`, dispose every NEW objection in `registro.md` and answer every `REABRE` (in the next synthesis), then `ledger` and `status`. `STATUS: CONSENSO` → Step 6. N = R → Step 6 with `SIN_CONSENSO`. Otherwise write `sintesis-v<N+1>.md`, its `auditoria-v<N+1>.md` and run the next round.
@@ -148,7 +148,7 @@ The Astra turn (background) and the `SendMessage` to Fable naming its round prom
 ## Step 6 — The report
 
 ```bash
-bash "$COUNCIL" status <run-id> --metadata
+CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" status <run-id> --metadata
 ```
 
 It copies, byte for byte, the synthesis reviewed in the last round to `DOC_DIR/estrategia-final.md` and writes `DOC_DIR/metadatos.md` (letters revealed → model/effort with their evidence, rounds and verdicts, anomalies, tokens). Its exit code is the status (0 CONSENSO, 1 SIN_CONSENSO): both files are written either way. Then write `DOC_DIR/informe.md` with these fixed sections: **Resumen ejecutivo** · **La estrategia** (a link to `estrategia-final.md`: the report summarises it and never rewrites or corrects it — a change after the last round would be a text no reviewer approved) · **Por qué esta y no las alternativas** · **Supuestos** (verified with source / to validate, with the minimal experiment) · **Riesgos y mitigaciones** · **Métricas, umbrales y criterios de abandono** · **Primeros 30 días** · **Decisiones pendientes** (the ABIERTA rows) · **Disidencias** (verbatim quotes of the seats) · **Estado** (CONSENSO or SIN_CONSENSO with the reasons `status` printed) · a link to `metadatos.md`.
@@ -163,7 +163,7 @@ Per phase and seat there are at most two substantive turns (the original and one
 - **`capture` exits 1** (no answer in the transcript, or the format changed) → visible degradation: transcribe the Agent result into the reply file the error names and run `capture <run-id> <phase> --manual`; it is recorded as transcribed, model not verified.
 - **`capture` exits 65** (another model answered: a forced model, a wrong agent type or a silent model switch) → **FAILED** terminal, state preserved.
 - A second failure of the same seat in the same phase, or any cap that answers 65 → **FAILED** terminal with the state preserved. In the rounds, a format that still fails after its reminder counts as REVISE, with the anomaly shown.
-- `astra` exiting **75** means an earlier turn of the target is still alive: wait for its notification. Any subcommand answering **75 on the run lock** names the lock and its owner; if that owner is gone, the lock is orphaned (only a kill inside a critical section leaves one) and it is never reclaimed automatically — show it to the user, who removes it by hand. **65 with `bloqueada`** means a turn's liveness cannot be established: only a person resolves it, with `bash "$COUNCIL" unblock <run-id> <target>` — run it only if the user asks.
+- `astra` exiting **75** means an earlier turn of the target is still alive: wait for its notification. Any subcommand answering **75 on the run lock** names the lock and its owner; if that owner is gone, the lock is orphaned (only a kill inside a critical section leaves one) and it is never reclaimed automatically — show it to the user, who removes it by hand. **65 with `bloqueada`** means a turn's liveness cannot be established: only a person resolves it, with `CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" unblock <run-id> <target>` — run it only if the user asks.
 
 The bound shown at the brief gate: typical `2 × (2 + R)` max-effort seat turns (12 with R = 4); ceiling `5 × (2 + R)` max-effort turns (Fable: substantive, retry and reminder, all three at max because its effort lives in the frontmatter; Astra: substantive and retry) plus `2 + R` Astra reminders at `low` (30 + 6 with R = 4). The counters live in `run.json`, so they survive a recovery.
 
@@ -175,5 +175,5 @@ The bound shown at the brief gate: typical `2 × (2 + R)` max-effort seat turns 
 - Astra's turns go ONLY through `council.sh astra`: never `codex-start.sh` or `codex-resume.sh` directly, never `TANDEM_TRANSPORT` nor `TANDEM_TURN_EFFORT` in this skill (the script alone decides each turn's effort: max, or low for a reminder), and never `codex-reset.sh` on a council target — a rejected thread is replaced by the next generation, because the reset would delete the usage ledger and the per-turn `meta.json`, the run's accounting and its evidence.
 - Neither `model` nor `effort` in the Agent call, and every Fable turn names a prompt prepared by `stage`.
 - Never use `SendMessage` as a probe: messaging a finished agent starts new background work (the same rule as `skills/implement/SKILL.md`).
-- The notification of the Bash run and the notification of the agent are hard barriers.
+- The two hard barriers are the Astra Bash run's completion notification and Fable's `SubagentHandback`; never wait for the Fable agent's separate completion notification on top of them.
 - `capture` 65, or a cap of «Failures, retries and the turn bound» → FAILED terminal with the state preserved.

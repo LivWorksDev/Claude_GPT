@@ -219,6 +219,10 @@ Decisiones:
 - **El driver es dueño del ciclo de vida del turno**: reserva y lanza en UNA sección crítica, reenvía TERM al wrapper, y la liveness se decide por identidad de proceso (pid + `lstart`) y por tres firmas de argv — el token único del lanzamiento (`exec -a council-astra-<token>`), cualquier wrapper del target y el `reply.txt` del turno —, nunca porque un pid haya muerto. Ante la duda, `bloqueada`, y desbloquear es una acción humana (`unblock`): mejor parar que solapar dos turnos en el mismo hilo.
 - **Entrevista interactiva por defecto sin leer `TANDEM_AUTONOMOUS`** (que puede estar activo de forma permanente y anularía la entrevista); `TANDEM_COUNCIL_INTAKE=auto` cubre el uso desatendido. **Web activada con fuente obligatoria**; el modo confidencial es `TANDEM_WEB_SEARCH=off` en los turnos de Astra + el gemelo offline de Fable sin herramientas web (garantía del allowlist, no de una instrucción).
 - **Entregable en `docs/council/`** (versionable, decisión del usuario) y estado de máquina en `.tandem/` (gitignorado). Nada se commitea.
+- **Lo que cambió el canario real (v0.36.1, `docs/audits/council-canario-2026-10-18.md`):**
+  - **La barrera de Fable es su `SubagentHandback`.** En la app de escritorio, la notificación de fin del agente llega DESPUÉS de la entrega y no abre turno, y el líder que la esperaba se quedó 15 h parado.
+  - **Cada llamada de la skill posterior a `init` lleva `CLAUDE_PROJECT_DIR="<project>"`.** `init` imprime y registra esa raíz; sin la variable, `council.sh` busca el run en `$PWD` y en sus padres, porque el directorio de trabajo del líder se movió durante el run.
+  - **El uso de Fable es una cota inferior cuando hace falta decirlo.** Un mensaje solo tiene su `usage` definitivo si la última línea de su `message.id` trae `stop_reason`, y el harness no siempre la escribe: en el canario, los 6 mensajes de entrega de Fable conservaban el recuento de inicio del streaming. `capture` cuenta esos mensajes y `metadatos.md` lo declara (`COTA INFERIOR: N de M mensajes…`).
 
 ## Sesgo del árbitro con Opus
 

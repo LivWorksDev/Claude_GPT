@@ -81,3 +81,19 @@
   plugin cargado (los agentes de plugin no se recargan en caliente) y una carpeta fuera de
   cualquier repo. Valida además las formas sintéticas de las fixtures (la continuación por
   `SendMessage` y la respuesta en bloques `text`).
+
+## Canario real y correcciones (v0.36.1)
+
+- **Canario real:** CONSENSO en la ronda 4. La sesión de origen verificó C1–C5 contra los
+  ficheros (`docs/audits/council-canario-2026-10-18.md`).
+- **Tres fricciones, corregidas:**
+  - la barrera de Fable pasa a ser su `SubagentHandback`, porque la notificación de fin no
+    abre turno y el líder se quedó 15 h parado;
+  - `init` registra `PROJECT`, la skill lo fija en cada llamada y `council.sh` busca el run en
+    los padres del directorio de trabajo;
+  - los tokens de Fable se declaran cota inferior cuando hay mensajes sin `stop_reason` en su
+    última línea.
+- **Gate:** 101 passed, shellcheck y actionlint limpios. El test nuevo `council-root` está
+  comprobado por mutación.
+- **Code review (Astra, xhigh, hilo fresco `cr-council-canary-fixes`):** 1 ronda →
+  `VERDICT: APPROVED`, sin hallazgos.

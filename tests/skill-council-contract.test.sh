@@ -56,6 +56,12 @@ if LC_ALL=C grep -E 'codex[[:space:]]+(exec|mcp)' "$CODE" >/dev/null; then
   fail "a code block launches codex directly"
 fi
 assert_file_contains "$FLAT" 'COUNCIL="${CLAUDE_SKILL_DIR}/../../scripts/council.sh"'
+# Every council.sh call after init is pinned to the project root: in the real
+# canary the leader's working directory moved between its Bash calls.
+assert_file_contains "$FLAT" 'Every later command carries `CLAUDE_PROJECT_DIR="<project>"`'
+UNPINNED="$(LC_ALL=C grep -E '^[[:space:]]*bash "\$COUNCIL" ' "$CODE" | LC_ALL=C grep -v -E 'bash "\$COUNCIL" (preflight$|init )' || true)"
+[ -z "$UNPINNED" ] || fail "council.sh calls in the code blocks without CLAUDE_PROJECT_DIR=\"<project>\": $UNPINNED"
+assert_file_contains "$CODE" 'CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" astra <run-id> propose'
 assert_file "$REPO_ROOT/scripts/council.sh"
 
 # --- 1. the preflight goes first ----------------------------------------------
@@ -96,7 +102,12 @@ assert_file "$REPO_ROOT/agents/council-fable.md"
 assert_file "$REPO_ROOT/agents/council-fable-offline.md"
 
 # --- 6. the barrier -----------------------------------------------------------
-assert_file_contains "$FLAT" "**The completion notification of the Astra Bash run and the Fable agent's completion notification are hard synchronization barriers.**"
+assert_file_contains "$FLAT" "**Two hard synchronization barriers: the completion notification of the Astra Bash run, and Fable's final report — the \`SubagentHandback\` message (or the agent result) that carries its answer.**"
+# The real canary (2026-10-18) stalled 15 h on the OLD barrier: the agent's
+# completion notification arrives after the handback and opens no turn.
+assert_file_contains "$FLAT" "**Do NOT also wait for the Fable agent's separate completion notification**"
+assert_not_contains "$FLAT" "the Fable agent's completion notification are hard synchronization barriers"
+assert_file_contains "$FLAT" "never wait for the Fable agent's separate completion notification on top of them"
 assert_file_contains "$FLAT" "Before BOTH arrive you do not capture, publish, stage another phase, write a synthesis or message either seat."
 
 # --- 7. consensus comes only from status --------------------------------------

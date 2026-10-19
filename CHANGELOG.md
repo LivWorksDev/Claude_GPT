@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.36.1 — 2026-10-19
+
+Correcciones del canario real de `/tandem:council`, que terminó en CONSENSO en la ronda 4 y
+superó C1–C5 (`docs/audits/council-canario-2026-10-18.md`), pero sacó tres fricciones:
+
+- **La barrera de Fable es su `SubagentHandback`.** En la app de escritorio, la notificación
+  de fin del agente llega después de la entrega y no abre turno: el líder que la esperaba se
+  quedó 15 h parado. La skill declara barreras la notificación de la Bash de Astra y la entrega
+  de Fable, y prohíbe esperar además la notificación de fin. El contrato de la skill lo fija.
+- **La raíz del proyecto ya no se pierde.**
+  - `init` imprime `PROJECT` y lo registra en `run.json`.
+  - Cada llamada posterior de la skill lleva `CLAUDE_PROJECT_DIR="<project>"`; el contrato
+    exige que ningún bloque de código lo omita.
+  - Sin la variable, `council.sh` busca el run en `$PWD` y en sus padres, mientras que `init`
+    nunca busca: crea el run donde se le llama.
+  - Test nuevo: `council-root`, comprobado por mutación.
+- **Los tokens de Fable, como cota inferior cuando lo son.**
+  - El problema: un mensaje solo tiene su `usage` definitivo si la última línea de su
+    `message.id` trae `stop_reason`, y el harness no siempre la escribe. Medido en tres
+    transcripts reales: 57/57, 251/304 y 10/29 mensajes sin ella; en el canario, los 6
+    mensajes de entrega de Fable.
+  - El arreglo: `capture` registra `mensajes`, `sin_usage_definitivo` y `uso_completo`, y
+    `metadatos.md` añade `COTA INFERIOR: N de M mensajes…` cuando hace falta. Las dos
+    fixtures reales cubren los dos casos: 7/7 sin `usage` definitivo y 0/4.
+
 ## 0.36.0 — 2026-10-18
 
 - **`/tandem:council` — consejo adversarial de tres modelos** (M39): valora una idea y

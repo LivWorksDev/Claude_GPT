@@ -82,7 +82,7 @@ que la sostienen; el pulido que no la toca, baja.
 | M36 | Retirar el transporte MCP (`codex mcp-server` ya no existe) | Transporte | P2 | M | pendiente |
 | M37 | Vigilancia de deriva local y gratuita en el doctor (el CI no corre) | Diagnóstico | P1 | M | pendiente |
 | M38 | Juez adversarial de decisiones y visión — épica: a visión + ADR · b `tandem:judge` · c gates | Visión | P2 | L | pendiente |
-| M39 | `/tandem:council` — consejo adversarial de tres modelos para valorar ideas y optimizar estrategias | Consejo | P2 | L | hecha (v0.36.0; canario real pendiente) |
+| M39 | `/tandem:council` — consejo adversarial de tres modelos para valorar ideas y optimizar estrategias | Consejo | P2 | L | hecha (v0.36.1) |
 
 ## Orden de ataque recomendado
 
@@ -970,8 +970,11 @@ ninguna de sus entradas, y M35b sigue siendo la siguiente.
   `skills/council/`.
 - **Aceptación:** la del plan (A1–A10 + A1b/A5b) y, como cierre bloqueante, el canario real
   C1–C5 con OK explícito del mantenedor.
-- **Estado (2026-10-18):** implementada en v0.36.0 (100 tests en verde con shellcheck y
-  actionlint). El canario real C1–C5 sigue pendiente del OK del mantenedor y de una sesión
-  nueva con el plugin cargado; hasta entonces las formas sintéticas de las fixtures (la
-  continuación por `SendMessage` y la respuesta en bloques `text`) no están validadas contra
-  el harness real.
+- **Estado (2026-10-19):** hecha.
+  - Implementada en v0.36.0.
+  - Canario real superado (C1–C5): CONSENSO en la ronda 4, informe en
+    `docs/audits/council-canario-2026-10-18.md`.
+  - Sus tres fricciones —la barrera del handback de Fable, la raíz del proyecto y la cota
+    inferior de los tokens de Fable— están corregidas en v0.36.1.
+  - La rama de respuesta en bloques `text` de `capture` sigue sin ejercitarse en real: el
+    harness entregó siempre por `SubagentHandback`.
