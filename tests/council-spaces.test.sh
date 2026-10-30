@@ -31,6 +31,8 @@ assert_file_contains "$OUT" "DOC_DIR: $DOC"
 [ -d "$DOC" ] || fail "DOC_DIR was not created at the spaced path: $DOC"
 jq '.letters = {A: "lider", B: "astra", C: "fable"}' "$RJ" >"$RJ.tmp" && mv "$RJ.tmp" "$RJ"
 printf '# Brief\n\nObjetivo: medible\n' >"$DOC/brief.md"
+council profile "$RID" critico
+assert_rc 0 "profile"
 council seal "$RID" brief
 assert_rc 0 "seal brief"
 printf 'Propuesta del líder\nENTREGA: PROPUESTA\n' >"$RD/sealed/propose.md"

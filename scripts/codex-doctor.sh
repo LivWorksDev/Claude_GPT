@@ -218,11 +218,13 @@ fi
 # model policy (mirrors _common.sh resolve_role)
 printf '\nmodel policy (override via env):\n'
 info "review/ask:  model=${TANDEM_REVIEW_MODEL:-$(tandem_default_model review)} effort=${TANDEM_REVIEW_EFFORT:-xhigh} sandbox=read-only (pinned)"
-# The council has two machine-pinned seats. The Codex one is resolve_role's
-# `council` role; the Claude one lives ONLY in the frontmatter of
-# agents/council-fable.md (its offline twin is held equal by the suite), so it
-# is read from there instead of being restated here — a second literal would
-# report a seat nobody runs the day the pin moves.
+# The council has two machine-pinned seats, both at the level of the effort
+# profile chosen per run (exploratorio = high, estandar = xhigh, critico = max).
+# The Codex one is resolve_role's `council` role, whose effort council.sh astra
+# exports per turn; the Claude one lives ONLY in the frontmatter of
+# agents/council-fable{-high,-xhigh,}.md (their offline twins are held equal by
+# the suite), so it is read from there instead of being restated here — a
+# second literal would report a seat nobody runs the day the pin moves.
 council_fm() {
   # council_fm <file> <key> — one frontmatter value, trimmed and unquoted.
   [ -f "$1" ] || return 0
@@ -232,7 +234,12 @@ council_fm() {
 council_agent_file="$SCRIPT_DIR/../agents/council-fable.md"
 council_seat_model="$(council_fm "$council_agent_file" model)"
 council_seat_effort="$(council_fm "$council_agent_file" effort)"
-info "council:     model=${TANDEM_COUNCIL_MODEL:-$(tandem_default_model council)} effort=${TANDEM_COUNCIL_EFFORT:-max} sandbox=read-only (pinned) · claude seat=${council_seat_model:-?}/${council_seat_effort:-?} (agents/council-fable.md)"
+council_seat_xhigh="$(council_fm "$SCRIPT_DIR/../agents/council-fable-xhigh.md" effort)"
+council_seat_high="$(council_fm "$SCRIPT_DIR/../agents/council-fable-high.md" effort)"
+info "council:     model=${TANDEM_COUNCIL_MODEL:-$(tandem_default_model council)} effort=per profile (exploratorio=high estandar=xhigh critico=max) sandbox=read-only (pinned) · claude seat=${council_seat_model:-?}/${council_seat_high:-?},${council_seat_xhigh:-?},${council_seat_effort:-?} (agents/council-fable{-high,-xhigh,}.md)"
+case "${TANDEM_COUNCIL_EFFORT+set}" in
+  set) warn "TANDEM_COUNCIL_EFFORT='$TANDEM_COUNCIL_EFFORT' is set — the council preflight FAILs on it (the effort profile decides Astra's effort)" ;;
+esac
 # Default only when UNSET: a set-but-empty selector is a config error, not opus.
 implementer="${TANDEM_IMPLEMENTER-opus}"
 case "$implementer" in

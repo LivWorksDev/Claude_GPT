@@ -26,6 +26,8 @@ assert_json "$RJ" ".project_dir == \"$PROJ\""
 
 # From a subdirectory of the project — DOC_DIR itself — the run is found.
 printf '# Brief\n\nObjetivo: x\n' >"$DOC/brief.md"
+run_in "$DOC" env -u CLAUDE_PROJECT_DIR bash "$COUNCIL" profile "$RID" critico
+assert_rc 0 "profile from DOC_DIR"
 run_in "$DOC" env -u CLAUDE_PROJECT_DIR bash "$COUNCIL" seal "$RID" brief
 assert_rc 0 "seal from DOC_DIR"
 assert_json "$RJ" '.seals.brief.sha256 | type == "string"'

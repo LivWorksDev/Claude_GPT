@@ -1,15 +1,16 @@
 # Metadatos del consejo 2026-10-19-report
 
 - Creado: 2026-10-19T08:00:00Z · modo: web · tope de rondas: 2 · rondas completas: 2
+- Perfil: crítico (max: líder, Fable y Astra)
 - Estado: CONSENSO en la ronda 2
 
 ## Letras (reveladas al final)
 
 | Letra | Asiento | Modelo / effort | Evidencia |
 | --- | --- | --- | --- |
-| A | líder | claude-opus-5-5 / max | autodeclarado por la sesión y confirmado por el usuario en el gate del brief (no medido) |
+| A | líder | claude-opus-5-5 / max | autodeclarado y confirmado en el gate; no medido |
 | B | Astra (Codex) | gpt-6-astra/max | meta.json de cada turno (council-2026-10-19-report-g1 t1, council-2026-10-19-report-g1 t2, council-2026-10-19-report-g2 t1, council-2026-10-19-report-g2 t2, council-2026-10-19-report-g2 t3) |
-| C | Fable (Claude) | claude-fable-5-1, claude-fable-5-1-20261001 / frontmatter | modelos de cada captura del transcript; hay capturas transcritas a mano (modelo no verificado) |
+| C | Fable (Claude) | claude-fable-5-1, claude-fable-5-1-20261001 / max | modelos y esfuerzos de cada captura del transcript (agente: tandem:council-fable); hay capturas transcritas a mano (modelo no verificado) |
 
 ## Turnos de Astra
 

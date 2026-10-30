@@ -1,6 +1,7 @@
 # Metadatos del consejo 2026-10-19-vacio
 
 - Creado: 2026-10-19T07:00:00Z · modo: web · tope de rondas: 4 · rondas completas: 0
+- Perfil: sin elegir
 - Estado: sin ninguna ronda completa
 
 ## Letras (reveladas al final)
@@ -8,8 +9,8 @@
 | Letra | Asiento | Modelo / effort | Evidencia |
 | --- | --- | --- | --- |
 | A | Astra (Codex) | sin turnos con meta.json | meta.json de cada turno () |
-| B | Fable (Claude) | no verificado / frontmatter | modelos de cada captura del transcript |
-| C | líder | claude-opus-5-5 / max | autodeclarado por la sesión y confirmado por el usuario en el gate del brief (no medido) |
+| B | Fable (Claude) | no verificado / no verificado | modelos y esfuerzos de cada captura del transcript |
+| C | líder | claude-opus-5-5 / sin perfil | autodeclarado y confirmado en el gate; no medido |
 
 ## Turnos de Astra
 

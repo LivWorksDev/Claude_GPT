@@ -11,6 +11,7 @@ con la forma de salida supuesta valida la suposición, no la conversión.
 | --- | --- |
 | `subagent-transcript.jsonl` | derivado de un transcript REAL (abajo) |
 | `subagent-transcript-streaming.jsonl` | derivado de un SEGUNDO transcript REAL, con `usage` de streaming (abajo) |
+| `subagent-transcript-effort.jsonl` | derivado de un TERCER transcript REAL: un subagente a `xhigh` bajo una sesión a `medium`, lanzamiento y continuación (abajo) |
 | `expected-reply.txt` | el `input.message` exacto del `SubagentHandback` de esa fixture |
 | `sanitize.jq` | el saneado que se le aplicó |
 | `synthetic-continuation.jsonl` + `synthetic-continuation-reply.txt` | SINTÉTICO — segundo turno añadido (continuación por `SendMessage`) |
@@ -36,7 +37,8 @@ con la forma de salida supuesta valida la suposición, no la conversión.
   expected-reply.txt`):** todo valor string cuya clave no esté en la lista de estructura
   (`type`, `name`, `id`, `model`, `role`, `tool_use_id`, `stop_reason`, `stop_sequence`,
   `timestamp`, `version`, `entrypoint`, `service_tier`, `speed`, `inference_geo`, `userType`,
-  `permissionDecision`) se sustituye por `"<x>"` — textos, thinking, inputs de herramientas,
+  `permissionDecision`; y, desde los perfiles de esfuerzo, `effort`, `perTurnEffort` y
+  `attributionAgent`) se sustituye por `"<x>"` — textos, thinking, inputs de herramientas,
   rutas, cwd, rama, ids de sesión y de agente. Números y booleanos (el `usage` entre ellos) se
   conservan tal cual. El `input.message` del `SubagentHandback` se sustituye por el contenido
   de `expected-reply.txt` (multilínea, con comillas, acentos y backticks) para poder comprobar
@@ -91,6 +93,63 @@ sed -n '1,14p;40,56p;1476,1480p' agent-<id>.jsonl \
   | jq -c --rawfile payload expected-reply.txt -f sanitize.jq \
   | jq -c 'if .type == "assistant" then .message.model = "claude-fable-5-1" else . end' \
   > subagent-transcript-streaming.jsonl
+```
+
+## `effort`, `perTurnEffort` y `attributionAgent` en las fixtures anteriores
+
+Las dos fixtures reales anteriores y las dos sintéticas se derivaron con el saneado ANTIGUO,
+que no conocía esas tres claves y las convirtió en `"<x>"`: su valor real se perdió. Con los
+perfiles de esfuerzo, `council.sh capture` compara `effort` y `attributionAgent` con el perfil
+del run, y un `"<x>"` sería un desajuste falso. Se han ELIMINADO esas tres claves de las líneas
+`assistant` de las cuatro (nada más cambia, comprobado byte a byte):
+
+```sh
+jq -c 'if .effort == "<x>" then del(.effort) else . end
+  | if .perTurnEffort == "<x>" then del(.perTurnEffort) else . end
+  | if .attributionAgent == "<x>" then del(.attributionAgent) else . end' <fixture>
+```
+
+Así ejercitan la rama de la AUSENCIA: la captura procede y queda marcada «no verificado»
+(con su anomalía en `metadatos.md`). La rama verificada la cubre la fixture siguiente.
+
+## Derivación de `subagent-transcript-effort.jsonl`
+
+- **Por qué existe:** `capture` verifica el esfuerzo y el tipo de agente de Fable con dos
+  campos no documentados de cada línea `assistant` (`effort`, `attributionAgent`). Hacía
+  falta medir que reflejan el frontmatter del SUBAGENTE y no el de la sesión, también en una
+  continuación por `SendMessage`.
+- **Fuente:** el diagnóstico del plan de los perfiles (2026-10-30, Claude Code 2.1.312): un
+  subagente `tandem:implementer-critical` (frontmatter `effort: xhigh`) lanzado en background
+  desde una sesión a `medium`, y continuado después con `SendMessage`. 21 líneas: 1–17 el
+  lanzamiento (un mensaje `msg_011CgYCkXJ6TQszegjg3JReL` repartido en dos líneas `assistant`,
+  thinking + `text`), 18–21 la continuación (un mensaje `msg_011CgYCmLCsjo1miCnDSrgfV`, una
+  línea `text`); además, líneas `attachment`, `api-request*` y `user`. Las tres líneas
+  `assistant` llevan `effort: "xhigh"`, `perTurnEffort: "xhigh"` y `attributionAgent:
+  "tandem:implementer-critical"`, aunque la sesión corría a `medium`; las líneas
+  `api-request` traen `params.output_config.effort: "xhigh"`. El modelo real era
+  `claude-opus-5-5`. La respuesta llega en bloques `text`, sin `SubagentHandback`.
+- **Saneado:** el `sanitize.jq` de hoy (conserva `effort`, `perTurnEffort` y
+  `attributionAgent`; `expected-reply.txt` como `$payload`, que no se usa: no hay
+  `SubagentHandback`). Después, en cada línea `assistant`: `message.model` (real:
+  `claude-opus-5-5`) pasa a `claude-fable-5-1`, `attributionAgent` (real:
+  `tandem:implementer-critical`) pasa a `tandem:council-fable-xhigh` — el agente del perfil
+  `estandar` —, y el texto de cada mensaje se sustituye por una respuesta conocida para
+  comprobar la extracción. `effort` y `perTurnEffort` conservan su valor REAL, `xhigh`. Sin
+  recorte. Barrido de privacidad limpio (ni `/Users/`, ni el usuario, ni el correo, ni el
+  proyecto, ni los ids de sesión y de agente de origen).
+- **Lo que fija el test:** en un run `estandar`, la captura del lanzamiento (líneas 1–17) y la
+  de la continuación (18–21) verifican `xhigh` y `tandem:council-fable-xhigh`; con `effort`
+  `max`, con el agente `tandem:council-fable`, con el agente real del diagnóstico o en un run
+  `critico` → 65 y nada capturado.
+
+```sh
+jq -c --rawfile payload expected-reply.txt -f sanitize.jq agent-<id>.jsonl \
+  | jq -c 'if .type == "assistant" then .message.model = "claude-fable-5-1"
+      | .attributionAgent = "tandem:council-fable-xhigh"
+      | .message.id as $id | .message.content |= map(if .type == "text" then .text =
+          (if $id == "msg_011CgYCkXJ6TQszegjg3JReL" then "Respuesta del lanzamiento (diagnóstico saneado)"
+           else "Respuesta de la continuación (diagnóstico saneado)" end) else . end)
+    else . end' > subagent-transcript-effort.jsonl
 ```
 
 ## Variantes SINTÉTICAS

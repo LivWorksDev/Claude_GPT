@@ -648,7 +648,32 @@ var TandemReport = (function () {
     return 'Copia exacta de la síntesis v' + n + ', revisada en la ronda ' + n + ', sin consenso.';
   }
 
+  // El perfil de esfuerzo del run (data.run.perfil, de council.sh): un nivel para los tres asientos.
+  function profileText(p) {
+    if (!p || !p.nombre) return 'Perfil sin elegir';
+    return 'Perfil ' + (p.nombre_visible || p.nombre) + ' · ' + (p.esfuerzo || '?') + (p.implicito ? ' (implícito)' : '');
+  }
+  // Recuentos por esfuerzo, con el orden de metadatos.md: más mensajes primero, empate por nombre.
+  function effCount(o) {
+    return Object.keys(o || {}).map(function (k) { return [k, o[k]]; })
+      .sort(function (a, b) { return b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0); })
+      .map(function (e) { return e[0] + ' ×' + e[1]; }).join(', ');
+  }
+  // La medición del líder (la instantánea lider-esfuerzo.json), con las palabras de metadatos.md.
+  function leaderEffortText(m) {
+    if (!m || !m.medido) return 'no medido';
+    var d = m.debate || {}, i = m.intake || {};
+    return 'medido (deduplicado por message.id) — debate: ' + (d.total ? effCount(d.por_esfuerzo) : 'sin mensajes') +
+      ' · intake: ' + (i.total ? effCount(i.por_esfuerzo) : 'sin mensajes');
+  }
+  // El esfuerzo medido de un asiento (facts.seats[*].esfuerzos).
+  function seatEffortText(sf) {
+    var e = (sf && sf.esfuerzos) || [];
+    return e.length ? e.join(', ') : 'no verificado';
+  }
+
   return {
+    profileText: profileText, effCount: effCount, leaderEffortText: leaderEffortText, seatEffortText: seatEffortText,
     MES: MES, DAY: DAY, esc: esc, norm: norm, fmtInt: fmtInt, fmtDec: fmtDec, fmtTok: fmtTok, slug: slug,
     num: num, dedent: dedent, splitRow: splitRow, docHash: docHash, resolve: resolve, extLink: extLink,
     inline: inline, md: md, tables: tables, removeFirstTable: removeFirstTable, sections: sections,
@@ -870,7 +895,7 @@ function buildMast() {
     '<div><div class="eyebrow">Informe del consejo · tandem</div><h1 class="title">' + inline(TITLE, 'informe.md') + '</h1>' +
     (thesis ? '<p class="thesis">' + inline(thesis, 'informe.md') + '</p>' : '') +
     (INTRO ? '<p class="hero-meta">' + inline(INTRO.replace(/\n+/g, ' '), 'informe.md') + '</p>' : '') +
-    '<div class="seats">' + seats + '</div></div>' +
+    '<div class="seats">' + seats + '<span class="badge b-neutral" title="Un nivel de esfuerzo para el líder, Fable y Astra">' + esc(TR.profileText(RUN.perfil)) + '</span></div></div>' +
     '<div class="stamp ' + stampCls + '" role="img" aria-label="' + esc(stampTxt + ' · ' + top + (bottom ? ' · ' + bottom : '')) + '"><small>' +
     esc(top) + '</small><b>' + esc(stampTxt) + '</b><small>' + esc(bottom) + '</small></div>';
   document.title = String(TITLE).replace(/[*`]/g, '');
@@ -1301,12 +1326,13 @@ function panelProceso() {
   var turnsAll = FACTS.astra_turns || [];
   var cards = SEATS.map(function (L) {
     var sf = SEATF[L] || {}, extra = [], model = '', evid = '';
-    if (sf.asiento === 'lider') { model = (sf.modelos || ['?'])[0] + ' / max'; evid = 'autodeclarado por la sesión y confirmado por el usuario en el gate del brief (no medido)'; }
+    if (sf.asiento === 'lider') { model = (sf.modelos || ['?'])[0] + ' / ' + (sf.effort || 'sin perfil'); evid = 'autodeclarado y confirmado en el gate; ' + TR.leaderEffortText(sf.medicion); }
     else if (sf.asiento === 'astra') {
       model = (sf.modelos || []).length ? sf.modelos.join(', ') : 'sin turnos con meta.json'; evid = 'meta.json de cada turno';
+      extra.push('esfuerzo medido: ' + TR.seatEffortText(sf));
       if (turnsAll.length) extra.push(turnsAll.filter(function (t) { return t.estado === 'done'; }).length + ' de ' + turnsAll.length + ' turnos completados');
     } else if (sf.asiento) {
-      model = ((sf.modelos || []).length ? sf.modelos.join(', ') : 'no verificado') + ' / frontmatter'; evid = 'modelos de cada captura del transcript';
+      model = ((sf.modelos || []).length ? sf.modelos.join(', ') : 'no verificado') + ' / ' + TR.seatEffortText(sf); evid = 'modelos y esfuerzos de cada captura del transcript' + ((sf.agentes || []).length ? ' (agente: ' + sf.agentes.join(', ') + ')' : '');
       if (sf.capturas) extra.push(sf.capturas + ' capturas' + (sf.transcrito ? '; alguna transcrita a mano (modelo no verificado)' : ''));
     }
     return '<article class="seatcard"><header>' + seatChip(L) + esc(seatLabel(L)) + (L === LEADER ? '<span class="muted" style="font-weight:500;font-size:.85rem">· preside</span>' : '') + '</header>' +

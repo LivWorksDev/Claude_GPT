@@ -30,6 +30,8 @@ setup_run() {
   assert_rc 0 "init $RID"
   jq '.letters = {A: "lider", B: "astra", C: "fable"}' "$RJ" >"$RJ.tmp" && mv "$RJ.tmp" "$RJ"
   printf '# Brief\n\nObjetivo: x\n' >"$DOC/brief.md"
+  council profile "$RID" critico
+  assert_rc 0 "profile $RID"
   council seal "$RID" brief
   assert_rc 0 "seal brief $RID"
   # The leader's seal precedes every seat prompt of propose (ready_to_publish

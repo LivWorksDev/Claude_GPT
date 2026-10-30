@@ -3,11 +3,13 @@
 # tandem — the executable contract of the council (/tandem:council).
 #
 # Three frontier seats of two families weigh an idea and optimise the strategy
-# to reach a goal: the session (Opus 5.5, max) leads, moderates and synthesises;
+# to reach a goal: the session (Opus 5.5) leads, moderates and synthesises;
 # Fable 5.1 (a persistent Claude subagent, agents/council-fable*.md) and GPT-6
 # Astra (a persistent Codex thread, role `council`) propose blind, cross-examine
 # each other and review the synthesis round by round, until consensus or the
-# round cap. Every seat is read-only. skills/council/SKILL.md is the protocol;
+# round cap. Every seat is read-only, and the three run at ONE effort level, the
+# one of the profile the user chose (exploratorio = high, estandar = xhigh,
+# critico = max), frozen with the brief. skills/council/SKILL.md is the protocol;
 # THIS script is the part of it no model is trusted to do by itself: anonymous
 # letters, sealed contributions, byte-faithful channels, the turn lifecycle,
 # attempt and turn caps, the objection ledger and the consensus rule.
@@ -15,6 +17,7 @@
 # usage: council.sh <subcommand> [args…]
 #   preflight                                    zero turns; reports EVERY problem
 #   init <run-id> [--offline]
+#   profile <run-id> <perfil>                    exploratorio | estandar | critico
 #   seal <run-id> brief|propose|cross
 #   record-agent <run-id> <agent-id> <output-file>
 #   astra <run-id> <phase> [--reminder]          the ONLY way an Astra turn starts
@@ -52,7 +55,12 @@
 #   TANDEM_COUNCIL_DIR            base of the human-readable artefacts (docs/council)
 #   TANDEM_COUNCIL_ROUNDS         review-round cap (default 4)
 #   TANDEM_COUNCIL_INTAKE         ask (default) | auto — the skill reads it
-#   TANDEM_COUNCIL_MODEL/_EFFORT  Astra's model/effort (resolve_role council)
+#   TANDEM_COUNCIL_MODEL          Astra's model (resolve_role council)
+#   TANDEM_COUNCIL_EFFORT         never set by hand: the preflight FAILs on it,
+#                                 and `astra` exports it to its own child with
+#                                 the profile's level
+#   TANDEM_COUNCIL_PROFILE        the profile of an `auto` intake (the skill
+#                                 reads it; the preflight checks it is viable)
 #   TANDEM_COUNCIL_LEADER_MODEL   the leader the skill expects (default below)
 #   TANDEM_COUNCIL_LOCK_TIMEOUT   seconds to wait for the run lock (default 30)
 #   TANDEM_CLAUDE_MANAGED_SETTINGS  managed settings file the preflight reads
@@ -75,20 +83,21 @@ SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 PLUGIN_ROOT="$(CDPATH='' cd -- "$SCRIPT_DIR/.." && pwd)"
 COUNCIL_PROMPTS="$PLUGIN_ROOT/skills/council/prompts"
-COUNCIL_AGENT="$PLUGIN_ROOT/agents/council-fable.md"
-COUNCIL_AGENT_OFFLINE="$PLUGIN_ROOT/agents/council-fable-offline.md"
+COUNCIL_AGENTS_DIR="$PLUGIN_ROOT/agents"
 # The ONLY model literal of this script: the leader the skill expects. Fable's
-# pin lives in the two agents' frontmatter and is READ from there (fable_pin);
+# pin lives in the six agents' frontmatter and is READ from there (fable_pin);
 # Astra's default comes from _models.sh through resolve_role.
 COUNCIL_LEADER_DEFAULT="claude-opus-5-5"
 NL='
 '
+TAB="$(printf '\t')"
 
 council_usage() {
   cat >&2 <<'EOF'
 usage: council.sh <subcommand> [args…]
   preflight
   init <run-id> [--offline]
+  profile <run-id> exploratorio|estandar|critico
   seal <run-id> brief|propose|cross
   record-agent <run-id> <agent-id> <output-file>
   astra <run-id> <phase> [--reminder]
@@ -117,6 +126,12 @@ council_env_validate() {
   local v
   for v in $(compgen -v TANDEM_COUNCIL_ 2>/dev/null || true); do
     case "$v" in TANDEM_COUNCIL_*) : ;; *) continue ;; esac
+    # The preflight reports these two itself, among every other problem: any
+    # value of TANDEM_COUNCIL_EFFORT is a FAIL there, and so is an empty
+    # TANDEM_COUNCIL_PROFILE.
+    if [ "${SUBCMD:-}" = "preflight" ]; then
+      case "$v" in TANDEM_COUNCIL_EFFORT | TANDEM_COUNCIL_PROFILE) continue ;; esac
+    fi
     [ -n "${!v}" ] \
       || die "$v is set but empty — unset it or give it a value (empty is never \"unset\")" 64
   done
@@ -722,6 +737,100 @@ audit_problem() {
   return 0
 }
 
+# --- effort profiles ------------------------------------------------------------
+# ONE table: a profile fixes a single level for the three seats — leader, Fable
+# and Astra — and names Fable's agent pair of that level. Machine names carry no
+# accent; the skill and the human documents show them with one.
+COUNCIL_PROFILES="exploratorio estandar critico"
+
+profile_level() {
+  # profile_level <name> → high | xhigh | max; any other name → 64.
+  case "${1:-}" in
+    exploratorio) printf 'high' ;;
+    estandar) printf 'xhigh' ;;
+    critico) printf 'max' ;;
+    *) return 64 ;;
+  esac
+}
+
+profile_display() {
+  case "${1:-}" in
+    exploratorio) printf 'exploratorio' ;;
+    estandar) printf 'estándar' ;;
+    critico) printf 'crítico' ;;
+    *) printf '%s' "${1:-?}" ;;
+  esac
+}
+
+level_base() {
+  # level_base <level> — the agent file stem of that level's pair. The max pair
+  # keeps its 0.37 name, so a run created then recovers with the same type.
+  case "$1" in
+    max) printf 'council-fable' ;;
+    xhigh) printf 'council-fable-xhigh' ;;
+    high) printf 'council-fable-high' ;;
+    *) return 1 ;;
+  esac
+}
+
+profile_agent() {
+  # profile_agent <name> <web|offline> → Fable's subagent_type for that profile.
+  local level base
+  level="$(profile_level "$1")" || return 64
+  base="$(level_base "$level")" || return 64
+  if [ "${2:-web}" = "offline" ]; then
+    printf 'tandem:%s-offline' "$base"
+  else
+    printf 'tandem:%s' "$base"
+  fi
+}
+
+level_rank() {
+  # level_rank <level> — low < medium < high < xhigh < max; anything else 0.
+  case "${1:-}" in
+    low) printf 1 ;;
+    medium) printf 2 ;;
+    high) printf 3 ;;
+    xhigh) printf 4 ;;
+    max) printf 5 ;;
+    *) printf 0 ;;
+  esac
+}
+
+# run_profile — the profile of the loaded run: run.json's `perfil`, or, for a
+# run.json without one whose brief is already sealed (created with 0.37),
+# critico, marked implicit. Sets RUN_PROFILE (empty: none chosen yet),
+# RUN_LEVEL, RUN_AGENT and RUN_PROFILE_IMPLICIT (0|1).
+RUN_PROFILE=""
+RUN_LEVEL=""
+RUN_AGENT=""
+RUN_PROFILE_IMPLICIT=0
+run_profile() {
+  local mode
+  RUN_PROFILE="$(q -r '.perfil.nombre // empty')"
+  RUN_LEVEL=""
+  RUN_AGENT=""
+  RUN_PROFILE_IMPLICIT=0
+  mode="$(q -r '.mode // "web"')"
+  if [ -n "$RUN_PROFILE" ]; then
+    RUN_LEVEL="$(q -r '.perfil.esfuerzo // empty')"
+    RUN_AGENT="$(q -r '.perfil.agente // empty')"
+    [ -n "$RUN_LEVEL" ] || RUN_LEVEL="$(profile_level "$RUN_PROFILE" || true)"
+    [ -n "$RUN_AGENT" ] || RUN_AGENT="$(profile_agent "$RUN_PROFILE" "$mode" || true)"
+    if [ -z "$RUN_LEVEL" ] || [ -z "$RUN_AGENT" ]; then
+      die "run.json names an unknown profile '$RUN_PROFILE'" 65
+    fi
+    return 0
+  fi
+  if [ -n "$(q -r '.seals.brief.sha256 // empty')" ]; then
+    RUN_PROFILE="critico"
+    RUN_LEVEL="max"
+    RUN_AGENT="$(profile_agent critico "$mode")"
+    RUN_PROFILE_IMPLICIT=1
+  fi
+  return 0
+}
+
 # --- Fable's pin, read from the agents ----------------------------------------
 fm_value() {
   # fm_value <file> <key> — one frontmatter value, trimmed and unquoted.
@@ -752,37 +861,187 @@ fm_value() {
   return 1
 }
 
-FABLE_PIN=""
-FABLE_PIN_ERR=""
-fable_pin() {
-  # Sets FABLE_PIN, or FABLE_PIN_ERR with the reason it cannot be trusted.
-  local ma mb ea eb
-  FABLE_PIN=""
+# fable_models — the six agents exist and declare ONE full model id. Sets
+# FABLE_MODEL, or FABLE_PIN_ERR with the reason it cannot be trusted.
+FABLE_MODEL=""
+fable_models() {
+  local level base f m missing="" models="" first=""
+  FABLE_MODEL=""
   FABLE_PIN_ERR=""
-  if [ ! -f "$COUNCIL_AGENT" ] || [ ! -f "$COUNCIL_AGENT_OFFLINE" ]; then
-    FABLE_PIN_ERR="missing agent definition(s) under $PLUGIN_ROOT/agents (council-fable.md, council-fable-offline.md)"
+  for level in max xhigh high; do
+    base="$(level_base "$level")"
+    for f in "$base.md" "$base-offline.md"; do
+      if [ ! -f "$COUNCIL_AGENTS_DIR/$f" ]; then
+        missing="$missing${missing:+, }$f"
+        continue
+      fi
+      m="$(fm_value "$COUNCIL_AGENTS_DIR/$f" model || true)"
+      models="$models${models:+, }$f model=${m:-?}"
+      [ -n "$first" ] || first="${m:-?}"
+      [ "$m" = "$first" ] || first="!"
+    done
+  done
+  if [ -n "$missing" ]; then
+    FABLE_PIN_ERR="missing agent definition(s) under $COUNCIL_AGENTS_DIR: $missing"
     return 1
   fi
-  ma="$(fm_value "$COUNCIL_AGENT" model || true)"
-  mb="$(fm_value "$COUNCIL_AGENT_OFFLINE" model || true)"
-  ea="$(fm_value "$COUNCIL_AGENT" effort || true)"
-  eb="$(fm_value "$COUNCIL_AGENT_OFFLINE" effort || true)"
-  if [ "$ma" != "$mb" ] || [ "$ea" != "$eb" ]; then
-    FABLE_PIN_ERR="the twins disagree: council-fable.md model=${ma:-?} effort=${ea:-?}, council-fable-offline.md model=${mb:-?} effort=${eb:-?}"
+  if [ "$first" = "!" ]; then
+    FABLE_PIN_ERR="the six agents disagree on the model: $models"
     return 1
   fi
-  case "$ma" in
-    '') FABLE_PIN_ERR="agents/council-fable.md declares no model"; return 1 ;;
+  case "$first" in
+    '' | '?') FABLE_PIN_ERR="agents/council-fable*.md declare no model"; return 1 ;;
     fable | opus | sonnet | haiku | inherit)
-      FABLE_PIN_ERR="agents/council-fable.md pins the alias '$ma', not a full model id (an alias can resolve to another generation)"
+      FABLE_PIN_ERR="agents/council-fable*.md pin the alias '$first', not a full model id (an alias can resolve to another generation)"
       return 1
       ;;
   esac
-  FABLE_PIN="$ma"
-  FABLE_EFFORT="$ea"
+  FABLE_MODEL="$first"
   return 0
 }
-FABLE_EFFORT=""
+
+# fable_pair <level> — the pair of that level: both twins declare that effort.
+# Sets FABLE_PIN_ERR when they do not.
+fable_pair() {
+  local level="$1" base ea eb
+  base="$(level_base "$level")" || { FABLE_PIN_ERR="no agent pair for level '$level'"; return 1; }
+  ea="$(fm_value "$COUNCIL_AGENTS_DIR/$base.md" effort || true)"
+  eb="$(fm_value "$COUNCIL_AGENTS_DIR/$base-offline.md" effort || true)"
+  if [ "$ea" != "$eb" ]; then
+    FABLE_PIN_ERR="the twins disagree: $base.md effort=${ea:-?}, $base-offline.md effort=${eb:-?}"
+    return 1
+  fi
+  if [ "$ea" != "$level" ]; then
+    FABLE_PIN_ERR="$base.md and $base-offline.md declare effort=${ea:-?}, not $level"
+    return 1
+  fi
+  return 0
+}
+
+FABLE_PIN=""
+FABLE_PIN_ERR=""
+fable_pin() {
+  # fable_pin <level> — the six agents agree on ONE full model id and the pair
+  # of <level> declares that effort: sets FABLE_PIN, or FABLE_PIN_ERR.
+  FABLE_PIN=""
+  fable_models || return 1
+  fable_pair "$1" || return 1
+  FABLE_PIN="$FABLE_MODEL"
+  return 0
+}
+
+# --- the environment a profile needs --------------------------------------------
+managed_settings_path() {
+  case "${TANDEM_CLAUDE_MANAGED_SETTINGS+set}" in
+    set) printf '%s' "$TANDEM_CLAUDE_MANAGED_SETTINGS" ;;
+    *)
+      case "$(uname -s 2>/dev/null)" in
+        Darwin) printf '%s' "/Library/Application Support/ClaudeCode/managed-settings.json" ;;
+        *) printf '%s' "/etc/claude-code/managed-settings.json" ;;
+      esac
+      ;;
+  esac
+}
+
+# settings_caps — one line per settings file in scope that exists:
+# `<value>\t<file>` with its maxEffortLevel ('' when it declares none), or
+# `!\t<file>` when it cannot be parsed (or jq is missing).
+settings_caps() {
+  local f val managed
+  managed="$(managed_settings_path)"
+  for f in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" \
+    "$PROJECT_DIR/.claude/settings.json" "$PROJECT_DIR/.claude/settings.local.json" "$managed"; do
+    [ -n "$f" ] || continue
+    [ -f "$f" ] || continue
+    if ! command -v jq >/dev/null 2>&1 \
+      || ! val="$(jq -r 'if type == "object" and has("maxEffortLevel") then (.maxEffortLevel | tostring) else "" end' "$f" 2>/dev/null)"; then
+      printf '!\t%s\n' "$f"
+      continue
+    fi
+    printf '%s\t%s\n' "$val" "$f"
+  done
+}
+
+# astra_catalog — Astra's model in the catalog of `codex debug models`. Sets
+# ASTRA_LEVELS (its supported efforts, space-separated), or ASTRA_CAT_ERR.
+ASTRA_LEVELS=""
+ASTRA_CAT_ERR=""
+astra_catalog() {
+  local catalog rc=0
+  ASTRA_LEVELS=""
+  ASTRA_CAT_ERR=""
+  resolve_role council
+  if ! command -v jq >/dev/null 2>&1; then
+    ASTRA_CAT_ERR="jq not found — the run cannot work and the catalog cannot be read (install: brew install jq)"
+    return 1
+  fi
+  if ! command -v codex >/dev/null 2>&1; then
+    ASTRA_CAT_ERR="Astra model catalog unavailable: codex CLI not found in PATH"
+    return 1
+  fi
+  catalog="$(codex debug models 2>/dev/null)" || rc=$?
+  if [ "$rc" -ne 0 ] || ! printf '%s' "$catalog" | jq -e '.models | type == "array"' >/dev/null 2>&1; then
+    ASTRA_CAT_ERR="Astra model catalog unavailable: 'codex debug models' failed or did not print {\"models\":[…]} (rc $rc)"
+    return 1
+  fi
+  if ! printf '%s' "$catalog" | jq -e --arg m "$CODEX_MODEL" 'any(.models[]; .slug == $m)' >/dev/null 2>&1; then
+    ASTRA_CAT_ERR="Astra model '$CODEX_MODEL' is not in the catalog of 'codex debug models' — fix TANDEM_COUNCIL_MODEL"
+    return 1
+  fi
+  ASTRA_LEVELS="$(printf '%s' "$catalog" | jq -r --arg m "$CODEX_MODEL" \
+    '[.models[] | select(.slug == $m) | .supported_reasoning_levels[]?.effort | strings] | join(" ")' 2>/dev/null || true)"
+  return 0
+}
+
+# profile_env_check <level> <mode> [astra] — everything the frozen profile
+# needs from THIS environment, which can be another session's after a recovery:
+# CLAUDE_CODE_EFFORT_LEVEL, maxEffortLevel in the settings in scope,
+# TANDEM_COUNCIL_EFFORT, the pin of Fable's pair of that level and, with
+# `astra`, the Codex catalog. Sets PROFILE_CAUSES (one cause per line); 0 when
+# there is none. It never writes anything.
+PROFILE_CAUSES=""
+profile_env_check() {
+  local level="$1" with_astra="${3:-}" line val f cap
+  PROFILE_CAUSES=""
+  case "${CLAUDE_CODE_EFFORT_LEVEL+set}" in
+    set)
+      [ "$CLAUDE_CODE_EFFORT_LEVEL" = "$level" ] \
+        || PROFILE_CAUSES="${PROFILE_CAUSES}CLAUDE_CODE_EFFORT_LEVEL='$CLAUDE_CODE_EFFORT_LEVEL' overrides the profile's level $level for Fable and the leader$NL"
+      ;;
+  esac
+  cap="$(level_rank "$level")"
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    val="${line%%"$TAB"*}"
+    f="${line#*"$TAB"}"
+    if [ "$val" = "!" ]; then
+      PROFILE_CAUSES="${PROFILE_CAUSES}cannot parse $f as JSON — maxEffortLevel cannot be verified$NL"
+    elif [ -n "$val" ] && [ "$(level_rank "$val")" -lt "$cap" ]; then
+      PROFILE_CAUSES="${PROFILE_CAUSES}maxEffortLevel='$val' in $f caps the seats and the leader below $level$NL"
+    fi
+  done <<EOC
+$(settings_caps)
+EOC
+  case "${TANDEM_COUNCIL_EFFORT+set}" in
+    set) PROFILE_CAUSES="${PROFILE_CAUSES}TANDEM_COUNCIL_EFFORT='$TANDEM_COUNCIL_EFFORT' is set — the profile decides Astra's effort; unset it$NL" ;;
+  esac
+  fable_pin "$level" || PROFILE_CAUSES="${PROFILE_CAUSES}Fable seat: $FABLE_PIN_ERR$NL"
+  if [ "$with_astra" = "astra" ]; then
+    if ! astra_catalog; then
+      PROFILE_CAUSES="${PROFILE_CAUSES}$ASTRA_CAT_ERR$NL"
+    else
+      case " $ASTRA_LEVELS " in
+        *" $level "*) : ;;
+        *) PROFILE_CAUSES="${PROFILE_CAUSES}Astra model '$CODEX_MODEL' does not support effort '$level' (supported: ${ASTRA_LEVELS:-none})$NL" ;;
+      esac
+    fi
+  fi
+  PROFILE_CAUSES="${PROFILE_CAUSES%"$NL"}"
+  [ -z "$PROFILE_CAUSES" ]
+}
+
+# causes_inline — PROFILE_CAUSES on one line, « · »-separated.
+causes_inline() { printf '%s' "$PROFILE_CAUSES" | LC_ALL=C awk 'NR > 1 { printf " · " } { printf "%s", $0 }'; }
 
 # =============================================================================
 # preflight
@@ -792,10 +1051,34 @@ pf_ok() { printf '  ok    %s\n' "$1"; }
 pf_bad() { printf '  FAIL  %s\n' "$1"; PF_FAIL=1; }
 pf_info() { printf '        %s\n' "$1"; }
 
+# Why each level's profile is discarded (one reason per line; empty = viable).
+DISC_high=""
+DISC_xhigh=""
+DISC_max=""
+disc_add() {
+  # disc_add <level|all> <reason>
+  local l
+  for l in high xhigh max; do
+    [ "$1" = "all" ] || [ "$1" = "$l" ] || continue
+    case "$l" in
+      high) DISC_high="$DISC_high${DISC_high:+$NL}$2" ;;
+      xhigh) DISC_xhigh="$DISC_xhigh${DISC_xhigh:+$NL}$2" ;;
+      max) DISC_max="$DISC_max${DISC_max:+$NL}$2" ;;
+    esac
+  done
+}
+disc_of() {
+  case "$1" in
+    high) printf '%s' "$DISC_high" ;;
+    xhigh) printf '%s' "$DISC_xhigh" ;;
+    max) printf '%s' "$DISC_max" ;;
+  esac
+}
+
 cmd_preflight() {
   [ $# -eq 0 ] || die "usage: council.sh preflight" 64
-  local rounds intake rounds_ok=1 have_jq=1 catalog rc settings f val project
-  local managed fpin
+  local rounds intake rounds_ok=1 have_jq=1 settings line val f fpin l p level
+  local caps viable="" names="" lvls
   PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
   printf 'tandem council preflight (no model turn is spent)\n\n'
 
@@ -816,39 +1099,40 @@ cmd_preflight() {
     *) pf_bad "TANDEM_COUNCIL_INTAKE='$intake' is invalid — expected ask or auto" ;;
   esac
 
-  # (c) Astra's effective model/effort against the CLI catalog — fail-closed:
-  # it is the only free check before a max-effort turn is spent.
+  # (c) Astra's model against the CLI catalog — fail-closed: it is the only
+  # free check before a seat turn is spent. Each profile's level must be one
+  # of the model's supported_reasoning_levels.
   command -v jq >/dev/null 2>&1 || have_jq=0
-  resolve_role council
-  if [ "$have_jq" -eq 0 ]; then
-    pf_bad "jq not found — the run cannot work and the catalog cannot be read (install: brew install jq)"
-  elif ! command -v codex >/dev/null 2>&1; then
-    pf_bad "Astra model catalog unavailable: codex CLI not found in PATH"
+  if astra_catalog; then
+    pf_ok "Astra: $CODEX_MODEL is in the catalog of 'codex debug models' (supports: ${ASTRA_LEVELS:-none})"
+    for l in high xhigh max; do
+      case " $ASTRA_LEVELS " in
+        *" $l "*) : ;;
+        *) disc_add "$l" "Astra model '$CODEX_MODEL' does not support effort '$l' (supported: ${ASTRA_LEVELS:-none})" ;;
+      esac
+    done
   else
-    rc=0
-    catalog="$(codex debug models 2>/dev/null)" || rc=$?
-    if [ "$rc" -ne 0 ] || ! printf '%s' "$catalog" | jq -e '.models | type == "array"' >/dev/null 2>&1; then
-      pf_bad "Astra model catalog unavailable: 'codex debug models' failed or did not print {\"models\":[…]} (rc $rc)"
-    elif ! printf '%s' "$catalog" | jq -e --arg m "$CODEX_MODEL" \
-      'any(.models[]; .slug == $m)' >/dev/null 2>&1; then
-      pf_bad "Astra model '$CODEX_MODEL' is not in the catalog of 'codex debug models' — fix TANDEM_COUNCIL_MODEL"
-    elif ! printf '%s' "$catalog" | jq -e --arg m "$CODEX_MODEL" --arg e "$CODEX_EFFORT" \
-      'any(.models[] | select(.slug == $m) | .supported_reasoning_levels[]?; .effort == $e)' \
-      >/dev/null 2>&1; then
-      pf_bad "Astra model '$CODEX_MODEL' does not support effort '$CODEX_EFFORT' (supported: $(printf '%s' "$catalog" \
-        | jq -r --arg m "$CODEX_MODEL" '[.models[] | select(.slug == $m) | .supported_reasoning_levels[]?.effort] | join(", ")' 2>/dev/null)) — fix TANDEM_COUNCIL_EFFORT"
-    else
-      pf_ok "Astra: $CODEX_MODEL supports effort $CODEX_EFFORT (codex debug models)"
-    fi
+    pf_bad "$ASTRA_CAT_ERR"
+    disc_add all "Astra's catalog could not be verified"
   fi
+  # The profile decides Astra's effort: a global value would contradict it in
+  # silence (resolve_role reads it on every start and resume).
+  case "${TANDEM_COUNCIL_EFFORT+set}" in
+    set) pf_bad "TANDEM_COUNCIL_EFFORT='$TANDEM_COUNCIL_EFFORT' must be unset — the effort profile decides Astra's effort (high, xhigh or max, the same as Fable and the leader); choose the profile instead (TANDEM_COUNCIL_PROFILE for an auto intake)" ;;
+    *) pf_ok "TANDEM_COUNCIL_EFFORT unset (the profile decides Astra's effort)" ;;
+  esac
 
-  # (g) the Claude seat's pin, read from the two agents (never a literal here).
+  # (g) the Claude seat's pin, read from the six agents (never a literal here).
   fpin=""
-  if fable_pin; then
-    fpin="$FABLE_PIN"
-    pf_ok "Fable seat: model=$FABLE_PIN effort=${FABLE_EFFORT:-?} (agents/council-fable.md = agents/council-fable-offline.md)"
+  if fable_models; then
+    fpin="$FABLE_MODEL"
+    pf_ok "Fable seats: the six agents pin model=$FABLE_MODEL (agents/council-fable{,-xhigh,-high}{,-offline}.md)"
+    for l in high xhigh max; do
+      fable_pair "$l" || disc_add "$l" "Fable seat: $FABLE_PIN_ERR"
+    done
   else
-    pf_bad "Fable seat: $FABLE_PIN_ERR"
+    pf_bad "Fable seats: $FABLE_PIN_ERR"
+    disc_add all "Fable's agents cannot be trusted"
   fi
 
   # (d) a forced subagent model would replace the seat's model.
@@ -867,49 +1151,56 @@ cmd_preflight() {
     pf_ok "no forced subagent model (CLAUDE_CODE_SUBAGENT_MODEL_FORCE is not 1)"
   fi
 
-  # (e) a global effort level wins over every seat's frontmatter and the leader.
+  # (e) a global effort level wins over every seat's frontmatter and the
+  # leader's session: only the profile at exactly that level stays viable.
   case "${CLAUDE_CODE_EFFORT_LEVEL+set}" in
     set)
-      if [ "$CLAUDE_CODE_EFFORT_LEVEL" = "max" ]; then
-        pf_ok "CLAUDE_CODE_EFFORT_LEVEL=max"
-      else
-        pf_bad "CLAUDE_CODE_EFFORT_LEVEL='$CLAUDE_CODE_EFFORT_LEVEL' overrides the frontmatter effort of every seat and the leader's session — unset it or set it to exactly max"
-      fi
+      case "$CLAUDE_CODE_EFFORT_LEVEL" in
+        high | xhigh | max)
+          pf_ok "CLAUDE_CODE_EFFORT_LEVEL=$CLAUDE_CODE_EFFORT_LEVEL — only the profile at that level is viable"
+          for l in high xhigh max; do
+            [ "$l" = "$CLAUDE_CODE_EFFORT_LEVEL" ] \
+              || disc_add "$l" "CLAUDE_CODE_EFFORT_LEVEL=$CLAUDE_CODE_EFFORT_LEVEL overrides Fable's frontmatter and the leader's session"
+          done
+          ;;
+        *)
+          pf_bad "CLAUDE_CODE_EFFORT_LEVEL='$CLAUDE_CODE_EFFORT_LEVEL' overrides the frontmatter effort of every seat and the leader's session, and it is the level of no profile — unset it or set it to high, xhigh or max"
+          disc_add all "CLAUDE_CODE_EFFORT_LEVEL='$CLAUDE_CODE_EFFORT_LEVEL' is the level of no profile"
+          ;;
+      esac
       ;;
     *) pf_ok "CLAUDE_CODE_EFFORT_LEVEL unset" ;;
   esac
 
-  # (f) maxEffortLevel in every settings file in scope.
-  case "${TANDEM_CLAUDE_MANAGED_SETTINGS+set}" in
-    set) managed="$TANDEM_CLAUDE_MANAGED_SETTINGS" ;;
-    *)
-      case "$(uname -s 2>/dev/null)" in
-        Darwin) managed="/Library/Application Support/ClaudeCode/managed-settings.json" ;;
-        *) managed="/etc/claude-code/managed-settings.json" ;;
-      esac
-      ;;
-  esac
-  project="$PROJECT_DIR"
+  # (f) maxEffortLevel in every settings file in scope: a cap L discards the
+  # profiles above L; a file that cannot be parsed is a FAIL.
   settings=0
-  for f in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" \
-    "$project/.claude/settings.json" "$project/.claude/settings.local.json" "$managed"; do
-    [ -n "$f" ] || continue
-    [ -f "$f" ] || continue
-    if [ "$have_jq" -eq 0 ]; then
-      pf_bad "cannot read maxEffortLevel in $f without jq"
+  caps="$(settings_caps)"
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    val="${line%%"$TAB"*}"
+    f="${line#*"$TAB"}"
+    if [ "$val" = "!" ]; then
+      if [ "$have_jq" -eq 0 ]; then
+        pf_bad "cannot read maxEffortLevel in $f without jq"
+      else
+        pf_bad "cannot parse $f as JSON — maxEffortLevel cannot be verified"
+      fi
+      disc_add all "maxEffortLevel in $f cannot be verified"
       settings=1
       continue
     fi
-    if ! val="$(jq -r 'if type == "object" and has("maxEffortLevel") then (.maxEffortLevel | tostring) else "" end' "$f" 2>/dev/null)"; then
-      pf_bad "cannot parse $f as JSON — maxEffortLevel cannot be verified"
-      settings=1
-      continue
-    fi
-    if [ -n "$val" ] && [ "$val" != "max" ]; then
-      pf_bad "maxEffortLevel='$val' in $f caps every seat and the leader below max — remove it or set it to max"
-      settings=1
-    fi
-  done
+    [ -n "$val" ] || continue
+    [ "$val" = "max" ] && continue
+    settings=1
+    pf_ok "maxEffortLevel='$val' in $f — the profiles above $val are discarded"
+    for l in high xhigh max; do
+      [ "$(level_rank "$l")" -le "$(level_rank "$val")" ] \
+        || disc_add "$l" "maxEffortLevel='$val' in $f caps the seats and the leader below $l"
+    done
+  done <<EOC
+$caps
+EOC
   [ "$settings" -eq 0 ] && pf_ok "no maxEffortLevel below max in the settings in scope"
 
   # (h) TANDEM_TURN_EFFORT, whatever its value: codex-resume.sh applies it AFTER
@@ -917,7 +1208,7 @@ cmd_preflight() {
   # resume — and an invalid one would make the first one exit 64.
   case "${TANDEM_TURN_EFFORT+set}" in
     set)
-      pf_bad "TANDEM_TURN_EFFORT='$TANDEM_TURN_EFFORT' must be unset — council.sh astra decides the effort of every turn (max, or low for a reminder)"
+      pf_bad "TANDEM_TURN_EFFORT='$TANDEM_TURN_EFFORT' must be unset — council.sh astra decides the effort of every turn (the profile's level, or low for a reminder)"
       ;;
     *) pf_ok "TANDEM_TURN_EFFORT unset" ;;
   esac
@@ -929,22 +1220,64 @@ cmd_preflight() {
     pf_bad "neither shasum nor sha256sum is available — seals, the frozen brief and the turn receipts need one"
   fi
 
+  # The viable profiles, and the one an auto intake will take.
+  for p in $COUNCIL_PROFILES; do
+    level="$(profile_level "$p")"
+    if [ -z "$(disc_of "$level")" ]; then
+      viable="$viable${viable:+ }$p"
+      names="$names${names:+, }$p ($level)"
+    fi
+  done
+  case "${TANDEM_COUNCIL_PROFILE+set}" in
+    set)
+      if [ -z "$TANDEM_COUNCIL_PROFILE" ]; then
+        pf_bad "TANDEM_COUNCIL_PROFILE is set but empty — unset it or name a profile (exploratorio, estandar or critico)"
+      elif ! level="$(profile_level "$TANDEM_COUNCIL_PROFILE")"; then
+        pf_bad "TANDEM_COUNCIL_PROFILE='$TANDEM_COUNCIL_PROFILE' is not a profile — expected exploratorio, estandar or critico"
+      else
+        case " $viable " in
+          *" $TANDEM_COUNCIL_PROFILE "*) pf_ok "TANDEM_COUNCIL_PROFILE=$TANDEM_COUNCIL_PROFILE ($level) is viable" ;;
+          *) pf_bad "TANDEM_COUNCIL_PROFILE=$TANDEM_COUNCIL_PROFILE ($level) is not viable: $(disc_of "$level" | LC_ALL=C awk 'NR > 1 { printf " · " } { printf "%s", $0 }')" ;;
+        esac
+      fi
+      ;;
+    *) pf_ok "TANDEM_COUNCIL_PROFILE unset (an auto intake takes critico)" ;;
+  esac
+  if [ -z "$viable" ]; then
+    pf_bad "no effort profile is viable (exploratorio = high, estandar = xhigh, critico = max) — see the discarded profiles below"
+  fi
+
   # (j) the summary.
   printf '\nsummary:\n'
-  pf_info "leader expected: ${TANDEM_COUNCIL_LEADER_MODEL:-$COUNCIL_LEADER_DEFAULT} at effort max (self-declared by the session; confirmed at the brief gate)"
-  pf_info "Astra: model=$CODEX_MODEL effort=$CODEX_EFFORT sandbox=$CODEX_SANDBOX (role council)"
-  pf_info "Fable: model=${fpin:-?} effort=${FABLE_EFFORT:-?} (agents/council-fable.md)"
+  pf_info "leader expected: ${TANDEM_COUNCIL_LEADER_MODEL:-$COUNCIL_LEADER_DEFAULT} at the chosen profile's level (self-declared by the session; confirmed at the brief gate)"
+  pf_info "Astra: model=$CODEX_MODEL sandbox=$CODEX_SANDBOX (role council; effort = the profile's level)"
+  pf_info "Fable: model=${fpin:-?} (agents/council-fable*.md: one pair per level)"
   pf_info "rounds=$( [ "$rounds_ok" -eq 1 ] && printf '%s' "$rounds" || printf '?') · intake=$intake"
   if [ "${TANDEM_WEB_SEARCH:-}" = "off" ]; then
     pf_info "web mode: web search is closed for Astra in every run (TANDEM_WEB_SEARCH=off); init --offline also removes Fable's web tools"
   else
     pf_info "web mode: web by default (Astra web_search + Fable WebSearch/WebFetch); init --offline = confidential mode"
   fi
-  if [ "$rounds_ok" -eq 1 ]; then
-    pf_info "turn bound: typical 2 × (2 + R) = $((2 * (2 + rounds))) max-effort seat turns · ceiling 5 × (2 + R) = $((5 * (2 + rounds))) max-effort turns + $((2 + rounds)) Astra reminders at low (R = $rounds)"
-  else
-    pf_info "turn bound: unknown until TANDEM_COUNCIL_ROUNDS is valid — typical 2 × (2 + R), ceiling 5 × (2 + R) + (2 + R) reminders at low"
-  fi
+  pf_info "perfiles viables: ${names:-ninguno}"
+  for p in $COUNCIL_PROFILES; do
+    level="$(profile_level "$p")"
+    lvls="$(disc_of "$level")"
+    [ -n "$lvls" ] || continue
+    while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      pf_info "descartado $p ($level): $line"
+    done <<EOC
+$lvls
+EOC
+  done
+  for p in $COUNCIL_PROFILES; do
+    level="$(profile_level "$p")"
+    if [ "$rounds_ok" -eq 1 ]; then
+      pf_info "$p: típico 2 × (2 + R) = $((2 * (2 + rounds))) turnos en $level · techo 5 × (2 + R) = $((5 * (2 + rounds))) turnos en $level + $((2 + rounds)) recordatorios de Astra en low (R = $rounds)"
+    else
+      pf_info "$p: cota desconocida hasta que TANDEM_COUNCIL_ROUNDS sea válida — típico 2 × (2 + R) turnos en $level, techo 5 × (2 + R) + (2 + R) recordatorios en low"
+    fi
+  done
 
   if [ "$PF_FAIL" -ne 0 ]; then
     printf '\ncouncil preflight: problems found — fix the FAIL lines above.\n'
@@ -1030,6 +1363,39 @@ cmd_init() {
 }
 
 # =============================================================================
+# profile — the effort profile, chosen by the user before the brief is sealed
+# =============================================================================
+cmd_profile() {
+  [ $# -eq 2 ] || die "usage: council.sh profile <run-id> exploratorio|estandar|critico" 64
+  run_id_validate "$1"
+  local name="$2" level mode agent cur
+  level="$(profile_level "$name")" \
+    || die "unknown profile '$name' (expected exploratorio, estandar or critico)" 64
+  council_paths
+  need_jq
+  run_require
+  lock_acquire
+  state_load
+  [ -z "$(q -r '.seals.brief.sha256 // empty')" ] \
+    || die "the brief is already sealed: the profile is frozen with the brief (for another profile, start a new run)" 65
+  mode="$(q -r '.mode // "web"')"
+  agent="$(profile_agent "$name" "$mode")"
+  if ! profile_env_check "$level" "$mode" astra; then
+    printf 'tandem: profile %s (%s) is not viable here:\n' "$name" "$level" >&2
+    printf '%s\n' "$PROFILE_CAUSES" | LC_ALL=C sed -e 's/^/  - /' >&2
+    die "profile $name not chosen — fix the environment or choose another profile" 1
+  fi
+  cur="$(q -c '[.perfil.nombre, .perfil.agente]')"
+  if [ "$cur" != "$(jq -cn --arg n "$name" --arg a "$agent" '[$n, $a]')" ]; then
+    upd --arg n "$name" --arg e "$level" --arg a "$agent" --arg t "$(now_utc)" \
+      '.perfil = {nombre: $n, esfuerzo: $e, agente: $a, elegido: $t}'
+    state_save
+  fi
+  printf 'PERFIL: %s (%s)\n' "$name" "$level"
+  printf 'FABLE_AGENT: %s\n' "$agent"
+}
+
+# =============================================================================
 # seal
 # =============================================================================
 seat_response_exists() {
@@ -1069,6 +1435,8 @@ cmd_seal() {
       printf 'tandem: brief already sealed (sha256 %s)\n' "$sha"
       return 0
     fi
+    [ -n "$(q -r '.perfil.nombre // empty')" ] \
+      || die "choose the effort profile first: council.sh profile $RUN_ID exploratorio|estandar|critico — it is frozen with the brief" 1
   else
     [ -n "$(q -r '.seals.brief.sha256 // empty')" ] || die "seal the brief first: council.sh seal $RUN_ID brief" 1
     f="$RUN_DIR/sealed/$what.md"
@@ -1182,12 +1550,21 @@ cmd_astra() {
   # --- reservation and launch: ONE critical section ---------------------------
   lock_acquire
   state_load
+  # The frozen profile, re-verified against THIS environment before anything
+  # is decided or reserved: a recovery can run in another session.
+  mode="$(q -r '.mode')"
+  run_profile
+  [ -n "$RUN_PROFILE" ] \
+    || die "no effort profile and no sealed brief: council.sh profile $RUN_ID <perfil>, then seal the brief" 1
+  if ! profile_env_check "$RUN_LEVEL" "$mode" astra; then
+    printf '%s\n' "$PROFILE_CAUSES" | LC_ALL=C sed -e 's/^/  - /' >&2
+    die "the frozen profile $RUN_PROFILE ($RUN_LEVEL) is not viable in this environment — fix it (the profile never changes); nothing was reserved" 1
+  fi
   letter="$(seat_letter astra)"
   [ -n "$letter" ] || die "run.json assigns no letter to astra" 65
   target="$(q -r '.astra_targets[-1] // empty')"
   [ -n "$target" ] || die "run.json lists no Astra target" 65
   key="$(target_key "$target")"
-  mode="$(q -r '.mode')"
 
   recover_entries "$target"
   if [ "$RECOVER_ALIVE" -gt 0 ]; then
@@ -1277,9 +1654,10 @@ cmd_astra() {
   # `bash <wrapper>` under `exec -a`, never `bash -c` (a one-command -c would
   # exec the command and lose the token). TANDEM_TURN_EFFORT is REMOVED from a
   # substantive turn's environment — the same effect as `env -u`, done inside
-  # the child so `exec -a` still names the wrapper's own process — so it runs at
-  # the role's effort whatever the caller exported; a reminder runs at low with
-  # the foreground watchdog.
+  # the child so `exec -a` still names the wrapper's own process — and
+  # TANDEM_COUNCIL_EFFORT carries the profile's level, which resolve_role
+  # council applies on every start and resume; a reminder runs at low with the
+  # foreground watchdog.
   set -m
   (
     export CLAUDE_PROJECT_DIR="$PROJECT_DIR"
@@ -1288,6 +1666,7 @@ cmd_astra() {
       export TANDEM_EXEC_TIMEOUT_SECONDS=540
     else
       unset TANDEM_TURN_EFFORT
+      export TANDEM_COUNCIL_EFFORT="$RUN_LEVEL"
     fi
     if [ "$mode" = "offline" ]; then
       export TANDEM_WEB_SEARCH=off
@@ -1475,6 +1854,13 @@ cmd_stage() {
   run_require
   lock_acquire
   state_load
+  # stage precedes EVERY turn of Fable and of Astra: the frozen profile is
+  # re-verified against this environment before anything is decided.
+  run_profile
+  if [ -n "$RUN_PROFILE" ] && ! profile_env_check "$RUN_LEVEL" "$(q -r '.mode')"; then
+    printf '%s\n' "$PROFILE_CAUSES" | LC_ALL=C sed -e 's/^/  - /' >&2
+    die "the frozen profile $RUN_PROFILE ($RUN_LEVEL) is not viable in this environment — fix it (the profile never changes); nothing was staged" 1
+  fi
   seat="$(letter_seat "$L")"
   [ -n "$seat" ] || die "run.json assigns no seat to letter $L" 65
   if [ "$PHASE_KIND" = "round" ]; then
@@ -1664,6 +2050,16 @@ def carr: (.message.content // []) | if type == "array" then . else [] end;
                            or (((. == $pin)
                                 or (startswith($pin + "-") and (.[($pin | length) + 1:] | test("^[0-9]{8}$"))))
                                | not)) ],
+    # The effort and the agent type Claude Code records on every assistant
+    # line of a subagent (`effort`, `attributionAgent`; measured on real
+    # transcripts, undocumented): present and different is a mismatch; absent
+    # degrades the evidence to "no verificado", never blocks.
+    efforts: [ $a[] | .effort | select(. != null) ],
+    bad_efforts: [ $a[] | select(.effort != null and .effort != $effort) | .effort ],
+    sin_effort: ([ $a[] | select(.effort == null) ] | length),
+    agentes: [ $a[] | .attributionAgent | select(. != null) ],
+    bad_agentes: [ $a[] | select(.attributionAgent != null and .attributionAgent != $agent) | .attributionAgent ],
+    sin_agente: ([ $a[] | select(.attributionAgent == null) ] | length),
     reply: (if ($reply | type) == "string" and ($reply | length) > 0 then $reply else null end),
     mensajes: ($S | length),
     sin_usage_definitivo: ([ $S[] | select(. == null) ] | length),
@@ -1760,7 +2156,8 @@ cmd_capture() {
     upd --arg f "$PHASE" --argjson k "$k" --arg tipo "$tipo" --arg a "$agent" --arg p "$reply" \
       --arg s "$sha" --arg t "$(now_utc)" \
       '.captures += [{fase: $f, intento: $k, tipo: $tipo, agent_id: $a, captura: "transcrito",
-         modelo: "no verificado", modelos: [], respuesta: $p, sha256: $s, uso: null, registrado: $t}]'
+         modelo: "no verificado", modelos: [], esfuerzo: "no verificado", esfuerzos: [],
+         agente: "no verificado", agentes: [], respuesta: $p, sha256: $s, uso: null, registrado: $t}]'
     state_save
     printf '%s\n' "$reply"
     return 0
@@ -1768,7 +2165,9 @@ cmd_capture() {
 
   [ -n "$agent" ] || die "no Fable agent recorded for this run — council.sh record-agent first" 1
   [ -r "$out" ] || die "the agent's output file cannot be read: $out" 1
-  fable_pin || die "Fable's pin cannot be trusted: $FABLE_PIN_ERR" 65
+  run_profile
+  [ -n "$RUN_PROFILE" ] || die "no effort profile and no sealed brief for this run" 1
+  fable_pin "$RUN_LEVEL" || die "Fable's pin cannot be trusted: $FABLE_PIN_ERR" 65
   cursor="$(read_cursor "$agent")"
   snap="$(mktemp "$RUN_DIR/.transcript.XXXXXX")" || die "cannot create a temp file" 65
   cat "$out" >"$snap" || { rm -f "$snap"; die "cannot read $out" 1; }
@@ -1785,7 +2184,8 @@ cmd_capture() {
   own1="$DOC_DIR/prompts/$PHASE-$L.a"
   own2="${DOC_REL:+$DOC_REL/}prompts/$PHASE-$L.a"
   analysis="$(jq -Rs 'split("\n") | map(select(length > 0) | (try fromjson catch {"__malformed": true}))' "$slice" \
-    | jq -c --arg pin "$FABLE_PIN" --arg doc "$DOC_DIR" --arg run "$RUN_DIR" --arg runrel "$RUN_REL" \
+    | jq -c --arg pin "$FABLE_PIN" --arg effort "$RUN_LEVEL" --arg agent "$RUN_AGENT" \
+      --arg doc "$DOC_DIR" --arg run "$RUN_DIR" --arg runrel "$RUN_REL" \
       --arg docrel "$DOC_REL" --arg own1 "$own1" --arg own2 "$own2" "$CAPTURE_JQ")" \
     || { rm -f "$slice"; die "the transcript slice could not be analysed" 1; }
   rm -f "$slice"
@@ -1793,6 +2193,12 @@ cmd_capture() {
   nbad="$(printf '%s' "$analysis" | jq -r '.bad_models | length')"
   if [ "$nbad" -gt 0 ]; then
     die "a line of the transcript slice was answered by $(printf '%s' "$analysis" | jq -c '.bad_models | unique') instead of the seat's pin $FABLE_PIN — nothing captured (FAILED terminal: a forced model, a wrong agent type or a silent model switch)" 65
+  fi
+  if [ "$(printf '%s' "$analysis" | jq -r '.bad_efforts | length')" -gt 0 ]; then
+    die "a line of the transcript slice ran at effort $(printf '%s' "$analysis" | jq -c '.bad_efforts | unique') instead of the profile's level $RUN_LEVEL ($RUN_PROFILE) — nothing captured (FAILED terminal: otro esfuerzo)" 65
+  fi
+  if [ "$(printf '%s' "$analysis" | jq -r '.bad_agentes | length')" -gt 0 ]; then
+    die "a line of the transcript slice was written by agent type $(printf '%s' "$analysis" | jq -c '.bad_agentes | unique') instead of $RUN_AGENT ($RUN_PROFILE) — nothing captured (FAILED terminal: otro tipo de agente)" 65
   fi
   if [ "$(printf '%s' "$analysis" | jq -r '.malformed')" -gt 0 ]; then
     die "the transcript slice holds lines that are not JSON — format not recognised; transcribe the Agent result into $reply and run: council.sh capture $RUN_ID $PHASE$( [ "$reminder" -eq 1 ] && printf ' --reminder') --manual" 1
@@ -1811,10 +2217,15 @@ cmd_capture() {
   # which can be long enough to strain the argument-size limit.
   upd --arg f "$PHASE" --argjson k "$k" --arg tipo "$tipo" --arg a "$agent" --arg o "$out" \
     --argjson from "$((cursor + 1))" --argjson to "$line_to" --arg p "$reply" --arg s "$sha" \
-    --arg u "$usage" --argjson an "$(printf '%s' "$analysis" | jq -c '{models, reads, mensajes, sin_usage_definitivo}')" --arg t "$(now_utc)" \
+    --arg u "$usage" --argjson an "$(printf '%s' "$analysis" | jq -c '{models, reads, mensajes, sin_usage_definitivo, efforts, sin_effort, agentes, sin_agente}')" --arg t "$(now_utc)" \
     '.captures += [{fase: $f, intento: $k, tipo: $tipo, agent_id: $a, output_file: $o,
        desde: $from, hasta: $to, captura: "capturado", modelo: "verificado",
-       modelos: ($an.models | unique), respuesta: $p, sha256: $s, uso: $u,
+       modelos: ($an.models | unique),
+       esfuerzo: (if $an.sin_effort == 0 then "verificado" else "no verificado" end),
+       esfuerzos: ($an.efforts | unique),
+       agente: (if $an.sin_agente == 0 then "verificado" else "no verificado" end),
+       agentes: ($an.agentes | unique),
+       respuesta: $p, sha256: $s, uso: $u,
        mensajes: $an.mensajes, sin_usage_definitivo: $an.sin_usage_definitivo,
        uso_completo: ($an.sin_usage_definitivo == 0), registrado: $t}]
      | .anomalies = ((.anomalies // []) + [ $an.reads[]
@@ -1848,7 +2259,7 @@ cmd_publish() {
   run_id_validate "$1"
   phase_validate "$2"
   local astra_l fable_l lider_l ka kf asub arem fsub frem f sha dest want dests="" tmp
-  local srcs L cmds i
+  local srcs L cmds i meta_missing aeff
   # Paths travel in ARRAYS, never in a space-separated string: a project or a
   # TANDEM_COUNCIL_DIR with a space in its name must publish like any other.
   local -a pub_letters pub_tmps
@@ -1891,6 +2302,21 @@ cmd_publish() {
       die "an Astra turn marked done has no receipt certifying its reply ($(printf '%s' "$f" | jq -r '"\(.target) t\(.turno)"')) — refusing to publish it" 65
     fi
   done
+  # Astra's effort, MEASURED: the meta.json its wrapper wrote for the
+  # substantive turn. Another level is a FAILED terminal; a missing meta.json
+  # is a visible anomaly, never a block.
+  run_profile
+  meta_missing=0
+  if [ -n "$RUN_LEVEL" ]; then
+    f="$STATE_DIR/$(target_key "$(printf '%s' "$asub" | jq -r '.target')").t$(printf '%s' "$asub" | jq -r '.turno').meta.json"
+    if [ -f "$f" ]; then
+      aeff="$(jq -r '.effort // empty' "$f" 2>/dev/null || true)"
+      [ "$aeff" = "$RUN_LEVEL" ] \
+        || die "Astra's substantive turn of attempt a$ka in $PHASE ran at effort '${aeff:-?}' ($f), not the profile's level $RUN_LEVEL ($RUN_PROFILE) — nothing published (FAILED terminal)" 65
+    else
+      meta_missing=1
+    fi
+  fi
 
   # Fable: the capture of the CURRENT attempt, plus its reminder.
   kf="$(current_attempt "$PHASE" "$fable_l")"
@@ -1977,6 +2403,11 @@ cmd_publish() {
          | {tipo: "lectura-fuera-de-alcance", asiento: "astra", fase: $f, intento: $e.intento,
             turno: $e.turno, comando: ., registrado: $t} ])'
   done
+  if [ "$meta_missing" -eq 1 ]; then
+    upd --arg f "$PHASE" --argjson e "$asub" --arg t "$(now_utc)" \
+      '.anomalies = ((.anomalies // []) + [{tipo: "esfuerzo-astra-no-verificado", asiento: "astra",
+         fase: $f, intento: $e.intento, target: $e.target, turno: $e.turno, registrado: $t}])'
+  fi
   state_save
   for L in $dests; do
     printf '%s\n' "$(published_path "$PHASE" "$L")"
@@ -2131,26 +2562,142 @@ astra_metas_json() {
   printf '%s' "$metas"
 }
 
+# --- the leader's effort, measured in its session's transcript -----------------
+# resolve_link <path> — follow a symlink chain with plain readlink (BSD has no
+# -f), at most 40 hops; prints the final path.
+resolve_link() {
+  local p="$1" t n=0
+  while [ -L "$p" ] && [ "$n" -lt 40 ]; do
+    t="$(readlink "$p")" || break
+    case "$t" in
+      /*) p="$t" ;;
+      *) p="$(dirname -- "$p")/$t" ;;
+    esac
+    n=$((n + 1))
+  done
+  printf '%s' "$p"
+}
+
+# leader_effort_json <last-complete-round> — the leader's effort, measured: the
+# session transcript is derived from every Fable output_file in run.json
+# (…/<session>/subagents/agent-<id>.jsonl → …/<session>.jsonl), and in it the
+# assistant lines that are not sidechain, deduplicated by message.id (the last
+# line of each id), are counted by `effort` in two CLOSED windows whose limits
+# are timestamps stored in run.json: intake (created → the brief's seal;
+# informative only) and debate (the seal → the publish of the last complete
+# round; with no complete round yet, the latest publish; with none, empty).
+# Counting again gives the same result, however long the session keeps
+# working. Best effort: it never changes an exit code.
+leader_effort_json() {
+  local n="$1" list out real sess total=0 seal
+  seal="$(q -r '.seals.brief.sealed // empty')"
+  if [ -z "$seal" ]; then
+    jq -cn '{medido: false, motivo: "brief sin sellar"}'
+    return 0
+  fi
+  list="$(mktemp "$RUN_DIR/.leader.XXXXXX")" || die "cannot create a temp file in $RUN_DIR" 65
+  q -r '.agents[]?.output_file // empty' | while IFS= read -r out; do
+    [ -n "$out" ] || continue
+    real="$(resolve_link "$out")"
+    case "$real" in
+      */subagents/agent-*.jsonl)
+        sess="${real%/subagents/*}.jsonl"
+        if [ -f "$sess" ]; then printf '%s\n' "$sess"; fi
+        ;;
+    esac
+  done | LC_ALL=C sort -u >"$list"
+  total="$(LC_ALL=C wc -l <"$list" | LC_ALL=C tr -d ' ')"
+  if [ "$total" -eq 0 ]; then
+    rm -f "$list"
+    jq -cn '{medido: false, motivo: "transcript de la sesión no resoluble desde los output_file de los agentes"}'
+    return 0
+  fi
+  while IFS= read -r sess; do
+    jq -cR 'fromjson? | select(type == "object" and .type == "assistant" and (.isSidechain != true)
+      and ((.message.id // null) | type) == "string")
+      | {id: .message.id, e: (.effort // null), t: (.timestamp // null)}' "$sess" 2>/dev/null || true
+  done <"$list" | jq -sc --argjson st "$(q -c '{created, seals, perfil, publications: [(.publications // [])[] | {fase, publicado}]}')" \
+    --argjson n "$n" --argjson ns "$total" '
+    # Seconds since the epoch WITH the fraction: a transcript line at
+    # 12:00:00.900Z is after a cutoff stored as 12:00:00Z.
+    def ep: if type == "string" then
+              (try (capture("^(?<b>[0-9T:-]+)(?<f>\\.[0-9]+)?Z$")
+                    | ((.b + "Z") | fromdateiso8601) + (("0" + (.f // ".0")) | tonumber))
+               catch null)
+            else null end;
+    def counts: {total: length,
+                 por_esfuerzo: (group_by(.e) | map({key: (.[0].e // "sin dato" | tostring), value: length}) | from_entries)};
+    ($st.created) as $c
+    | ($st.seals.brief.sealed) as $s
+    | ([ ($st.publications // [])[] | select(.fase == "round-\($n)") | .publicado ] | max) as $fr
+    | ([ ($st.publications // [])[] | .publicado ] | max) as $fa
+    | (if $n > 0 and $fr != null then $fr elif $fa != null then $fa else $s end) as $e
+    | ($st.perfil.esfuerzo // (if $st.seals.brief.sha256 != null then "max" else null end)) as $lvl
+    | ($c | ep) as $ce | ($s | ep) as $se | ($e | ep) as $ee
+    # The window FIRST, then the dedup by message.id (the last line of each id
+    # INSIDE the window): a line written after the cutoff never displaces one
+    # that was counted, so later session work cannot change a closed count.
+    | ([ .[] | . + {ep: (.t | ep)}
+         | select(.ep != null and $ce != null and $ee != null and .ep >= $ce and .ep <= $ee) ]
+       | reduce .[] as $m ({}; .[$m.id] = $m) | [ .[] ]) as $msgs
+    | [ $msgs[] | select(.ep != null and $ce != null and $se != null and .ep >= $ce and .ep < $se) ] as $in
+    | [ $msgs[] | select(.ep != null and $se != null and $ee != null and .ep >= $se and .ep <= $ee) ] as $de
+    | {medido: true, sesiones: $ns, nivel: $lvl,
+       ventana: {inicio: $c, sello: $s, fin: $e},
+       intake: ($in | counts),
+       debate: ($de | counts),
+       fuera_de_nivel: ([ $de[] | select(.e != null and .e != $lvl) ] | counts)}'
+  rm -f "$list"
+}
+
+# profile_json — the run's profile as the facts state it, or null.
+profile_json() {
+  run_profile
+  if [ -z "$RUN_PROFILE" ]; then
+    printf 'null'
+    return 0
+  fi
+  jq -cn --arg n "$RUN_PROFILE" --arg e "$RUN_LEVEL" --arg a "$RUN_AGENT" \
+    --argjson i "$( [ "$RUN_PROFILE_IMPLICIT" -eq 1 ] && printf true || printf false)" \
+    --arg d "$(profile_display "$RUN_PROFILE")" \
+    '{nombre: $n, nombre_visible: $d, esfuerzo: $e, agente: $a, implicito: $i}'
+}
+
 # On run.json: the evidence behind each seat's model, and the anomalies of the
 # run — the lists metadatos.md prints and report shows.
 # shellcheck disable=SC2016  # jq programs: their $names belong to jq
 METADATA_JQ='
-def seat_facts($metas):
+def effcount: to_entries | sort_by(-.value, .key) | map("\(.key) ×\(.value)") | join(", ");
+def effkeys: to_entries | sort_by(-.value, .key) | map(.key);
+def leader_evidence($l):
+  "autodeclarado y confirmado en el gate"
+  + (if $l == null or ($l.medido | not) then "; no medido"
+     else "; medido (deduplicado por message.id) — debate: "
+       + (if $l.debate.total == 0 then "sin mensajes" else ($l.debate.por_esfuerzo | effcount) end)
+       + " · intake: "
+       + (if $l.intake.total == 0 then "sin mensajes" else ($l.intake.por_esfuerzo | effcount) end)
+     end);
+def seat_facts($metas; $lider; $perfil):
   . as $r
   | [ $r.letters | to_entries[] | .key as $l | .value as $s
       | if $s == "lider" then
-          {letra: $l, asiento: $s, modelos: ["\($r.leader_model // "?")"], effort: "max"}
+          {letra: $l, asiento: $s, modelos: ["\($r.leader_model // "?")"], effort: ($perfil.esfuerzo // null),
+           esfuerzos: (if $lider != null and $lider.medido then ($lider.debate.por_esfuerzo | effkeys) else [] end),
+           medicion: $lider}
         elif $s == "astra" then
           {letra: $l, asiento: $s,
            modelos: ([ $metas[] | select(.meta != null) | "\(.meta.model)/\(.meta.effort)" ] | unique),
+           esfuerzos: ([ $metas[] | select(.meta != null and .tipo == "sustantivo") | .meta.effort | strings ] | unique),
            evidencia: [ $metas[] | select(.meta != null) | "\(.target) t\(.turno)" ]}
         else
           {letra: $l, asiento: $s,
            modelos: ([ $r.captures[] | .modelos[]? ] | unique),
+           esfuerzos: ([ $r.captures[] | .esfuerzos[]? ] | unique),
+           agentes: ([ $r.captures[] | .agentes[]? ] | unique),
            transcrito: any($r.captures[]; .captura == "transcrito"),
            capturas: ($r.captures | length)}
         end ];
-def anomaly_list:
+def anomaly_list($lider):
   . as $r
   | [ ( $r.prompts[] | select(.recordatorio) | "recordatorio: \(.fase) letra \(.letra) (a\(.intento))" ),
       ( $r.captures[] | select(.captura == "transcrito") | "transcripción a mano (--manual): \(.fase) a\(.intento) \(.tipo) — modelo no verificado" ),
@@ -2158,35 +2705,55 @@ def anomaly_list:
       ( if ($r.astra_targets | length) > 1 then "generaciones del hilo de Astra: \($r.astra_targets | join(", "))" else empty end ),
       ( if ($r.agents | length) > 1 then "agentes de Fable registrados: \($r.agents | length) (reconstrucciones)" else empty end ),
       ( $r.astra_turns[] | select(.estado != "done") | "turno de Astra \(.fase) a\(.intento) \(.tipo): \(.estado)\(if .nota then " — " + .nota else "" end)" ),
-      ( ($r.anomalies // [])[] | "lectura fuera de alcance (\(.asiento), \(.fase) a\(.intento)): \(.rutas // [.comando] | join(" · "))" )
+      ( ($r.anomalies // [])[] | select((.tipo // "lectura-fuera-de-alcance") == "lectura-fuera-de-alcance")
+        | "lectura fuera de alcance (\(.asiento), \(.fase) a\(.intento)): \(.rutas // [.comando] | join(" · "))" ),
+      ( $r.captures[] | select(.captura == "capturado" and .esfuerzo == "no verificado")
+        | "esfuerzo de Fable no verificado (el transcript no trae effort): \(.fase) a\(.intento) \(.tipo)" ),
+      ( $r.captures[] | select(.captura == "capturado" and .agente == "no verificado")
+        | "tipo de agente de Fable no verificado (el transcript no trae attributionAgent): \(.fase) a\(.intento) \(.tipo)" ),
+      ( ($r.anomalies // [])[] | select(.tipo == "esfuerzo-astra-no-verificado")
+        | "esfuerzo de Astra no verificado (sin meta.json): \(.fase) a\(.intento) — \(.target) t\(.turno)" ),
+      ( if $lider != null and $lider.medido and $lider.fuera_de_nivel.total > 0
+        then "líder fuera del nivel del perfil durante el debate: \($lider.fuera_de_nivel.por_esfuerzo | effcount) de \($lider.debate.total) mensajes"
+        else empty end )
     ];
 '
 
 write_metadata() {
-  # write_metadata <last-complete-round> <consensus-json-or-empty>
-  local n="$1" cj="$2" tmp uf metas
+  # write_metadata <last-complete-round> <consensus-json-or-empty> — composes
+  # metadatos.md from the leader's snapshot (RUN_DIR/lider-esfuerzo.json),
+  # written atomically in the same call.
+  local n="$1" cj="$2" tmp uf metas lider perfil
   uf="$(usage_facts_json)"
   metas="$(astra_metas_json)"
+  perfil="$(profile_json)"
+  tmp="$(mktemp "$RUN_DIR/.lider-esfuerzo.XXXXXX")" || die "cannot create a temp file in $RUN_DIR" 65
+  leader_effort_json "$n" >"$tmp" 2>/dev/null || true
+  jq -e 'type == "object"' "$tmp" >/dev/null 2>&1 || jq -cn '{medido: false, motivo: "medición fallida"}' >"$tmp"
+  write_atomic "$RUN_DIR/lider-esfuerzo.json" "$tmp"
+  lider="$(jq -c '.' "$RUN_DIR/lider-esfuerzo.json")"
   tmp="$(mktemp "$DOC_DIR/.metadatos.XXXXXX")" || die "cannot create a temp file in $DOC_DIR" 65
-  q -r --argjson metas "$metas" --argjson u "$uf" --argjson cj "${cj:-null}" --argjson n "$n" "$METADATA_JQ"'
+  q -r --argjson metas "$metas" --argjson u "$uf" --argjson cj "${cj:-null}" --argjson n "$n" \
+    --argjson lider "$lider" --argjson perfil "$perfil" "$METADATA_JQ"'
     def kv: to_entries | map("\(.key)=\(.value)") | join(" ");
     . as $r
     | "# Metadatos del consejo \($r.run_id)",
       "",
       "- Creado: \($r.created) · modo: \($r.mode) · tope de rondas: \($r.max_rounds) · rondas completas: \($n)",
+      "- Perfil: \(if $perfil == null then "sin elegir" elif $perfil.implicito then "\($perfil.nombre_visible) (\($perfil.esfuerzo)) — implícito, run anterior a los perfiles" else "\($perfil.nombre_visible) (\($perfil.esfuerzo): líder, Fable y Astra)" end)",
       "- Estado: \(if $cj == null then "sin ninguna ronda completa" elif $cj.consensus then "CONSENSO en la ronda \($cj.round)" else "SIN_CONSENSO tras la ronda \($cj.round)" end)",
       "",
       "## Letras (reveladas al final)",
       "",
       "| Letra | Asiento | Modelo / effort | Evidencia |",
       "| --- | --- | --- | --- |",
-      ( seat_facts($metas)[]
+      ( seat_facts($metas; $lider; $perfil)[]
         | if .asiento == "lider" then
-            "| \(.letra) | líder | \(.modelos[0]) / max | autodeclarado por la sesión y confirmado por el usuario en el gate del brief (no medido) |"
+            "| \(.letra) | líder | \(.modelos[0]) / \(.effort // "sin perfil") | \(leader_evidence($lider)) |"
           elif .asiento == "astra" then
             "| \(.letra) | Astra (Codex) | \(if (.modelos | length) > 0 then (.modelos | join(", ")) else "sin turnos con meta.json" end) | meta.json de cada turno (\(.evidencia | join(", "))) |"
           else
-            "| \(.letra) | Fable (Claude) | \(if (.modelos | length) > 0 then (.modelos | join(", ")) else "no verificado" end) / frontmatter | modelos de cada captura del transcript\(if .transcrito then "; hay capturas transcritas a mano (modelo no verificado)" else "" end) |"
+            "| \(.letra) | Fable (Claude) | \(if (.modelos | length) > 0 then (.modelos | join(", ")) else "no verificado" end) / \(if (.esfuerzos | length) > 0 then (.esfuerzos | join(", ")) else "no verificado" end) | modelos y esfuerzos de cada captura del transcript\(if (.agentes | length) > 0 then " (agente: \(.agentes | join(", ")))" else "" end)\(if .transcrito then "; hay capturas transcritas a mano (modelo no verificado)" else "" end) |"
           end ),
       "",
       "## Turnos de Astra",
@@ -2210,7 +2777,7 @@ write_metadata() {
       "",
       "## Anomalías",
       "",
-      ( anomaly_list | if length == 0 then "- ninguna" else .[] | "- \(.)" end ),
+      ( anomaly_list($lider) | if length == 0 then "- ninguna" else .[] | "- \(.)" end ),
       "",
       "## Tokens",
       "",
@@ -2262,12 +2829,14 @@ report_docs() {
   } | LC_ALL=C sort
 }
 
-# report_digest <dir> — the fingerprint of the documents report embeds: the
-# sha256 of the LC_ALL=C-sorted lines `<relative path>\t<sha256 of the file>\n`
-# of report_docs <dir>. report computes it on its snapshot and writes it into
-# informe.html; status recomputes it on the live files. Content, never mtime.
+# report_digest <dir> [<leader-snapshot>] — the fingerprint of the documents
+# report embeds: the sha256 of the LC_ALL=C-sorted lines `<relative path>\t<sha256
+# of the file>\n` of report_docs <dir>, plus a line `lider-esfuerzo.json\t<sha256>`
+# when the leader's effort snapshot exists. report computes it on its snapshot
+# and writes it into informe.html; status recomputes it on the live files.
+# Content, never mtime.
 report_digest() {
-  local d="$1" rels raw rel sha out="" rc=0
+  local d="$1" lider="${2:-}" rels raw rel sha out="" rc=0
   rels="$(mktemp "$RUN_DIR/.digest-docs.XXXXXX")" || return 1
   raw="$(mktemp "$RUN_DIR/.digest.XXXXXX")" || { rm -f "$rels"; return 1; }
   report_docs "$d" >"$rels" || rc=1
@@ -2277,6 +2846,13 @@ report_digest() {
       sha="$(file_sha256 "$d/$rel")" || { rc=1; break; }
       printf '%s\t%s\n' "$rel" "$sha" >>"$raw"
     done <"$rels"
+  fi
+  if [ "$rc" -eq 0 ] && [ -n "$lider" ] && [ -f "$lider" ]; then
+    if sha="$(file_sha256 "$lider")"; then
+      printf 'lider-esfuerzo.json\t%s\n' "$sha" >>"$raw"
+    else
+      rc=1
+    fi
   fi
   if [ "$rc" -eq 0 ]; then
     if LC_ALL=C sort "$raw" >"$rels"; then
@@ -2297,7 +2873,7 @@ report_fresh() {
   want="$(LC_ALL=C sed -n 's/^<!-- tandem-council-digest: \([0-9a-f]\{64\}\) -->$/\1/p' "$DOC_DIR/informe.html" 2>/dev/null)" \
     || return 1
   case "$want" in '' | *"$NL"*) return 1 ;; esac
-  have="$(report_digest "$DOC_DIR")" || return 1
+  have="$(report_digest "$DOC_DIR" "$RUN_DIR/lider-esfuerzo.json")" || return 1
   [ "$want" = "$have" ]
 }
 
@@ -2376,6 +2952,25 @@ cmd_status() {
     write_metadata "$n" "$cj"
   fi
   lock_release
+
+  # The frozen profile and the subagent_type of Fable, for a recovery after a
+  # compaction; and whether THIS environment can still run it (informative:
+  # it never changes STATUS: nor the exit code — the skill stops on a `no`).
+  run_profile
+  if [ -n "$RUN_PROFILE" ]; then
+    printf 'PERFIL: %s (%s)%s\n' "$RUN_PROFILE" "$RUN_LEVEL" \
+      "$( [ "$RUN_PROFILE_IMPLICIT" -eq 1 ] && printf ' — implícito (run anterior a los perfiles)')"
+    printf 'FABLE_AGENT: %s\n' "$RUN_AGENT"
+    if profile_env_check "$RUN_LEVEL" "$(q -r '.mode')" astra; then
+      printf 'PERFIL_VIABLE: sí\n'
+    else
+      printf 'PERFIL_VIABLE: no — %s\n' "$(causes_inline)"
+    fi
+  else
+    printf 'PERFIL: sin elegir (council.sh profile %s exploratorio|estandar|critico)\n' "$RUN_ID"
+    printf 'FABLE_AGENT: ninguno (sin perfil)\n'
+    printf 'PERFIL_VIABLE: sin perfil\n'
+  fi
 
   if [ -n "$cj" ] && [ "$(printf '%s' "$cj" | jq -r '.consensus')" = "true" ]; then
     printf 'STATUS: CONSENSO\n'
@@ -2456,6 +3051,18 @@ cmd_report() {
   registro_json >"$work/registro.json"
   usage_facts_json >"$work/usage.json"
   astra_metas_json >"$work/metas.json"
+  profile_json >"$work/perfil.json"
+  # The leader's effort: the snapshot status --metadata wrote, read ONCE —
+  # report never scans a transcript itself.
+  if [ -f "$RUN_DIR/lider-esfuerzo.json" ]; then
+    cp "$RUN_DIR/lider-esfuerzo.json" "$REPORT_DIR/lider-esfuerzo.json" \
+      || die "cannot copy $RUN_DIR/lider-esfuerzo.json into the report snapshot" 65
+  fi
+  if [ -f "$REPORT_DIR/lider-esfuerzo.json" ] && jq -e 'type == "object"' "$REPORT_DIR/lider-esfuerzo.json" >/dev/null 2>&1; then
+    jq -c '.' "$REPORT_DIR/lider-esfuerzo.json" >"$work/lider.json"
+  else
+    jq -cn '{medido: false, motivo: "sin instantánea (status --metadata)"}' >"$work/lider.json"
+  fi
   an=0
   afile=""
   for f in "$snap"/auditoria-v*.md; do
@@ -2493,13 +3100,14 @@ cmd_report() {
   else
     printf '{}' >"$work/docs.json"
   fi
-  digest="$(report_digest "$snap")" || die "cannot fingerprint the documents (no shasum/sha256sum?)" 65
+  digest="$(report_digest "$snap" "$REPORT_DIR/lider-esfuerzo.json")" || die "cannot fingerprint the documents (no shasum/sha256sum?)" 65
 
   # The payload: no `<` byte survives, so no text of a seat can close the
   # <script> that holds it, nor open a comment.
   q -j --slurpfile docs "$work/docs.json" --slurpfile parser "$work/parser.json" \
     --slurpfile reg "$work/registro.json" --slurpfile usage "$work/usage.json" \
     --slurpfile metas "$work/metas.json" --slurpfile sources "$work/sources.json" \
+    --slurpfile lider "$work/lider.json" --slurpfile perfil "$work/perfil.json" \
     --argjson cj "$cj" --argjson n "$n" --argjson identical "$identical" \
     --arg r1 "$r1" --arg r2 "$r2" --arg generated "$(now_utc)" "$COUNCIL_JQ$METADATA_JQ"'
     . as $r
@@ -2510,7 +3118,7 @@ cmd_report() {
     | {schema: 1,
        generated: $generated,
        run: {run_id: $r.run_id, created: $r.created, mode: $r.mode, max_rounds: $r.max_rounds,
-             letters: $r.letters, leader_model: ($r.leader_model // null)},
+             letters: $r.letters, leader_model: ($r.leader_model // null), perfil: $perfil[0]},
        docs: $docs[0],
        facts: {
          objections: ([ ($d | objections)[] | . + {detail: detail_of($d)} ] | sort_by(.author, .n)),
@@ -2523,12 +3131,12 @@ cmd_report() {
                     identical: $identical,
                     consensus: $status.consensus},
          sources: $sources[0],
-         seats: seat_facts($metas[0]),
+         seats: seat_facts($metas[0]; $lider[0]; $perfil[0]),
          tokens: $usage[0],
          astra_turns: [ $metas[0][] | {fase, intento, tipo, target, estado, turno,
                           recuperado: (.recuperado // false), nota: (.nota // null),
                           inicio: (.inicio // null), fin: (.fin // null), exit: (.exit // null), meta} ],
-         anomalies: anomaly_list}}
+         anomalies: anomaly_list($lider[0])}}
     | tojson | split("<") | join("\\u003c")' >"$work/payload.json" || die "could not compute the facts of the report" 65
 
   # Compose next to the destination, then rename into place.
@@ -2561,6 +3169,7 @@ council_env_validate
 case "$SUBCMD" in
   preflight) cmd_preflight "$@" ;;
   init) cmd_init "$@" ;;
+  profile) cmd_profile "$@" ;;
   seal) cmd_seal "$@" ;;
   record-agent) cmd_record_agent "$@" ;;
   astra) cmd_astra "$@" ;;

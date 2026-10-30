@@ -12,7 +12,9 @@
 # inside, anything else as text), renders the Markdown subset the seats write,
 # reads the Spanish dates of the report's tables, and words the provenance of
 # the strategy by the status (A3b: «aprobada» only with consensus AND an exact
-# copy; a copy that differs is an integrity warning).
+# copy; a copy that differs is an integrity warning), and shows the effort
+# profile (FACTS.run.perfil) and the measured level of each seat with the very
+# words and counts of metadatos.md (A7 of the effort profiles).
 # shellcheck source=lib.sh
 . "$TESTS_DIR/lib.sh"
 
@@ -70,7 +72,8 @@ function check(name, fn) {
 }
 check('the pure block defines TandemReport by itself', () => {
   assert.ok(T, 'TandemReport is not defined');
-  for (const k of ['esc', 'inline', 'md', 'tables', 'sections', 'parseFecha', 'niceScale', 'strategyNote', 'tableFits', 'headsFit', 'fitsShape', 'dispMatches']) {
+  for (const k of ['esc', 'inline', 'md', 'tables', 'sections', 'parseFecha', 'niceScale', 'strategyNote', 'tableFits', 'headsFit', 'fitsShape', 'dispMatches',
+    'profileText', 'effCount', 'leaderEffortText', 'seatEffortText']) {
     assert.strictEqual(typeof T[k], 'function', k);
   }
   assert.strictEqual(typeof ctx.document, 'undefined');
@@ -257,6 +260,22 @@ check('the disposition filter: OTRA selects what is outside the known set', () =
   assert.ok(!T.dispMatches(['OTRA'], 'ACEPTADA', K), 'a known disposition is not OTRA');
   assert.ok(T.dispMatches(['ACEPTADA'], 'ACEPTADA', K));
   assert.ok(!T.dispMatches(['ACEPTADA'], '', K));
+});
+
+check('the effort profile and the measured levels, in the words of metadatos.md', () => {
+  assert.strictEqual(T.profileText({ nombre: 'estandar', nombre_visible: 'estándar', esfuerzo: 'xhigh', implicito: false }), 'Perfil estándar · xhigh');
+  assert.strictEqual(T.profileText({ nombre: 'critico', nombre_visible: 'crítico', esfuerzo: 'max', implicito: true }), 'Perfil crítico · max (implícito)');
+  assert.strictEqual(T.profileText(null), 'Perfil sin elegir');
+  assert.strictEqual(T.effCount({ xhigh: 1, high: 2, max: 1 }), 'high ×2, max ×1, xhigh ×1');
+  const m = { medido: true, intake: { total: 2, por_esfuerzo: { max: 2 } }, debate: { total: 3, por_esfuerzo: { xhigh: 1, high: 2 } } };
+  assert.strictEqual(T.leaderEffortText(m), 'medido (deduplicado por message.id) — debate: high ×2, xhigh ×1 · intake: max ×2');
+  assert.strictEqual(T.leaderEffortText({ medido: true, intake: { total: 0 }, debate: { total: 0 } }),
+    'medido (deduplicado por message.id) — debate: sin mensajes · intake: sin mensajes');
+  assert.strictEqual(T.leaderEffortText({ medido: false }), 'no medido');
+  assert.strictEqual(T.leaderEffortText(undefined), 'no medido');
+  assert.strictEqual(T.seatEffortText({ esfuerzos: ['xhigh'] }), 'xhigh');
+  assert.strictEqual(T.seatEffortText({ esfuerzos: [] }), 'no verificado');
+  assert.strictEqual(T.esc(T.profileText({ nombre: '<b>', esfuerzo: 'x' })), 'Perfil &lt;b&gt; · x');
 });
 
 if (failures) { console.error(failures + ' check(s) failed'); process.exit(1); }

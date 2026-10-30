@@ -1,6 +1,6 @@
 ---
 name: council-fable
-description: Read-only Claude seat (Fable 5.1, max effort) of the tandem:council adversarial panel, with web search for sourced figures. Dispatched only by the council skill, which names a phase file prepared by scripts/council.sh; it answers that file and nothing else.
+description: Read-only Claude seat (Fable 5.1, max effort - the critico profile) of the tandem:council adversarial panel, with web search for sourced figures. Dispatched only by the council skill, which names a phase file prepared by scripts/council.sh; it answers that file and nothing else.
 tools: Read, Grep, Glob, WebSearch, WebFetch
 model: claude-fable-5-1
 effort: max

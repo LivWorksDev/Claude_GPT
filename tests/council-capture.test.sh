@@ -14,6 +14,14 @@
 # the cursor intact; a dated pin is accepted; no answer is a 1; --manual is the
 # visible degradation; a Read under the run's directories is an anomaly that
 # never blocks; and a capture beyond the phase's cap is a 65.
+#
+# The effort and the agent type (A5 of the plan): every assistant line of a
+# subagent carries `effort` and `attributionAgent`. A THIRD real transcript (a
+# subagent at xhigh under a session at medium, launch and SendMessage
+# continuation) is captured in a run at estandar with both verified; another
+# effort or another agent type is a 65 with nothing captured; the older
+# fixtures lost both fields to the old sanitizer, so they prove the absent
+# branch: captured, «no verificado», and an anomaly in metadatos.md.
 # shellcheck source=lib.sh
 . "$TESTS_DIR/lib.sh"
 
@@ -39,6 +47,8 @@ capture_run() {
   assert_rc 0 "init $RID"
   jq '.letters = {A: "lider", B: "fable", C: "astra"}' "$RJ" >"$RJ.tmp" && mv "$RJ.tmp" "$RJ"
   printf '# Brief\n\nObjetivo: x\n' >"$DOC/brief.md"
+  council profile "$RID" "${CAPTURE_PROFILE:-critico}"
+  assert_rc 0 "profile $RID"
   council seal "$RID" brief
   assert_rc 0 "seal brief $RID"
   printf 'Propuesta sellada del líder\nENTREGA: PROPUESTA\n' >"$RD/sealed/propose.md"
@@ -85,8 +95,14 @@ assert_json "$RJ" '.captures[0] | .fase == "propose" and .intento == 1 and .tipo
 # In this real capture none of the 7 does, so its usage is a lower bound —
 # counted in run.json and stated in metadatos.md (real canary, 2026-10-18).
 assert_json "$RJ" '.captures[0] | .mensajes == 7 and .sin_usage_definitivo == 7 and .uso_completo == false'
+# This fixture carries neither `effort` nor `attributionAgent`: captured all
+# the same, marked «no verificado», and shown as an anomaly.
+assert_json "$RJ" '.captures[0] | .esfuerzo == "no verificado" and .esfuerzos == []
+  and .agente == "no verificado" and .agentes == []'
 council status "$RID" --metadata
 assert_file_contains "$DOC/metadatos.md" "COTA INFERIOR: 7 de 7 mensajes del transcript sin usage definitivo (su última línea no trae stop_reason)"
+assert_file_contains "$DOC/metadatos.md" "- esfuerzo de Fable no verificado (el transcript no trae effort): propose a1 sustantivo"
+assert_file_contains "$DOC/metadatos.md" "- tipo de agente de Fable no verificado (el transcript no trae attributionAgent): propose a1 sustantivo"
 
 # --- a SECOND real transcript, with streaming usage ---------------------------
 # A long implementer run of the same host (tests/fixtures/council/README.md):
@@ -217,7 +233,8 @@ assert_no_file "$(reply_of)"
 printf 'Respuesta transcrita a mano por el líder\nENTREGA: PROPUESTA\n' >"$(reply_of)"
 council capture "$RID" propose --manual
 assert_rc 0 "manual transcription"
-assert_json "$RJ" '.captures[0] | .captura == "transcrito" and .modelo == "no verificado" and .uso == null'
+assert_json "$RJ" '.captures[0] | .captura == "transcrito" and .modelo == "no verificado" and .uso == null
+  and .esfuerzo == "no verificado" and .esfuerzos == [] and .agente == "no verificado" and .agentes == []'
 assert_no_file "$(usage_of)"
 assert_json "$RD/fable.cursor" '.line == 39'
 
@@ -249,4 +266,64 @@ assert_json "$RJ" '.anomalies | length == 1'
 assert_json "$RJ" ".anomalies[0] | .tipo == \"lectura-fuera-de-alcance\" and .asiento == \"fable\"
   and .herramienta == \"Read\" and .rutas == [\"$D6/1-propuestas/A.md\"]"
 
-note "council capture: real fixture byte-exact and deduplicated, foreign model 65, dated pin, synthetic continuation and text branch, --manual, read audit, caps"
+# =============================================================================
+# 7. the effort and the agent type, from the REAL transcript of a subagent at
+#    xhigh (tests/fixtures/council/README.md): launch, then the continuation
+# =============================================================================
+EFX="$FX/subagent-transcript-effort.jsonl"
+assert_file "$EFX"
+assert_eq "21" "$(LC_ALL=C wc -l <"$EFX" | tr -d ' ')" "lines of the effort fixture"
+sed -n '1,17p' "$EFX" >"$SANDBOX/effort-launch.jsonl"
+CAPTURE_PROFILE=estandar capture_run 2026-10-30-effort "$SANDBOX/effort-launch.jsonl"
+assert_json "$RJ" '.perfil.agente == "tandem:council-fable-xhigh"'
+council capture "$RID" propose
+assert_rc 0 "capture of the xhigh launch in an estandar run"
+assert_eq "Respuesta del lanzamiento (diagnóstico saneado)" "$(cat "$(reply_of)")" "the launch's text answer"
+assert_json "$RJ" '.captures[0] | .esfuerzo == "verificado" and .esfuerzos == ["xhigh"]
+  and .agente == "verificado" and .agentes == ["tandem:council-fable-xhigh"] and .modelos == ["claude-fable-5-1"]'
+# The continuation by SendMessage appends to the same file: still xhigh.
+council stage "$RID" propose B --reminder
+assert_rc 0 "stage the reminder"
+sed -n '18,21p' "$EFX" >>"$TR"
+council capture "$RID" propose --reminder
+assert_rc 0 "capture of the xhigh continuation"
+assert_eq "Respuesta de la continuación (diagnóstico saneado)" "$(cat "$(reply_of .reminder)")" "the continuation's text answer"
+assert_json "$RJ" '.captures[1] | .tipo == "recordatorio" and .desde == 18 and .hasta == 21
+  and .esfuerzo == "verificado" and .esfuerzos == ["xhigh"] and .agentes == ["tandem:council-fable-xhigh"]'
+council status "$RID" --metadata
+assert_file_contains "$DOC/metadatos.md" "| claude-fable-5-1 / xhigh | modelos y esfuerzos de cada captura del transcript (agente: tandem:council-fable-xhigh) |"
+assert_not_contains "$DOC/metadatos.md" "no verificado"
+
+# effort: max in an estandar run → 65, nothing captured, the cursor intact.
+jq -c 'if .type == "assistant" then .effort = "max" | .perTurnEffort = "max" else . end' "$SANDBOX/effort-launch.jsonl" >"$SANDBOX/effort-max.jsonl"
+CAPTURE_PROFILE=estandar capture_run 2026-10-30-effort-max "$SANDBOX/effort-max.jsonl"
+cp "$RD/fable.cursor" "$SANDBOX/cursor.before"
+council capture "$RID" propose
+assert_rc 65 "a line at max in an estandar run"
+assert_file_contains "$ERR" 'ran at effort ["max"] instead of the profile'"'"'s level xhigh (estandar)'
+assert_file_contains "$ERR" "otro esfuerzo"
+assert_no_file "$(reply_of)"
+assert_no_file "$(usage_of)"
+cmp -s "$SANDBOX/cursor.before" "$RD/fable.cursor" || fail "the cursor moved on another effort"
+assert_json "$RJ" '.captures | length == 0'
+
+# attributionAgent: the max agent in an estandar run → 65.
+jq -c 'if .type == "assistant" then .attributionAgent = "tandem:council-fable" else . end' "$SANDBOX/effort-launch.jsonl" >"$SANDBOX/effort-agent.jsonl"
+CAPTURE_PROFILE=estandar capture_run 2026-10-30-effort-agent "$SANDBOX/effort-agent.jsonl"
+council capture "$RID" propose
+assert_rc 65 "another agent type"
+assert_file_contains "$ERR" 'agent type ["tandem:council-fable"] instead of tandem:council-fable-xhigh'
+assert_file_contains "$ERR" "otro tipo de agente"
+assert_no_file "$(reply_of)"
+assert_json "$RJ" '.captures | length == 0'
+# …and so is the agent the real transcript names (the diagnostic's own type).
+jq -c 'if .type == "assistant" then .attributionAgent = "tandem:implementer-critical" else . end' "$SANDBOX/effort-launch.jsonl" >"$SANDBOX/effort-real-agent.agent.jsonl"
+council record-agent "$RID" agent-real-type "$SANDBOX/effort-real-agent.agent.jsonl"
+council capture "$RID" propose
+assert_rc 65 "the diagnostic's real agent type"
+# The same transcript at xhigh in a critico run: the level is the profile's.
+capture_run 2026-10-30-effort-critico "$SANDBOX/effort-launch.jsonl"
+council capture "$RID" propose
+assert_rc 65 "xhigh lines in a critico run"
+
+note "council capture: real fixture byte-exact and deduplicated, foreign model 65, dated pin, synthetic continuation and text branch, --manual, read audit, caps, effort and agent type verified (65 on a mismatch, «no verificado» when absent)"

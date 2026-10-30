@@ -1,23 +1,37 @@
 #!/usr/bin/env bash
-# agents/council-fable-offline.md is agents/council-fable.md with three
-# frontmatter fields changed — name, description, tools — and NOTHING else.
+# The six Fable seats of the council — one web/offline pair per effort profile
+# (council-fable{,-offline}.md at max for critico, council-fable-xhigh{,-offline}.md
+# for estandar, council-fable-high{,-offline}.md for exploratorio) — are ONE
+# agent: they may differ only in name, description, effort (the pair's level)
+# and tools (the exact web or offline set), and in NOTHING else.
 #
 # Same two invisible failure modes as the implementer twins. DRIFT: the seat's
 # rules live in the BODY (read-only, never read the run directory, never reveal
 # the model), so an offline twin that lost one of them would keep every
 # behavioural test green — the body is compared BYTE FOR BYTE. And the PIN: the
-# model and effort of the Claude seat live ONLY in these two frontmatters
-# (scripts/council.sh reads them from here), so both carry the full model id and
-# max, never an alias that could resolve to another generation. The tool sets
+# model and effort of the Claude seat live ONLY in these frontmatters
+# (scripts/council.sh reads them from here), so all six carry the same full
+# model id, never an alias that could resolve to another generation, and each
+# pair carries exactly its profile's level. The tool sets
 # are exact: the confidential mode is guaranteed by the offline allowlist, not
 # by an instruction, and no seat can write, run commands or spawn agents.
 # shellcheck source=lib.sh
 . "$TESTS_DIR/lib.sh"
 
-WEB="$REPO_ROOT/agents/council-fable.md"
-OFFLINE="$REPO_ROOT/agents/council-fable-offline.md"
-assert_file "$WEB"
-assert_file "$OFFLINE"
+AG="$REPO_ROOT/agents"
+# <base> <level> — the three pairs.
+PAIRS="council-fable:max council-fable-xhigh:xhigh council-fable-high:high"
+for pair in $PAIRS; do
+  assert_file "$AG/${pair%%:*}.md"
+  assert_file "$AG/${pair%%:*}-offline.md"
+done
+# No seventh seat: every council-fable*.md is one of the six.
+for f in "$AG"/council-fable*.md; do
+  b="${f##*/}"
+  b="${b%.md}"
+  b="${b%-offline}"
+  case " $PAIRS " in *" $b:"*) : ;; *) fail "an unexpected council agent: $f" ;; esac
+done
 
 # split_agent <file> <prefix> — <prefix>.fm (frontmatter lines) and
 # <prefix>.body (everything after the closing delimiter, the file's own bytes).
@@ -78,65 +92,72 @@ tool_set() {
     | LC_ALL=C grep -v '^$' | LC_ALL=C sort
 }
 
-split_agent "$WEB" "$SANDBOX/web"
-split_agent "$OFFLINE" "$SANDBOX/offline"
+WEB_TOOLS_WANT="$(printf 'Glob\nGrep\nRead\nWebFetch\nWebSearch\n' | LC_ALL=C sort)"
+OFF_TOOLS_WANT="$(printf 'Glob\nGrep\nRead\n' | LC_ALL=C sort)"
+split_agent "$AG/council-fable.md" "$SANDBOX/ref"
 
-# --- the body, byte for byte, and never vacuously ----------------------------
-if ! cmp -s "$SANDBOX/web.body" "$SANDBOX/offline.body"; then
-  diff "$SANDBOX/web.body" "$SANDBOX/offline.body" >&2 || true
-  fail "the offline seat's body is not byte-for-byte identical to the web seat's"
-fi
-assert_file_contains "$SANDBOX/web.body" "asiento de solo lectura"
-assert_file_contains "$SANDBOX/web.body" "Lee COMPLETO el fichero de fase que nombra la tarea y responde exactamente como pide."
-assert_file_contains "$SANDBOX/web.body" "Nunca escribes, creas, mueves ni borras ningún fichero."
-assert_file_contains "$SANDBOX/web.body" 'No leas nada bajo el directorio del run (`docs/council/<run-id>/`) ni bajo `.tandem/`, salvo el fichero de fase que nombra la tarea.'
-assert_file_contains "$SANDBOX/web.body" "no reveles qué modelo eres"
+for pair in $PAIRS; do
+  base="${pair%%:*}"
+  level="${pair#*:}"
+  for side in web offline; do
+    name="$base"
+    [ "$side" = "offline" ] && name="$base-offline"
+    f="$AG/$name.md"
+    p="$SANDBOX/$name"
+    split_agent "$f" "$p"
 
-# --- the frontmatter: only name, description and tools may differ ------------
-fm_keys "$SANDBOX/web.fm" >"$SANDBOX/keys.raw"
-fm_keys "$SANDBOX/offline.fm" >>"$SANDBOX/keys.raw"
-LC_ALL=C sort -u "$SANDBOX/keys.raw" >"$SANDBOX/keys"
-while IFS= read -r key; do
-  [ -n "$key" ] || continue
-  whas=1
-  ohas=1
-  wv="$(fm_get "$SANDBOX/web.fm" "$key")" || whas=0
-  ov="$(fm_get "$SANDBOX/offline.fm" "$key")" || ohas=0
-  if [ "$whas" = "$ohas" ] && [ "$wv" = "$ov" ]; then continue; fi
-  case "$key" in
-    name | description | tools) : ;;
-    *) fail "frontmatter key [$key] differs (web=[$wv] offline=[$ov]) — only name, description and tools may differ" ;;
-  esac
-done <"$SANDBOX/keys"
-
-# --- the identifiers the skill dispatches -------------------------------------
-assert_eq "council-fable" "$(fm_get "$SANDBOX/web.fm" name)" "council-fable.md name"
-assert_eq "council-fable-offline" "$(fm_get "$SANDBOX/offline.fm" name)" "council-fable-offline.md name"
-
-# --- the pin: a FULL model id at max, identical in both -----------------------
-for side in web offline; do
-  assert_eq "claude-fable-5-1" "$(fm_get "$SANDBOX/$side.fm" model)" "$side seat model"
-  assert_eq "max" "$(fm_get "$SANDBOX/$side.fm" effort)" "$side seat effort"
-  assert_eq "50" "$(fm_get "$SANDBOX/$side.fm" maxTurns)" "$side seat maxTurns"
-done
-
-# --- the exact tool sets ------------------------------------------------------
-WEB_TOOLS="$(fm_get "$SANDBOX/web.fm" tools)" || fail "council-fable.md declares no tools"
-OFF_TOOLS="$(fm_get "$SANDBOX/offline.fm" tools)" || fail "council-fable-offline.md declares no tools"
-assert_eq "$(printf 'Glob\nGrep\nRead\nWebFetch\nWebSearch\n' | LC_ALL=C sort)" "$(tool_set "$WEB_TOOLS")" \
-  "the web seat's tool set"
-assert_eq "$(printf 'Glob\nGrep\nRead\n' | LC_ALL=C sort)" "$(tool_set "$OFF_TOOLS")" \
-  "the offline seat's tool set"
-for tools in "$WEB_TOOLS" "$OFF_TOOLS"; do
-  for forbidden in Bash Edit Write Agent Task NotebookEdit; do
-    if tool_set "$tools" | LC_ALL=C grep -qx "$forbidden"; then
-      fail "a council seat may never carry the $forbidden tool (tools: $tools)"
+    # --- the body, byte for byte, and never vacuously ------------------------
+    if ! cmp -s "$SANDBOX/ref.body" "$p.body"; then
+      diff "$SANDBOX/ref.body" "$p.body" >&2 || true
+      fail "$name.md: its body is not byte-for-byte identical to council-fable.md's"
     fi
+
+    # --- the frontmatter: only name, description, effort and tools differ ----
+    fm_keys "$SANDBOX/ref.fm" >"$SANDBOX/keys.raw"
+    fm_keys "$p.fm" >>"$SANDBOX/keys.raw"
+    LC_ALL=C sort -u "$SANDBOX/keys.raw" >"$SANDBOX/keys"
+    while IFS= read -r key; do
+      [ -n "$key" ] || continue
+      rhas=1
+      phas=1
+      rv="$(fm_get "$SANDBOX/ref.fm" "$key")" || rhas=0
+      pv="$(fm_get "$p.fm" "$key")" || phas=0
+      if [ "$rhas" = "$phas" ] && [ "$rv" = "$pv" ]; then continue; fi
+      case "$key" in
+        name | description | effort | tools) : ;;
+        *) fail "$name.md: frontmatter key [$key] differs (council-fable.md=[$rv] $name.md=[$pv]) — only name, description, effort and tools may differ" ;;
+      esac
+    done <"$SANDBOX/keys"
+
+    # --- the identifier the skill dispatches, the pin, the level -------------
+    assert_eq "$name" "$(fm_get "$p.fm" name)" "$name.md name"
+    assert_eq "claude-fable-5-1" "$(fm_get "$p.fm" model)" "$name.md model (the same full id in all six)"
+    assert_eq "$level" "$(fm_get "$p.fm" effort)" "$name.md effort (its pair's level)"
+    assert_eq "50" "$(fm_get "$p.fm" maxTurns)" "$name.md maxTurns"
+    assert_file_contains "$p.fm" "$level effort"
+
+    # --- the exact tool sets -------------------------------------------------
+    tools="$(fm_get "$p.fm" tools)" || fail "$name.md declares no tools"
+    if [ "$side" = "web" ]; then
+      assert_eq "$WEB_TOOLS_WANT" "$(tool_set "$tools")" "$name.md tool set (web)"
+      assert_not_contains "$p.fm" "no web tools"
+    else
+      assert_eq "$OFF_TOOLS_WANT" "$(tool_set "$tools")" "$name.md tool set (offline)"
+      assert_file_contains "$p.fm" "no web tools"
+    fi
+    for forbidden in Bash Edit Write Agent Task NotebookEdit; do
+      if tool_set "$tools" | LC_ALL=C grep -qx "$forbidden"; then
+        fail "a council seat may never carry the $forbidden tool ($name.md tools: $tools)"
+      fi
+    done
   done
 done
 
-# The descriptions are permitted to differ, and the offline one says why.
-assert_file_contains "$SANDBOX/offline.fm" "no web tools"
-assert_not_contains "$SANDBOX/web.fm" "no web tools"
+# The body says what a seat is (never vacuously identical).
+assert_file_contains "$SANDBOX/ref.body" "asiento de solo lectura"
+assert_file_contains "$SANDBOX/ref.body" "Lee COMPLETO el fichero de fase que nombra la tarea y responde exactamente como pide."
+assert_file_contains "$SANDBOX/ref.body" "Nunca escribes, creas, mueves ni borras ningún fichero."
+assert_file_contains "$SANDBOX/ref.body" 'No leas nada bajo el directorio del run (`docs/council/<run-id>/`) ni bajo `.tandem/`, salvo el fichero de fase que nombra la tarea.'
+assert_file_contains "$SANDBOX/ref.body" "no reveles qué modelo eres"
 
-note "agents/council-fable{,-offline}.md — bodies identical, pin claude-fable-5-1/max, exact tool sets"
+note "agents/council-fable{,-xhigh,-high}{,-offline}.md — six bodies identical, pin claude-fable-5-1, levels max/xhigh/high, exact tool sets"

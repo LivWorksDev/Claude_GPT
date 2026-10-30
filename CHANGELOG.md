@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.38.0 — 2026-10-30
+
+- **Perfiles de esfuerzo del consejo, elegidos por el usuario.** `/tandem:council` deja de
+  exigir *max* a todo:
+  - Tres perfiles fijan **un solo nivel para los tres asientos** (líder, Fable y Astra):
+    `exploratorio` (high), `estandar` (xhigh) y `critico` (max).
+  - Fable y Astra van siempre al mismo nivel, con suelo en `high`.
+  - Tras la entrevista, la skill recomienda un perfil con una rúbrica fija (irreversibilidad y
+    coste de la decisión, necesidad de cifras con fuente, presupuesto) y **el usuario lo
+    elige** entre los viables con `council.sh profile <run-id> <perfil>`.
+  - `seal brief` exige un perfil y lo congela: no cambia durante el run ni en una
+    recuperación.
+  - Con `TANDEM_COUNCIL_INTAKE=auto`, el perfil es `TANDEM_COUNCIL_PROFILE` o, si no está
+    definida, `critico`.
+- **Un agente de Fable por nivel.** Hay cuatro agentes nuevos:
+  - `council-fable-xhigh` y `council-fable-high`;
+  - sus gemelos `-offline`.
+
+  Los seis tienen el cuerpo idéntico byte a byte y el mismo modelo. La pareja `max` conserva
+  su nombre, así los runs de 0.37 se recuperan igual (se tratan como `critico` implícito).
+  **Hace falta una sesión nueva** para que Claude Code registre los agentes nuevos.
+- **El preflight informa de perfiles viables** en vez de exigir *max*:
+  - Un `maxEffortLevel` descarta los perfiles por encima de su nivel.
+  - `CLAUDE_CODE_EFFORT_LEVEL` deja viable solo el perfil de su nivel.
+  - Solo falla si no queda ningún perfil viable.
+
+  El perfil congelado se vuelve a comprobar contra el entorno en cada `stage` y `astra`, antes
+  de reservar nada. `status` imprime `PERFIL:`, `FABLE_AGENT:` y `PERFIL_VIABLE:`.
+- **Medido, no solo declarado.**
+  - **Astra:** el `effort` del `meta.json` de cada turno (`publish` → 65 si no coincide).
+  - **Fable:** el `effort` y el `attributionAgent` de cada línea de su transcript (`capture` →
+    65 si no coinciden; si faltan, «no verificado» y anomalía visible). Se verificó con niveles
+    distintos (sesión `medium`, subagente `xhigh`, en el lanzamiento y en la continuación por
+    `SendMessage`) que el campo refleja el frontmatter del subagente.
+  - **Líder:** se mide en el transcript de la sesión, en dos ventanas cerradas: entrevista
+    (informativa) y debate (comparada con el perfil). Se guarda en una instantánea
+    (`lider-esfuerzo.json`) que `metadatos.md` e `informe.html` comparten. Nunca bloquea.
+- **Ruptura deliberada:** con `TANDEM_COUNCIL_EFFORT` definida, el preflight del consejo
+  falla, porque el perfil decide el esfuerzo de Astra. `ultra` deja de ser elegible en el
+  consejo. El doctor lo avisa y muestra los niveles de las tres parejas de Fable.
+
 ## 0.37.0 — 2026-10-19
 
 - **Informe visual e interactivo del consejo** (M40): `council.sh report <run-id>`, en el

@@ -61,14 +61,17 @@ resolve_role() {
       ;;
     council)
       # The Codex seat of tandem:council (scripts/council.sh is its only
-      # caller): Astra at max, read-only. A role of its OWN rather than `ask`
+      # caller): Astra read-only, at the level of the run's effort profile —
+      # council.sh astra exports TANDEM_COUNCIL_EFFORT with it on every
+      # substantive turn; the max below is only the fallback of a call made
+      # outside the council. A role of its OWN rather than `ask`
       # plus env overrides, because these pins are re-applied by THIS function
       # on every resume — a continuation launched without an override could
       # otherwise fall back to ask's xhigh and to the 540 s foreground watchdog.
-      # Its variables are its own too: TANDEM_REVIEW_* never reach it. `max`,
-      # not `ultra`: the catalog describes ultra as reasoning with automatic
-      # task delegation, outside tandem's control and accounting —
-      # TANDEM_COUNCIL_EFFORT=ultra remains an explicit choice.
+      # Its variables are its own too: TANDEM_REVIEW_* never reach it. Never
+      # `ultra`: the catalog describes ultra as reasoning with automatic task
+      # delegation, outside tandem's control and accounting — and a hand-set
+      # TANDEM_COUNCIL_EFFORT is a FAIL of the council preflight.
       CODEX_MODEL="${TANDEM_COUNCIL_MODEL:-$(tandem_default_model council)}"
       CODEX_EFFORT="${TANDEM_COUNCIL_EFFORT:-max}"
       CODEX_SANDBOX="read-only"

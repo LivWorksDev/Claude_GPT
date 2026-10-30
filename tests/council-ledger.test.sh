@@ -36,6 +36,8 @@ assert_rc 0 "init"
 rj_set '.letters = {A: "lider", B: "astra", C: "fable"}'
 mkdir -p "$DOC/1-propuestas" "$DOC/2-contrainterrogatorio" "$DOC/rondas"
 printf '# Brief\n\nObjetivo: medible\n' >"$DOC/brief.md"
+council profile "$RID" critico
+assert_rc 0 "profile"
 council seal "$RID" brief
 assert_rc 0 "seal brief"
 

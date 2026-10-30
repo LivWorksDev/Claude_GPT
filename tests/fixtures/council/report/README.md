@@ -15,6 +15,11 @@ ANTES del refactor de `write_metadata` que comparte sus hechos con `report`, y e
 que la salida siga siendo idéntica byte a byte. Si un cambio posterior altera `metadatos.md` a
 propósito, se regeneran a la vez que ese cambio y se dice en su commit.
 
+Los perfiles de esfuerzo los regeneraron cambiando SOLO las líneas que describe su plan: la
+línea `- Perfil: …` tras «Creado…», la fila del líder (`/ <nivel>` y su evidencia medida, aquí
+«no medido») y la de Fable (los esfuerzos medidos en lugar del literal «frontmatter»). El run
+sembrado lleva un `perfil` `critico` y capturas con `esfuerzo`/`agente`; el vacío, ninguno.
+
 Lo que siembra `doc/` a propósito:
 
 - `1-propuestas/B.md` lleva texto hostil (`</script><script>…`, `<!--`, `<img onerror>`,

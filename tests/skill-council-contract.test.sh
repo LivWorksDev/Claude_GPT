@@ -81,25 +81,27 @@ assert_file_contains "$FLAT" 'The intake never reads `TANDEM_AUTONOMOUS`'
 assert_eq "1" "$(LC_ALL=C grep -o 'TANDEM_AUTONOMOUS' "$SKILL" | wc -l | tr -d ' ')" \
   "TANDEM_AUTONOMOUS is named once, in the sentence that excludes it"
 assert_file_contains "$FLAT" 'With `TANDEM_COUNCIL_INTAKE=ask` — the default'
-assert_file_contains "$FLAT" "the user approves the brief AND confirms that this session runs on the leader model at max effort"
+assert_file_contains "$FLAT" "the user approves the brief AND confirms that this session runs on the leader model at the profile's level"
 
 # --- 4. the seal precedes the launch of the seats -----------------------------
 assert_file_contains "$FLAT" "seal it BEFORE launching the seats"
 [ "$(pos 'bash "$COUNCIL" seal <run-id> propose')" -lt "$(pos 'bash "$COUNCIL" astra <run-id> propose')" ] \
   || fail "seal propose must come before the first Astra launch"
-[ "$(pos 'bash "$COUNCIL" seal <run-id> propose')" -lt "$(pos 'subagent_type: tandem:council-fable')" ] \
+[ "$(pos 'bash "$COUNCIL" seal <run-id> propose')" -lt "$(pos 'subagent_type: <FABLE_AGENT>')" ] \
   || fail "seal propose must come before the Fable dispatch"
 [ "$(pos 'bash "$COUNCIL" seal <run-id> cross')" -lt "$(pos 'bash "$COUNCIL" astra <run-id> cross')" ] \
   || fail "seal cross must come before the Astra cross launch"
 
 # --- 5. the Fable dispatch: the agent type, never model nor effort ------------
-assert_file_contains "$FLAT" '`subagent_type: tandem:council-fable` (`tandem:council-fable-offline` in a run created with `--offline`)'
+assert_file_contains "$FLAT" '`subagent_type: <FABLE_AGENT>` — exactly the value `profile` (or `status`) printed, never one written by hand'
 assert_file_contains "$FLAT" 'with **no `model` and no `effort` parameter** in the call'
-assert_file_contains "$FLAT" "Neither \`model\` nor \`effort\` in the Agent call"
+assert_file_contains "$FLAT" "Neither \`model\` nor \`effort\` in the Agent call, its \`subagent_type\` is always the \`FABLE_AGENT\` that \`profile\` or \`status\` printed"
 assert_file_contains "$FLAT" '«Eres el asiento `<L>` del consejo `<run-id>`. Lee completo el fichero `<ruta absoluta>` y responde exactamente como pide.»'
 assert_file_contains "$FLAT" "every Fable turn names a prompt prepared by \`stage\`"
-assert_file "$REPO_ROOT/agents/council-fable.md"
-assert_file "$REPO_ROOT/agents/council-fable-offline.md"
+for a in council-fable council-fable-xhigh council-fable-high; do
+  assert_file "$REPO_ROOT/agents/$a.md"
+  assert_file "$REPO_ROOT/agents/$a-offline.md"
+done
 
 # --- 6. the barrier -----------------------------------------------------------
 assert_file_contains "$FLAT" "**Two hard synchronization barriers: the completion notification of the Astra Bash run, and Fable's final report — the \`SubagentHandback\` message (or the agent result) that carries its answer.**"
@@ -120,7 +122,7 @@ assert_file_contains "$FLAT" "Never commit and never push anything"
 if LC_ALL=C grep -Eq 'git (commit|push)' "$CODE"; then fail "a code block of the council skill commits or pushes"; fi
 
 # --- 9. capture 65 is FAILED --------------------------------------------------
-assert_file_contains "$FLAT" '**`capture` exits 65** (another model answered: a forced model, a wrong agent type or a silent model switch) → **FAILED** terminal, state preserved.'
+assert_file_contains "$FLAT" '**`capture` exits 65** (another model answered: a forced model, a wrong agent type or a silent model switch; or the transcript shows another effort or another agent type than the profile'"'"'s) → **FAILED** terminal, state preserved.'
 assert_file_contains "$FLAT" "\`capture\` 65, or a cap of «Failures, retries and the turn bound» → FAILED terminal with the state preserved."
 
 # --- 10. SendMessage is never a probe -----------------------------------------
@@ -133,8 +135,43 @@ assert_file_contains "$FLAT" 'never `codex-reset.sh` on a council target'
 assert_file_contains "$FLAT" 'opens the next generation of the target'
 
 # --- the bound the brief gate shows -------------------------------------------
-assert_file_contains "$FLAT" 'typical `2 × (2 + R)` max-effort seat turns (12 with R = 4); ceiling `5 × (2 + R)` max-effort turns'
+assert_file_contains "$FLAT" 'typical `2 × (2 + R)` seat turns at the profile'"'"'s level (12 with R = 4); ceiling `5 × (2 + R)` turns at the profile'"'"'s level'
 assert_file_contains "$FLAT" 'plus `2 + R` Astra reminders at `low` (30 + 6 with R = 4)'
+
+# --- A8 of the effort profiles: chosen by the user, frozen with the brief ------
+# The rubric, fixed, with the tie going up.
+assert_file_contains "$FLAT" '**The effort profile — after the interview, before the gate.** Recommend one with this fixed rubric:'
+assert_file_contains "$FLAT" '- `critico` (max): an irreversible or expensive decision (money, reputation, legal), or the user asks for the maximum depth.'
+assert_file_contains "$FLAT" '- `estandar` (xhigh): a relevant but reversible decision, or one that needs figures with checked sources.'
+assert_file_contains "$FLAT" '- `exploratorio` (high): testing an idea, a decision that is cheap to revert, or speed or budget come first.'
+assert_file_contains "$FLAT" '- On a tie, the higher one.'
+assert_file_contains "$FLAT" 'offering **only the viable profiles** the preflight printed, the recommended one first with «(Recommended)»'
+# The profile is recorded by council.sh, after the interview and before the seal.
+assert_file_contains "$CODE" 'CLAUDE_PROJECT_DIR="<project>" bash "$COUNCIL" profile <run-id> <perfil>'
+[ "$(pos 'The intake never reads')" -lt "$(pos 'bash "$COUNCIL" profile <run-id> <perfil>')" ] \
+  || fail "the profile must come after the interview"
+[ "$(pos 'bash "$COUNCIL" profile <run-id> <perfil>')" -lt "$(pos 'bash "$COUNCIL" seal <run-id> brief')" ] \
+  || fail "the profile must be recorded before the brief is sealed"
+# The leader confirms the profile's level at the gate; auto takes
+# TANDEM_COUNCIL_PROFILE or critico; FABLE_AGENT is the subagent_type.
+assert_file_contains "$FLAT" '(`/effort <level>` or the model selector; `max` is chosen per session only'
+assert_file_contains "$FLAT" 'The profile is `TANDEM_COUNCIL_PROFILE` when it is set, and `critico` otherwise, recorded with `profile` like above and stated under **Supuestos**.'
+assert_file_contains "$FLAT" 'keep the `FABLE_AGENT` value: it is the `subagent_type` of every Fable launch'
+assert_file_contains "$FLAT" 'It also prints `PERFIL:`, `FABLE_AGENT:` and `PERFIL_VIABLE:`: if `PERFIL_VIABLE: no — <causes>`, STOP'
+# The freeze, as a red line.
+assert_file_contains "$FLAT" '- The profile does not change once the brief is sealed: for another profile, a new run.'
+# Never «both at max» as a requirement, and no effort in the Agent call.
+if LC_ALL=C grep -iq 'both at max' "$SKILL"; then fail "the council skill still requires «both at max»"; fi
+assert_not_contains "$FLAT" 'max-effort'
+BODY="$SANDBOX/council.body"
+LC_ALL=C awk 'NR == 1 { next } f { print } /^---$/ { f = 1 }' "$SKILL" >"$BODY"
+if LC_ALL=C grep -Eq '(^|[^`])effort: *(low|medium|high|xhigh|max)' "$BODY"; then
+  LC_ALL=C grep -En 'effort: *(low|medium|high|xhigh|max)' "$BODY" >&2
+  fail "the body of the council skill passes an effort (the level lives in the agent's frontmatter)"
+fi
+if LC_ALL=C grep -Eq 'subagent_type: tandem:council' "$BODY"; then
+  fail "the council skill names a hand-written subagent_type instead of FABLE_AGENT"
+fi
 
 # --- the report links the approved text and never rewrites it -----------------
 assert_file_contains "$FLAT" 'the report summarises it and never rewrites or corrects it'

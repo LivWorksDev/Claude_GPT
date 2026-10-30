@@ -1,6 +1,6 @@
 ---
 name: council-fable-offline
-description: Read-only Claude seat (Fable 5.1, max effort) of the tandem:council adversarial panel in confidential mode - no web tools at all, guaranteed by the tool allowlist rather than by an instruction. Dispatched only by the council skill for runs initialised with --offline.
+description: Read-only Claude seat (Fable 5.1, max effort - the critico profile) of the tandem:council adversarial panel in confidential mode - no web tools at all, guaranteed by the tool allowlist rather than by an instruction. Dispatched only by the council skill for runs initialised with --offline.
 tools: Read, Grep, Glob
 model: claude-fable-5-1
 effort: max

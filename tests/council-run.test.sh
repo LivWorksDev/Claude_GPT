@@ -39,6 +39,8 @@ setup_run() {
   assert_rc 0 "init $RID"
   jq '.letters = {A: "lider", B: "astra", C: "fable"}' "$RJ" >"$RJ.tmp" && mv "$RJ.tmp" "$RJ"
   printf '# Brief\n\nObjetivo: medible «con comillas» y `código`\n' >"$DOC/brief.md"
+  council profile "$RID" critico
+  assert_rc 0 "profile $RID"
   council seal "$RID" brief
   assert_rc 0 "seal brief $RID"
   G1KEY="$(tkey "council-$RID-g1")"
@@ -463,4 +465,166 @@ assert_file_contains "$DOC/metadatos.md" "- reconstrucción: cross letra B (a2, 
 assert_file_contains "$DOC/metadatos.md" "- lectura fuera de alcance (astra, cross a2): cat $RD/sealed/cross.md"
 assert_no_file "$DOC/estrategia-final.md"
 
-note "council run: init letters, frozen brief, byte-exact stage with caps, astra start/resume/effort/caps, publish of the current attempt only, rebuild by generation"
+# =============================================================================
+# A3 — the effort profile: chosen before the seal, frozen with it, re-verified
+# before every turn; a run of 0.37 (sealed, no profile) is critico
+# =============================================================================
+RID=2026-10-30-perfil
+DOC="$CLAUDE_PROJECT_DIR/docs/council/$RID"
+RD="$SD/runs/$RID"
+RJ="$RD/run.json"
+council init "$RID"
+assert_rc 0 "init $RID"
+jq '.letters = {A: "lider", B: "astra", C: "fable"}' "$RJ" >"$RJ.tmp" && mv "$RJ.tmp" "$RJ"
+printf '# Brief\n\nObjetivo: perfiles\n' >"$DOC/brief.md"
+council seal "$RID" brief
+assert_rc 1 "seal brief without a profile"
+assert_file_contains "$ERR" "choose the effort profile first: council.sh profile $RID"
+assert_json "$RJ" '.seals == {}'
+council status "$RID"
+assert_file_contains "$OUT" "PERFIL: sin elegir"
+assert_file_contains "$OUT" "FABLE_AGENT: ninguno"
+council profile "$RID" turbo
+assert_rc 64 "an unknown profile"
+cp "$RJ" "$SANDBOX/perfil.before"
+run env CLAUDE_CODE_EFFORT_LEVEL=xhigh bash "$COUNCIL" profile "$RID" critico
+assert_rc 1 "a profile that is not viable here"
+assert_file_contains "$ERR" "CLAUDE_CODE_EFFORT_LEVEL='xhigh' overrides the profile's level max"
+cmp -s "$SANDBOX/perfil.before" "$RJ" || fail "a non-viable profile touched run.json"
+council profile "$RID" estandar
+assert_rc 0 "profile estandar"
+assert_eq "$(printf 'PERFIL: estandar (xhigh)\nFABLE_AGENT: tandem:council-fable-xhigh')" "$(cat "$OUT")" "profile prints PERFIL and FABLE_AGENT"
+assert_json "$RJ" '.perfil | .nombre == "estandar" and .esfuerzo == "xhigh" and .agente == "tandem:council-fable-xhigh"
+  and (.elegido | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$"))'
+cp "$RJ" "$SANDBOX/perfil.once"
+council profile "$RID" estandar
+assert_rc 0 "the same profile again"
+cmp -s "$SANDBOX/perfil.once" "$RJ" || fail "repeating the same profile is not idempotent"
+council profile "$RID" exploratorio
+assert_rc 0 "another profile before the seal"
+assert_json "$RJ" '.perfil | .nombre == "exploratorio" and .esfuerzo == "high" and .agente == "tandem:council-fable-high"'
+council profile "$RID" estandar
+assert_rc 0 "back to estandar"
+council status "$RID"
+assert_file_contains "$OUT" "PERFIL: estandar (xhigh)"
+assert_file_contains "$OUT" "FABLE_AGENT: tandem:council-fable-xhigh"
+assert_file_contains "$OUT" "PERFIL_VIABLE: sí"
+council seal "$RID" brief
+assert_rc 0 "seal brief with a profile"
+cp "$RJ" "$SANDBOX/perfil.sealed"
+council profile "$RID" critico
+assert_rc 65 "a profile after the seal"
+assert_file_contains "$ERR" "the profile is frozen with the brief"
+council profile "$RID" estandar
+assert_rc 65 "even the same profile after the seal"
+cmp -s "$SANDBOX/perfil.sealed" "$RJ" || fail "a refused profile touched run.json"
+
+# The agent follows the run's mode.
+run env TANDEM_COUNCIL_ROUNDS=1 bash "$COUNCIL" init 2026-10-30-perfil-off --offline
+assert_rc 0 "an offline run"
+council profile 2026-10-30-perfil-off estandar
+assert_rc 0 "profile estandar offline"
+assert_file_contains "$OUT" "FABLE_AGENT: tandem:council-fable-xhigh-offline"
+assert_json "$SD/runs/2026-10-30-perfil-off/run.json" '.perfil.agente == "tandem:council-fable-xhigh-offline"'
+
+# A run.json of 0.37: brief sealed, no profile → critico, implicit.
+RL=2026-10-30-heredado
+council init "$RL"
+assert_rc 0 "init the inherited run"
+printf '# Brief\n' >"$CLAUDE_PROJECT_DIR/docs/council/$RL/brief.md"
+jq --arg s "$(sha_of "$CLAUDE_PROJECT_DIR/docs/council/$RL/brief.md")" '.seals.brief = {sha256: $s, sealed: "2026-10-20T10:00:00Z"}' \
+  "$SD/runs/$RL/run.json" >"$SANDBOX/rl.tmp" && mv "$SANDBOX/rl.tmp" "$SD/runs/$RL/run.json"
+council status "$RL"
+assert_file_contains "$OUT" "PERFIL: critico (max) — implícito (run anterior a los perfiles)"
+assert_file_contains "$OUT" "FABLE_AGENT: tandem:council-fable"
+assert_not_contains "$OUT" "FABLE_AGENT: tandem:council-fable-"
+council status "$RL" --metadata
+assert_file_contains "$CLAUDE_PROJECT_DIR/docs/council/$RL/metadatos.md" "- Perfil: crítico (max) — implícito, run anterior a los perfiles"
+
+# --- a recovery in an environment the frozen profile cannot run in ------------
+seal_phase propose
+council stage "$RID" propose B
+assert_rc 0 "stage Astra's propose in a good environment"
+mkdir -p "$SANDBOX/caps"
+printf '{"maxEffortLevel":"high"}\n' >"$SANDBOX/caps/settings.json"
+N_BEFORE="$(stub_n)"
+for envset in "CLAUDE_CODE_EFFORT_LEVEL=high" "CLAUDE_CONFIG_DIR=$SANDBOX/caps" "TANDEM_COUNCIL_EFFORT=xhigh"; do
+  case "$envset" in
+    CLAUDE_CODE_*) cause="CLAUDE_CODE_EFFORT_LEVEL='high' overrides the profile's level xhigh" ;;
+    CLAUDE_CONFIG_DIR=*) cause="maxEffortLevel='high' in $SANDBOX/caps/settings.json caps the seats and the leader below xhigh" ;;
+    *) cause="TANDEM_COUNCIL_EFFORT='xhigh' is set" ;;
+  esac
+  cp "$RJ" "$SANDBOX/recover.before"
+  run env "$envset" bash "$COUNCIL" stage "$RID" propose C
+  assert_rc 1 "stage under [$envset]"
+  assert_file_contains "$ERR" "$cause"
+  assert_file_contains "$ERR" "the frozen profile estandar (xhigh) is not viable in this environment"
+  run env "$envset" bash "$COUNCIL" astra "$RID" propose
+  assert_rc 1 "astra under [$envset]"
+  assert_file_contains "$ERR" "$cause"
+  assert_file_contains "$ERR" "nothing was reserved"
+  cmp -s "$SANDBOX/recover.before" "$RJ" || fail "run.json changed under [$envset]"
+  assert_no_file "$DOC/prompts/propose-C.a1.md"
+  run env "$envset" bash "$COUNCIL" status "$RID"
+  assert_file_contains "$OUT" "PERFIL_VIABLE: no — $cause"
+  assert_file_contains "$OUT" "FABLE_AGENT: tandem:council-fable-xhigh"
+done
+assert_eq "$N_BEFORE" "$(stub_n)" "no turn spent in an incompatible environment"
+assert_json "$RJ" '.astra_turns == []'
+
+# =============================================================================
+# A4 — Astra at the profile's level: the wrapper's environment and argv, and
+# publish against the turn's meta.json
+# =============================================================================
+# A codex that records its environment, then is the stub.
+mkdir -p "$SANDBOX/envbin"
+cat >"$SANDBOX/envbin/codex" <<EOF
+#!/bin/bash
+if [ "\${1:-}" = "exec" ]; then
+  { printf 'TURN\n'; env | LC_ALL=C grep -E '^TANDEM_(COUNCIL_EFFORT|TURN_EFFORT)=' | LC_ALL=C sort; } >>"$SANDBOX/codex-env.log"
+fi
+exec "$SANDBOX/bin/codex" "\$@"
+EOF
+chmod +x "$SANDBOX/envbin/codex"
+GKEY="$(tkey "council-$RID-g1")"
+printf 'Propuesta de B sin su línea final\n' >"$SANDBOX/a4-prop.txt"
+run env PATH="$SANDBOX/envbin:$PATH" CODEX_STUB_REPLY_FILE="$SANDBOX/a4-prop.txt" bash "$COUNCIL" astra "$RID" propose
+assert_rc 0 "a substantive Astra turn at estandar"
+assert_eq "$(printf 'TURN\nTANDEM_COUNCIL_EFFORT=xhigh')" "$(cat "$SANDBOX/codex-env.log")" "the substantive turn's environment"
+assert_file_contains "$(last_argv)" "model_reasoning_effort=xhigh"
+assert_json "$SD/$GKEY.t1.meta.json" '.effort == "xhigh"'
+council stage "$RID" propose B --reminder
+assert_rc 0 "stage Astra's reminder"
+: >"$SANDBOX/codex-env.log"
+printf 'ENTREGA: PROPUESTA\n' >"$SANDBOX/a4-rem.txt"
+run env PATH="$SANDBOX/envbin:$PATH" CODEX_STUB_REPLY_FILE="$SANDBOX/a4-rem.txt" bash "$COUNCIL" astra "$RID" propose --reminder
+assert_rc 0 "the reminder at low"
+assert_eq "$(printf 'TURN\nTANDEM_TURN_EFFORT=low')" "$(cat "$SANDBOX/codex-env.log")" "the reminder's environment"
+assert_file_contains "$(last_argv)" "model_reasoning_effort=low"
+
+# Fable, captured from the REAL transcript of a subagent at xhigh (launch only).
+council stage "$RID" propose C
+assert_rc 0 "stage Fable's propose"
+sed -n '1,17p' "$FX/subagent-transcript-effort.jsonl" >"$SANDBOX/a4-agent.jsonl"
+council record-agent "$RID" agent-a4 "$SANDBOX/a4-agent.jsonl"
+council capture "$RID" propose
+assert_rc 0 "capture Fable at xhigh"
+
+# The turn's meta.json says another effort → 65, nothing published.
+cp "$SD/$GKEY.t1.meta.json" "$SANDBOX/t1.meta"
+jq -c '.effort = "max"' "$SANDBOX/t1.meta" >"$SD/$GKEY.t1.meta.json"
+council publish "$RID" propose
+assert_rc 65 "publish over an Astra turn at another effort"
+assert_file_contains "$ERR" "ran at effort 'max'"
+assert_file_contains "$ERR" "not the profile's level xhigh (estandar)"
+assert_no_file "$DOC/1-propuestas/B.md"
+# No meta.json at all → published, with the anomaly visible.
+rm -f "$SD/$GKEY.t1.meta.json"
+council publish "$RID" propose
+assert_rc 0 "publish without the turn's meta.json"
+assert_json "$RJ" '[.anomalies[] | select(.tipo == "esfuerzo-astra-no-verificado")] | length == 1 and .[0].fase == "propose" and .[0].turno == 1'
+council status "$RID" --metadata
+assert_file_contains "$DOC/metadatos.md" "- esfuerzo de Astra no verificado (sin meta.json): propose a1 — council-$RID-g1 t1"
+assert_file_contains "$DOC/metadatos.md" "- Perfil: estándar (xhigh: líder, Fable y Astra)"
+
+note "council run: init letters, frozen brief, byte-exact stage with caps, astra start/resume/effort/caps, publish of the current attempt only, rebuild by generation, effort profiles (choice, freeze, inheritance, recovery), Astra at the profile's level"
